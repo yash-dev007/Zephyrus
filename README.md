@@ -1,3 +1,5 @@
+<p align="center"><img alt="Zephyrus" src="docs/zephyrus-wordmark.png" width="420"></p>
+
 # Zephyrus
 
 Local-first AI workspace: chat with any OpenAI-compatible model, plus memory, personal-document RAG, deep research, email, calendar, tasks, notes, gallery, voice, and local model serving — all self-hosted behind one FastAPI app.
@@ -39,6 +41,8 @@ Key properties:
 | System | Backup/restore, vault, prefs, fonts, emoji proxy, workspace, shell | `routes/backup_routes.py`, `routes/vault_routes.py`, `routes/shell_routes.py` |
 
 Preview clips live in [`docs/`](docs): `chat.webm`, `research.webm`, `email-outlook.md`, `gallery.webm`, `notes.webm`, `compare.webm`, `document.webm`, plus `zephyrus.jpg`.
+
+![Zephyrus browser preview](docs/zephyrus-browser.jpg)
 
 ## Quickstart
 
