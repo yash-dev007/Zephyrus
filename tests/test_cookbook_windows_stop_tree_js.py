@@ -1,4 +1,4 @@
-﻿import shlex
+import shlex
 from pathlib import Path
 
 

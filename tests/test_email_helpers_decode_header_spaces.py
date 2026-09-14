@@ -1,4 +1,4 @@
-﻿"""routes.email_helpers._decode_header must not inject spaces between parts.
+"""routes.email_helpers._decode_header must not inject spaces between parts.
 
 email.header.decode_header returns plain-text runs WITH their surrounding
 whitespace (e.g. (b"Re: ", None)), so joining the parts with " " produced a

@@ -1,4 +1,4 @@
-﻿"""Windows support for Cookbook hardware-fit.
+"""Windows support for Cookbook hardware-fit.
 
 Zephyrus only supports llama.cpp on Windows (vLLM/SGLang are explicitly
 blocked). llama.cpp requires GGUF, so non-GGUF models — including AWQ/GPTQ/

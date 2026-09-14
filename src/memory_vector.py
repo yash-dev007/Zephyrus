@@ -1,4 +1,4 @@
-﻿"""
+"""
 memory_vector.py
 
 ChromaDB-backed vector store for memory entries.

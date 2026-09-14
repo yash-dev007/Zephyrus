@@ -1,4 +1,4 @@
-﻿"""internal_api_base() resolution + a guard that loopback call sites use it."""
+"""internal_api_base() resolution + a guard that loopback call sites use it."""
 import importlib
 import pathlib
 

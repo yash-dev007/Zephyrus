@@ -1,4 +1,4 @@
-﻿"""Embedding-lane reset must restore rows even when chromadb returns the
+"""Embedding-lane reset must restore rows even when chromadb returns the
 preserved embeddings as a numpy ndarray.
 
 Real chromadb returns collection.get(include=["embeddings"]) as a numpy

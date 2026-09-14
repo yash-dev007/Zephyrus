@@ -1,4 +1,4 @@
-﻿"""Cross-platform OS compatibility helpers.
+"""Cross-platform OS compatibility helpers.
 
 Zephyrus began as a Linux/macOS/Docker-only app. This module centralizes the
 small set of OS differences needed to run it *natively* on Windows so the rest

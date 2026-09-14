@@ -1,4 +1,4 @@
-﻿"""Unit tests for tests/_taxonomy.py - the test-taxonomy classification module.
+"""Unit tests for tests/_taxonomy.py - the test-taxonomy classification module.
 
 These tests pin the conservative classification behavior directly, without
 running pytest collection. They import only the module under test (a test-support

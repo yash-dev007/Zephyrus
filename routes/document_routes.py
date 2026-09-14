@@ -1,4 +1,4 @@
-﻿"""Document routes — CRUD for living documents with version history."""
+"""Document routes — CRUD for living documents with version history."""
 
 import uuid
 import logging

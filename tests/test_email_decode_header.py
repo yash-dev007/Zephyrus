@@ -1,4 +1,4 @@
-﻿"""Regression tests for routes.email_helpers._decode_header.
+"""Regression tests for routes.email_helpers._decode_header.
 
 A single email whose Subject/From/To/Cc header declares an unknown or invalid
 MIME charset (e.g. `=?x-unknown-charset?B?...?=`, common in spam/malformed mail)

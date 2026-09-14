@@ -1,4 +1,4 @@
-﻿"""
+"""
 context_compactor.py
 
 Auto-compacts conversation history when approaching context window limits.

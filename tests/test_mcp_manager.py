@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 from unittest.mock import patch
 
 from src.mcp_manager import _format_mcp_connection_error, McpManager

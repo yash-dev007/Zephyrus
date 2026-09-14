@@ -1,4 +1,4 @@
-﻿"""
+"""
 tool_schemas.py
 
 OpenAI-compatible function tool schemas and the converter that turns

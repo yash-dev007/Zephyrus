@@ -1,4 +1,4 @@
-﻿# routes/model_routes.py
+# routes/model_routes.py
 """Routes for model and provider management."""
 import os
 import re

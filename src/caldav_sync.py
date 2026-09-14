@@ -1,4 +1,4 @@
-﻿"""CalDAV → local SQLite sync.
+"""CalDAV → local SQLite sync.
 
 The Settings UI lets users save CalDAV credentials, but the original
 sync path was removed when calendar storage was migrated to SQLite.

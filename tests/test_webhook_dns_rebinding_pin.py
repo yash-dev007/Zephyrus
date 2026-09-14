@@ -1,4 +1,4 @@
-﻿"""Regression: webhook delivery must pin the TCP connect to the SSRF-approved IP.
+"""Regression: webhook delivery must pin the TCP connect to the SSRF-approved IP.
 
 validate_webhook_url resolves the host to accept/reject, but the delivery
 connect previously re-resolved independently — a DNS record flipping between

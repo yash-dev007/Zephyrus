@@ -1,4 +1,4 @@
-﻿from tests.helpers.cli_loader import load_script
+from tests.helpers.cli_loader import load_script
 
 
 def test_is_runnable_subcommand_requires_executable_file(tmp_path):

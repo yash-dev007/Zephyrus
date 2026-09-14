@@ -1,4 +1,4 @@
-﻿"""Tests for context_compactor.py — constants and prompt templates.
+"""Tests for context_compactor.py — constants and prompt templates.
 Uses mock imports to avoid loading the full app stack."""
 
 import asyncio

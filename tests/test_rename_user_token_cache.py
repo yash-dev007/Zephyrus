@@ -1,4 +1,4 @@
-﻿"""Renaming a user must invalidate the bearer-token cache.
+"""Renaming a user must invalidate the bearer-token cache.
 
 rename_user updates ApiToken.owner (and every other owner-scoped row) in the
 DB, but the bearer-token cache in app.py still maps each token to the OLD

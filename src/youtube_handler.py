@@ -1,4 +1,4 @@
-﻿"""Compatibility wrapper for the canonical services.youtube.youtube_handler module.
+"""Compatibility wrapper for the canonical services.youtube.youtube_handler module.
 
 Zephyrus historically carried two independent copies of the YouTube handler —
 one here under ``src`` and one under ``services.youtube``. They drifted: the

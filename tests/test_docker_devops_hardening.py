@@ -1,4 +1,4 @@
-﻿"""Static regressions for Docker/devops hardening contracts."""
+"""Static regressions for Docker/devops hardening contracts."""
 
 import ast
 import re

@@ -1,4 +1,4 @@
-﻿"""
+"""
 memory_server.py
 
 MCP server exposing memory management (list, add, edit, delete, search).

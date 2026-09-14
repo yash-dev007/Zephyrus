@@ -1,4 +1,4 @@
-﻿"""
+"""
 builtin_mcp.py
 
 Auto-registration of built-in MCP servers on startup.

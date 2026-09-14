@@ -1,4 +1,4 @@
-﻿from tests.helpers.embedding_lanes import (
+from tests.helpers.embedding_lanes import (
     FakeChroma,
     FakeEmbedder,
     FailingEmbedder,

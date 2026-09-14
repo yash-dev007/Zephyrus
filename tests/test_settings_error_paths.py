@@ -1,4 +1,4 @@
-﻿"""Error-path tests for src/settings.py load_settings().
+"""Error-path tests for src/settings.py load_settings().
 
 Covers the fallback-to-defaults behaviour when the settings file is
 missing, corrupt, or unreadable — including the PermissionError case

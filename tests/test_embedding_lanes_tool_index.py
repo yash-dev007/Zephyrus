@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 
 from src.embedding_lanes import (
     EmbeddingLane,

@@ -1,4 +1,4 @@
-﻿"""Pin the security fixes from the 2026-05-19 session so they don't regress:
+"""Pin the security fixes from the 2026-05-19 session so they don't regress:
 
 - `src.secret_storage.encrypt/decrypt` round-trip, idempotent on already-
   encrypted input, transparent on legacy plaintext, fail-soft on bad key.

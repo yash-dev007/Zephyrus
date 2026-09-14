@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from types import ModuleType, SimpleNamespace
 
 import pytest

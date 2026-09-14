@@ -1,4 +1,4 @@
-﻿"""Shell routes — user-facing command execution endpoint."""
+"""Shell routes — user-facing command execution endpoint."""
 
 import asyncio
 import importlib

@@ -1,4 +1,4 @@
-﻿"""_imap_move must address messages by UID, not sequence number.
+"""_imap_move must address messages by UID, not sequence number.
 
 The auto-spam poller passes a real IMAP UID (from conn.uid("SEARCH", ...))
 to _imap_move, but the function used conn.copy()/conn.store(), which operate

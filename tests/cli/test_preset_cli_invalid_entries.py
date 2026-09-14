@@ -1,4 +1,4 @@
-﻿from tests.helpers.cli_loader import load_script
+from tests.helpers.cli_loader import load_script
 
 
 def test_entry_or_fail_rejects_non_object_entries():

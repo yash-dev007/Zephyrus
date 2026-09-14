@@ -1,4 +1,4 @@
-﻿"""Policy checks for explicit host Docker access from a container."""
+"""Policy checks for explicit host Docker access from a container."""
 
 import os
 import stat

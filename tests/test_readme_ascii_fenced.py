@@ -1,4 +1,4 @@
-﻿"""Regression guard for the README title presentation.
+"""Regression guard for the README title presentation.
 
 Originally (#1390) the README opened with an ASCII-art banner that had to live
 inside a ``` code fence, otherwise GitHub's markdown collapsed its leading

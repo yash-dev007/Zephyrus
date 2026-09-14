@@ -1,4 +1,4 @@
-﻿# src/copilot.py
+# src/copilot.py
 """GitHub Copilot provider support.
 
 Copilot exposes an OpenAI-compatible API at ``https://api.githubcopilot.com``

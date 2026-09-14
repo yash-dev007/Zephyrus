@@ -1,4 +1,4 @@
-﻿from src.embedding_lanes import (
+from src.embedding_lanes import (
     EmbeddingLane,
     LANE_CUSTOM,
     LANE_FASTEMBED,

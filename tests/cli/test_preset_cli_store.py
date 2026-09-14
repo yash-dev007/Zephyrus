@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 
 from tests.helpers.cli_loader import load_script
 

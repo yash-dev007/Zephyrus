@@ -1,4 +1,4 @@
-﻿"""Compatibility wrapper for the canonical services.search.providers module.
+"""Compatibility wrapper for the canonical services.search.providers module.
 
 Historically Zephyrus carried duplicate provider implementations under both
 ``src.search`` and ``services.search``. Keep the old import path working, but

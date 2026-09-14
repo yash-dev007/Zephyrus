@@ -1,4 +1,4 @@
-﻿"""Regression: search query helpers must tolerate a non-string query.
+"""Regression: search query helpers must tolerate a non-string query.
 
 These helpers did `query.strip()`, `query.lower()`, `re.split(..., query)`,
 `re.search(..., query)` directly, so a None / non-string query (e.g. from a

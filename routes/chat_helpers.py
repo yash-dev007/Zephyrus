@@ -1,4 +1,4 @@
-﻿"""Shared helpers for chat routes — context building, post-response tasks, auth resolution."""
+"""Shared helpers for chat routes — context building, post-response tasks, auth resolution."""
 
 import asyncio
 import json

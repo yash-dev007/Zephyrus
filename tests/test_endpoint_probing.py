@@ -1,4 +1,4 @@
-﻿"""Endpoint probing behaviour (REAL routes.model_routes helpers).
+"""Endpoint probing behaviour (REAL routes.model_routes helpers).
 
 ROADMAP "Backend → more tests around endpoint probing and provider setup".
 TestSetupProbeSafety in test_model_routes.py already covers the keyed-vs-unkeyed

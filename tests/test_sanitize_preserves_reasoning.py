@@ -1,4 +1,4 @@
-﻿"""Regression: _sanitize_llm_messages must preserve reasoning_content.
+"""Regression: _sanitize_llm_messages must preserve reasoning_content.
 
 Providers like Moonshot (Kimi K2.5/K2.6) require reasoning_content on
 assistant tool-call messages. Stripping it causes HTTP 400 in multi-turn

@@ -1,4 +1,4 @@
-﻿"""scripts/_lib/cli.py — shared scaffolding for the `zephyrus-*` CLIs.
+"""scripts/_lib/cli.py — shared scaffolding for the `zephyrus-*` CLIs.
 
 Each top-level CLI imports a few helpers from here so they don't
 have to redefine the same `_quiet_logs` / `_emit` / `_fail` /

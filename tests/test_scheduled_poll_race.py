@@ -1,4 +1,4 @@
-﻿"""Regression: two concurrent callers of `_scheduled_poll_once` (the
+"""Regression: two concurrent callers of `_scheduled_poll_once` (the
 in-process 30s poller and the `zephyrus-mail poll-scheduled` CLI, which the
 project's own docstrings warn can race on the same SQLite when
 ZEPHYRUS_INPROCESS_POLLERS is left enabled alongside an external cron/systemd

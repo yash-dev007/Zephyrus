@@ -1,4 +1,4 @@
-﻿"""Guards the standalone GPU compose files against drift.
+"""Guards the standalone GPU compose files against drift.
 
 Stack-management UIs (Portainer, Coolify, Dockhand, ...) often accept only a
 single compose file and do not honor COMPOSE_FILE or multiple ``-f`` overlays,

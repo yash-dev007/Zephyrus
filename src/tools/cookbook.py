@@ -1,4 +1,4 @@
-﻿"""Cookbook (model serving) tool domain — slice 1 (#4082/#4071).
+"""Cookbook (model serving) tool domain — slice 1 (#4082/#4071).
 
 Download, serve, list, stop, tail, search, adopt and cache HuggingFace / model
 serving operations, plus their private helpers. Extracted verbatim from

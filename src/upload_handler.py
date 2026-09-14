@@ -1,4 +1,4 @@
-﻿# src/upload_handler.py
+# src/upload_handler.py
 import os
 import re
 import json

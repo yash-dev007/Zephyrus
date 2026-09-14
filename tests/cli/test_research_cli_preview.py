@@ -1,4 +1,4 @@
-﻿"""Regression: research CLI summary must tolerate a non-string query.
+"""Regression: research CLI summary must tolerate a non-string query.
 
 `_summarize` did `(data.get("query") or "")[:200]`. A non-string query from a
 legacy/corrupt research JSON is truthy, so `123[:200]` raised TypeError.

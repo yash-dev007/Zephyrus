@@ -1,4 +1,4 @@
-﻿"""RCE guard for manage_mcp 'add' (#438).
+"""RCE guard for manage_mcp 'add' (#438).
 
 do_manage_mcp("add", ...) used to pass model / prompt-injection-controlled
 command/args/env straight to a stdio subprocess spawn with no allowlist, so a

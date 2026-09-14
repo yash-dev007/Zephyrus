@@ -1,4 +1,4 @@
-﻿"""mcp email server _decode_header must not inject spaces between parts.
+"""mcp email server _decode_header must not inject spaces between parts.
 
 email.header.decode_header returns plain-text runs WITH their surrounding
 whitespace (e.g. (b"Re: ", None)), so joining parts with " " produced a

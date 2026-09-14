@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Zephyrus — first-time setup script.
 
 Creates data directories, initializes the database, and sets up an

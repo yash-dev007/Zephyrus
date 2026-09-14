@@ -1,4 +1,4 @@
-﻿"""
+"""
 tool_execution.py
 
 Tool dispatcher and result formatter for the agent loop.

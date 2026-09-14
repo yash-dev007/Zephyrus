@@ -1,4 +1,4 @@
-﻿"""Authentication routes — login, logout, signup, status, user management."""
+"""Authentication routes — login, logout, signup, status, user management."""
 
 from fastapi import APIRouter, Request, Response, HTTPException
 from pydantic import BaseModel

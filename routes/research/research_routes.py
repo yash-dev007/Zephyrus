@@ -1,4 +1,4 @@
-﻿"""Research background task routes — /api/research/*."""
+"""Research background task routes — /api/research/*."""
 
 import asyncio
 import json

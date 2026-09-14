@@ -1,4 +1,4 @@
-﻿"""Regression tests for the canonical services.search provider implementation.
+"""Regression tests for the canonical services.search provider implementation.
 
 The old src.search provider path aliases this module; these tests pin the
 behavior at the single implementation point.

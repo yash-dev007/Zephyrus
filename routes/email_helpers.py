@@ -1,4 +1,4 @@
-﻿"""
+"""
 email_helpers.py
 
 Lower-level helpers used by both `email_routes.py` (the FastAPI route file)

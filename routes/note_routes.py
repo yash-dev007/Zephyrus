@@ -1,4 +1,4 @@
-﻿# routes/note_routes.py
+# routes/note_routes.py
 """Google Keep-style notes / checklists API."""
 
 import json

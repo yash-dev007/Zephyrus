@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from types import ModuleType
 
 from tests.helpers.cli_loader import load_script

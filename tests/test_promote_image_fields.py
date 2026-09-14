@@ -1,4 +1,4 @@
-﻿"""Unit tests for `_promote_image_fields` (PR #2809).
+"""Unit tests for `_promote_image_fields` (PR #2809).
 
 `generate_image` is a text-only MCP tool, so the saved image URL never reaches
 the agent loop's structured forwarding (which renders the image via

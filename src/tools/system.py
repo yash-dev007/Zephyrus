@@ -1,4 +1,4 @@
-﻿"""System-domain tool implementations.
+"""System-domain tool implementations.
 
 Extracted from tool_implementations.py as part of slice 1 (#4082/#4071).
 Holds the skills/tasks tools plus the generic API bridges (api_call, app_api).

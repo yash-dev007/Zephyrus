@@ -1,4 +1,4 @@
-﻿"""
+"""
 builtin_actions.py
 
 Registry of built-in automation actions that can be executed by the task

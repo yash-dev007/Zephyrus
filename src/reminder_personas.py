@@ -1,4 +1,4 @@
-﻿"""Server-side mirror of the built-in characters used for reminder synthesis.
+"""Server-side mirror of the built-in characters used for reminder synthesis.
 
 The frontend ships these in static/js/presets.js (PROMPT_TEMPLATES with
 isCharacter:true). The Reminders → AI Synthesis card writes only the

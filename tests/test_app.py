@@ -1,4 +1,4 @@
-﻿"""
+"""
 Basic tests for zephyrus-ui application structure
 """
 import pytest

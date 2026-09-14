@@ -1,4 +1,4 @@
-﻿"""
+"""
 rag_vector.py
 
 Vector-based RAG using ChromaDB for storage and API-based embeddings.

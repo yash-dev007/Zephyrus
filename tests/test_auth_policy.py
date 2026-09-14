@@ -1,4 +1,4 @@
-﻿"""Tests for auth policy endpoint and password length validation."""
+"""Tests for auth policy endpoint and password length validation."""
 
 import asyncio
 import importlib

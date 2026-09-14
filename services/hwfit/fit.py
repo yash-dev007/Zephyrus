@@ -1,4 +1,4 @@
-﻿import re
+import re
 
 from services.hwfit.models import (
     params_b, estimate_memory_gb, infer_use_case,

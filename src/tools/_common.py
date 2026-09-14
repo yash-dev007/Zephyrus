@@ -1,4 +1,4 @@
-﻿"""Shared helpers used across tool implementation domains.
+"""Shared helpers used across tool implementation domains.
 
 Extracted from tool_implementations.py as part of slice 1 (#4082/#4071).
 Domain modules under src/tools/ import from here.

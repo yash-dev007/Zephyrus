@@ -1,4 +1,4 @@
-﻿"""Regression: `zephyrus-calendar list` must select events that OVERLAP the
+"""Regression: `zephyrus-calendar list` must select events that OVERLAP the
 query window, matching the canonical web-route filter in
 routes/calendar_routes.py (`dtstart < end AND dtend > start`) and the
 recurring-expansion contract asserted in test_calendar_recurrence.py

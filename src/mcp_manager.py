@@ -1,4 +1,4 @@
-﻿"""
+"""
 mcp_manager.py
 
 Manages connections to MCP (Model Context Protocol) tool servers.

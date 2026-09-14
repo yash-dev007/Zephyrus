@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Seed a throwaway, local-only mailbox with fake demo emails.
 
 This populates the `demo@zephyrus.local` Dovecot account (which has NO mbsync

@@ -1,4 +1,4 @@
-﻿"""Memory provider interfaces for native and external memory systems."""
+"""Memory provider interfaces for native and external memory systems."""
 
 from __future__ import annotations
 

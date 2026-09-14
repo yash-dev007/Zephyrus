@@ -1,4 +1,4 @@
-﻿# core/constants.py
+# core/constants.py
 """Backward-compatible shim — the single source of truth is src/constants.py.
 
 Historically there were two copies of this module (this one lagged behind at

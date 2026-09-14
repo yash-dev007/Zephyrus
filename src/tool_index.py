@@ -1,4 +1,4 @@
-﻿"""
+"""
 RAG-based tool selection for agent mode.
 
 Instead of injecting all tool descriptions into the system prompt,

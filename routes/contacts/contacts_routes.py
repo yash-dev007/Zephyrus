@@ -1,4 +1,4 @@
-﻿"""
+"""
 contacts_routes.py
 
 CardDAV contacts integration. Reads from local Radicale, supports

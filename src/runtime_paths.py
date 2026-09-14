@@ -1,4 +1,4 @@
-﻿"""Helpers for resolving runtime paths in source and frozen builds."""
+"""Helpers for resolving runtime paths in source and frozen builds."""
 
 import os
 import sys

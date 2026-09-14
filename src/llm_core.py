@@ -1,4 +1,4 @@
-﻿# src/llm_core.py
+# src/llm_core.py
 import httpx
 import asyncio
 import time

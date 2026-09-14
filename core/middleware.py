@@ -1,4 +1,4 @@
-﻿# src/middleware.py
+# src/middleware.py
 # Shared middleware, decorators, and request helpers
 
 import os

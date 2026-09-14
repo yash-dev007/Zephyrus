@@ -1,4 +1,4 @@
-﻿"""CRUD routes for scheduled tasks."""
+"""CRUD routes for scheduled tasks."""
 
 import json
 import logging

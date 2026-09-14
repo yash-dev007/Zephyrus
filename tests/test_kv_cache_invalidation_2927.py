@@ -1,4 +1,4 @@
-﻿"""Regression tests for issue #2927 — KV-cache invalidation on local backends.
+"""Regression tests for issue #2927 — KV-cache invalidation on local backends.
 
 As diagnosed in the issue, three things in Zephyrus's request pattern actively
 destroy llama.cpp / LM Studio's KV-cache continuity on every chat turn:

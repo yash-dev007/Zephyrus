@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Claim all ownerless data for a specific user.
 
 Run once after enabling multi-user auth to assign existing data to the admin.

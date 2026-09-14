@@ -1,4 +1,4 @@
-﻿"""Pin pure helpers in the compare/ frontend module — drives them
+"""Pin pure helpers in the compare/ frontend module — drives them
 through `node --input-type=module` so we get real JS execution without
 needing a full Vitest/Jest setup. If `node` isn't installed the suite
 skips itself rather than failing.

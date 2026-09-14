@@ -1,4 +1,4 @@
-﻿"""Protection test: the tool_implementations compatibility shim must keep
+"""Protection test: the tool_implementations compatibility shim must keep
 re-exporting every symbol importers depend on.
 
 Guards the slice-1 split (tool_implementations.py -> src/tools/*) from

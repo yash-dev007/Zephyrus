@@ -1,4 +1,4 @@
-﻿"""Regression tests for issues found during code review."""
+"""Regression tests for issues found during code review."""
 
 import importlib
 import json

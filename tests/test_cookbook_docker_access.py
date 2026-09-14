@@ -1,4 +1,4 @@
-﻿import socket
+import socket
 from unittest.mock import AsyncMock
 
 import pytest

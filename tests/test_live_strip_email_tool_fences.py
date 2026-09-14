@@ -1,4 +1,4 @@
-﻿"""Regression test for #3993 — live chat leaves executed tool fences visible.
+"""Regression test for #3993 — live chat leaves executed tool fences visible.
 
 The backend strips every fenced tool block (``src/tool_parsing.py`` builds its
 regex from the full ``TOOL_TAGS`` set), so a reloaded session renders cleanly.

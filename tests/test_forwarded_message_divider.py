@@ -1,4 +1,4 @@
-﻿"""The thread parser must treat the Gmail-style "---------- Forwarded message
+"""The thread parser must treat the Gmail-style "---------- Forwarded message
 ---------" divider as a quote boundary, like "----- Original Message -----".
 
 `_ORIG_RE` already recognised the Japanese forward marker (転送) but not the

@@ -1,4 +1,4 @@
-﻿"""Outgoing webhook manager — fires HTTP POSTs when events happen."""
+"""Outgoing webhook manager — fires HTTP POSTs when events happen."""
 
 import asyncio
 import hashlib

@@ -1,4 +1,4 @@
-﻿"""A send-only (SMTP-only) account has no inbox to read.
+"""A send-only (SMTP-only) account has no inbox to read.
 
 `_imap_connect` must fail fast with a clear, typed error instead of handing an
 empty host to imaplib — `imaplib.IMAP4("", 993)` silently dials localhost:993

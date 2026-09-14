@@ -1,4 +1,4 @@
-﻿"""Renaming a user must update non-SQL owner stores, not just the SQL DB.
+"""Renaming a user must update non-SQL owner stores, not just the SQL DB.
 
 The DB owner-rename loop in the rename_user route updates every SQL-backed
 owner column, but three file-backed / in-memory stores are left stale:

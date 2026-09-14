@@ -1,4 +1,4 @@
-﻿"""Tests for shell_routes.py helpers."""
+"""Tests for shell_routes.py helpers."""
 
 import builtins
 import importlib

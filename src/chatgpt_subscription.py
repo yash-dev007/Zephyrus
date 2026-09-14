@@ -1,4 +1,4 @@
-﻿"""ChatGPT subscription / Codex backend OAuth helpers.
+"""ChatGPT subscription / Codex backend OAuth helpers.
 
 This provider is intentionally separate from OpenAI API-key endpoints. It uses
 OpenAI account OAuth device authorization, stores refresh tokens server-side,

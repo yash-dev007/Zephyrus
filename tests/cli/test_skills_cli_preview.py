@@ -1,4 +1,4 @@
-﻿"""Regression: the skills CLI summary must tolerate a non-string description.
+"""Regression: the skills CLI summary must tolerate a non-string description.
 
 `_summary` did `(skill.get("description") or "")[:200]`. A non-string
 description (e.g. a number from a hand-edited/legacy skill store) is truthy, so

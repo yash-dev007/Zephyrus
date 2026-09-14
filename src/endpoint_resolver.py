@@ -1,4 +1,4 @@
-﻿# src/endpoint_resolver.py
+# src/endpoint_resolver.py
 """Unified endpoint resolution for all backend services.
 
 Consolidates the 4+ copies of normalize_base / resolve_endpoint logic into one place.

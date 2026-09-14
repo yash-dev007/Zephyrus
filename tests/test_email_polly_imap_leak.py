@@ -1,4 +1,4 @@
-﻿"""Pin the IMAP connection-cleanup guarantee in the background auto-summarize poller.
+"""Pin the IMAP connection-cleanup guarantee in the background auto-summarize poller.
 
 `_auto_summarize_pass_single` in `routes/email_pollers.py` is invoked on a
 30-minute background cadence (via `_auto_summarize_poller`) and on-demand

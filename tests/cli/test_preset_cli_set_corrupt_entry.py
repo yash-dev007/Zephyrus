@@ -1,4 +1,4 @@
-﻿from types import SimpleNamespace
+from types import SimpleNamespace
 
 from tests.helpers.cli_loader import load_script
 

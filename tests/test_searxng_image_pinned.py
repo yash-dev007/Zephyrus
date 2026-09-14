@@ -1,4 +1,4 @@
-﻿"""Regression guard for issue #1414 — a broken upstream `searxng:latest` tag
+"""Regression guard for issue #1414 — a broken upstream `searxng:latest` tag
 (2026.6.2 crashed on boot with KeyError: 'default_doi_resolver') failed the
 searxng healthcheck, and because `zephyrus` waits on it via
 `depends_on: condition: service_healthy`, the whole app never started on fresh

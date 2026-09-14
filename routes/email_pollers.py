@@ -1,4 +1,4 @@
-﻿"""
+"""
 email_pollers.py
 
 Background loops that periodically scan IMAP and act on mail:

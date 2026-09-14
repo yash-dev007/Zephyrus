@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Read-only pull request overlap audit helper.
 
 This script intentionally does not import the Zephyrus application package.

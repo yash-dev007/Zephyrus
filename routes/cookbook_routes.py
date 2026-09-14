@@ -1,4 +1,4 @@
-﻿"""Cookbook routes — model download, serve, cache scanning, and cookbook state sync."""
+"""Cookbook routes — model download, serve, cache scanning, and cookbook state sync."""
 
 import asyncio
 import json

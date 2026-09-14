@@ -1,4 +1,4 @@
-﻿"""Companion bridge — /api/companion/*.
+"""Companion bridge — /api/companion/*.
 
 A thin, additive layer so a LAN client (e.g. a phone) can discover what a server
 offers and pair to it, without duplicating any LLM logic.

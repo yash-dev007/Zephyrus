@@ -1,4 +1,4 @@
-﻿"""Foreground activity gate for background work.
+"""Foreground activity gate for background work.
 
 Background tasks are allowed to run only after normal UI/API traffic has
 settled. This keeps scheduled jobs and email pollers from competing with the

@@ -1,4 +1,4 @@
-﻿"""fetch_webpage_content must return plain-text and Markdown bodies verbatim.
+"""fetch_webpage_content must return plain-text and Markdown bodies verbatim.
 
 raw.githubusercontent.com serves Markdown as `text/plain`, and a lot of code
 and tool documentation lives in `.md` / `.txt`. Those have no HTML structure,

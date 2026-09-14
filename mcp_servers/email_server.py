@@ -1,4 +1,4 @@
-﻿"""
+"""
 email_server.py
 
 MCP server exposing email tools: list unread/unresponded emails,

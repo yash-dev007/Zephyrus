@@ -1,4 +1,4 @@
-﻿"""Regression guard for #1660 — removing one RAG directory must delete only that
+"""Regression guard for #1660 — removing one RAG directory must delete only that
 directory's chunks, never wipe the whole shared collection.
 
 Two compounding defects were fixed:

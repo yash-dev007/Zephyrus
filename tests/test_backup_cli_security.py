@@ -1,4 +1,4 @@
-﻿import io
+import io
 import tarfile
 from pathlib import Path
 from types import SimpleNamespace

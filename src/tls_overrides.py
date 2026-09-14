@@ -1,4 +1,4 @@
-﻿"""Extended TLS trust store for private-CA LLM providers.
+"""Extended TLS trust store for private-CA LLM providers.
 
 Some upstream LLM providers serve their API over TLS certificates that are
 signed by a private root CA which is not part of the standard system bundle:

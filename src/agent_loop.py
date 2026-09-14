@@ -1,4 +1,4 @@
-﻿"""
+"""
 agent_loop.py
 
 Streaming agent loop for zephyrus-ui.

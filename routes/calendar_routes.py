@@ -1,4 +1,4 @@
-﻿"""Calendar routes — local SQLite-backed calendar CRUD."""
+"""Calendar routes — local SQLite-backed calendar CRUD."""
 
 import logging
 import json

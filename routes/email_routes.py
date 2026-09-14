@@ -1,4 +1,4 @@
-﻿"""
+"""
 email_routes.py
 
 FastAPI route handlers for the email feature. All non-route logic

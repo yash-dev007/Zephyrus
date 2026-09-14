@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Small Zephyrus scoped API helper for Codex terminal sessions."""
 
 from __future__ import annotations

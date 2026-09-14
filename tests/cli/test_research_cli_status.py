@@ -1,4 +1,4 @@
-﻿"""`zephyrus-research list --status complete` must match completed runs.
+"""`zephyrus-research list --status complete` must match completed runs.
 
 Completed research runs are persisted with status "done" (research_handler),
 but the user-facing CLI value is the friendlier "complete". The CLI offered

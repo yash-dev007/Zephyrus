@@ -1,4 +1,4 @@
-﻿"""CalDAV write-back: push local create/update/delete out to the remote (#800).
+"""CalDAV write-back: push local create/update/delete out to the remote (#800).
 
 ``src/caldav_sync.py`` is a one-way pull (remote → local). So events created,
 edited, or deleted in Zephyrus on a CalDAV-backed calendar only changed the local

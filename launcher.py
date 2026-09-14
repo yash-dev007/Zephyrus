@@ -1,4 +1,4 @@
-﻿# launcher.py
+# launcher.py
 """Dedicated entrypoint for the standalone Windows portable launcher.
 
 Handles:

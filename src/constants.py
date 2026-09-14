@@ -1,4 +1,4 @@
-﻿# src/constants.py
+# src/constants.py
 """Application-wide constants and configuration values."""
 import os
 

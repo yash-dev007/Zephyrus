@@ -1,4 +1,4 @@
-﻿"""Regression: gallery CLI image serialization must tolerate a non-string prompt.
+"""Regression: gallery CLI image serialization must tolerate a non-string prompt.
 
 `_serialize_image` did `(i.prompt or "")[:200]`. A non-string prompt is truthy,
 so `123[:200]` raised TypeError. `_preview_text` coerces non-strings to "".

@@ -1,4 +1,4 @@
-﻿"""Small helpers for route-local upload size caps."""
+"""Small helpers for route-local upload size caps."""
 
 import os
 

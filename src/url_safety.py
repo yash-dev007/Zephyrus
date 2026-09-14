@@ -1,4 +1,4 @@
-﻿"""Outbound URL safety checks (SSRF hardening).
+"""Outbound URL safety checks (SSRF hardening).
 
 Run before the server makes a request to a *user-supplied* URL — e.g. the custom
 embedding endpoint set via ``POST /api/embeddings/endpoint``, which then triggers

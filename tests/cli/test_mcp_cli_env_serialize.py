@@ -1,4 +1,4 @@
-﻿"""Regression: mcp CLI _serialize must not crash when env JSON is not an object.
+"""Regression: mcp CLI _serialize must not crash when env JSON is not an object.
 
 `env_obj = json.loads(s.env)` can yield a list (e.g. env stored as "[1,2]").
 `if redact_env and env_obj:` then called `env_obj.items()` -> AttributeError.

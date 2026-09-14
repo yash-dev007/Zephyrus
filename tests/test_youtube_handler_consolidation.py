@@ -1,4 +1,4 @@
-﻿"""Regression: the YouTube handler must live in a single module.
+"""Regression: the YouTube handler must live in a single module.
 
 Zephyrus carried two independent copies of the handler — ``src.youtube_handler``
 and ``services.youtube.youtube_handler`` — that silently drifted:

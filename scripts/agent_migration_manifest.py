@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Build a neutral agent migration manifest.
 
 This helper is intentionally read-only. It does not import the Zephyrus

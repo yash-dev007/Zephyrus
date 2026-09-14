@@ -1,4 +1,4 @@
-﻿"""Regression tests for IMAP connection leak fixes.
+"""Regression tests for IMAP connection leak fixes.
 
 Each test forces an exception after _imap_connect() succeeds and asserts
 that conn.logout() is still called exactly once (guaranteed by try/finally).

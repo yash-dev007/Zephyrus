@@ -1,4 +1,4 @@
-﻿"""Config/integration admin agent tools (TOOL_HANDLERS).
+"""Config/integration admin agent tools (TOOL_HANDLERS).
 
 Moved verbatim from tool_implementations.py as part of the tool-registry
 migration (#3629, the `admin_tools.py` bullet): manage_endpoints / manage_mcp /

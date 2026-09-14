@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 from src.builtin_mcp import builtin_python_env
 

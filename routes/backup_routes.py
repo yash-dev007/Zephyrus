@@ -1,4 +1,4 @@
-﻿"""Backup routes — export/import user data (memories, presets, settings, skills, preferences)."""
+"""Backup routes — export/import user data (memories, presets, settings, skills, preferences)."""
 
 import json
 import logging

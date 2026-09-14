@@ -1,4 +1,4 @@
-﻿"""Codex integration routes.
+"""Codex integration routes.
 
 These are small HTTP surfaces intended for the Codex plugin/MCP bridge. They
 reuse existing Zephyrus helpers and enforce API-token scopes before touching

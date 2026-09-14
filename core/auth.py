@@ -1,4 +1,4 @@
-﻿"""
+"""
 Authentication module — multi-user password hashing, session tokens, config persistence.
 Config stored in data/auth.json. Uses bcrypt directly.
 """

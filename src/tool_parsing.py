@@ -1,4 +1,4 @@
-﻿"""
+"""
 tool_parsing.py
 
 Regex-based parsing of tool invocations from LLM response text.

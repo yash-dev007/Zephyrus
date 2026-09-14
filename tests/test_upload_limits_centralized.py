@@ -1,4 +1,4 @@
-﻿"""Centralized upload byte-limits (issue #3364).
+"""Centralized upload byte-limits (issue #3364).
 
 Every per-route upload limit lives in ``src.upload_limits`` as a module-level
 constant read through the validated ``read_byte_limit_env``. These tests pin:

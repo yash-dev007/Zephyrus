@@ -1,4 +1,4 @@
-﻿# src/visual_report.py
+# src/visual_report.py
 """
 Generate a self-contained, styled HTML page from deep research results.
 

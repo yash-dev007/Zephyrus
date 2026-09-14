@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Minimal OpenAI-compatible image generation API server using diffusers.
 
 Serves /v1/images/generations and /v1/models for compatibility with

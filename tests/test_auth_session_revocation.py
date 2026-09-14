@@ -1,4 +1,4 @@
-﻿"""Regression tests for password-change session revocation."""
+"""Regression tests for password-change session revocation."""
 
 import asyncio
 import importlib

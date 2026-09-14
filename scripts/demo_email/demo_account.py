@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Create/remove the switchable, non-default 'Demo' EmailAccount in Zephyrus.
 
 Mirrors the existing local-Dovecot account (localhost:31143, STARTTLS) but points

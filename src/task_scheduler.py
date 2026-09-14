@@ -1,4 +1,4 @@
-﻿"""Background scheduler for ScheduledTask execution."""
+"""Background scheduler for ScheduledTask execution."""
 
 import asyncio
 import json
