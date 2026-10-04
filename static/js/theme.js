@@ -448,7 +448,12 @@ export function applyBgPattern(pattern) {
   // Clean up any canvas backgrounds
   document.querySelectorAll('#synapse-canvas, #rain-canvas, #constellations-canvas, #perlin-flow-canvas, #petals-canvas, #sparkles-canvas, #embers-canvas').forEach(c => c.remove());
   if (p !== 'none') document.body.classList.add('bg-pattern-' + p);
-  if (_CANVAS_PATTERNS[p]) _CANVAS_PATTERNS[p]();
+  // Respect prefers-reduced-motion: static CSS layer only, no canvas loops.
+  let reduced = false;
+  try { reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (_) { reduced = false; }
+  if (!reduced && _CANVAS_PATTERNS[p]) {
+    try { _CANVAS_PATTERNS[p](); } catch (_) {}
+  }
   // Hide sliders that do nothing on static patterns.
   const hide = _STATIC_PATTERNS.has(p);
   const ig = document.getElementById('theme-bg-intensity-group');
@@ -638,39 +643,94 @@ export function initThemeUI() {
   const activeName = saved ? saved.name : DEFAULT_THEME;
   const customThemes = _loadCustomThemes();
 
+  // Display label keeps legacy mapping but as a designed system
+  const displayName = (name) => name === 'dark' ? 'original' : (name === 'gpt' ? 'GPT' : name);
+  const swatchInner = (name, c, isActive, isCustom) => `
+    <button type="button" class="theme-swatch${isActive ? ' active' : ''}" data-theme="${name}"${isCustom ? ' data-custom="1"' : ''} aria-pressed="${isActive ? 'true' : 'false'}" aria-label="Apply ${displayName(name)} theme" title="${displayName(name)} — ${c.bg} / ${c.panel} / ${c.fg} / ${c.red}">
+      <span class="sw-preview" style="--sw-bg:${c.bg};--sw-panel:${c.panel};--sw-fg:${c.fg};--sw-accent:${c.red}" aria-hidden="true">
+        <span class="sw-chrome"><i></i><i></i><i></i></span>
+        <span class="sw-body">
+          <span class="sw-sidebar"></span>
+          <span class="sw-main">
+            <span class="sw-bubble sw-bubble-user"></span>
+            <span class="sw-bubble sw-bubble-ai"></span>
+            <span class="sw-code"><i></i><i></i></span>
+          </span>
+        </span>
+        <span class="sw-accent-line"></span>
+        <span class="sw-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+      </span>
+      <span class="theme-swatch-name">${displayName(name)}</span>
+    </button>
+  `;
+  // Single preview language: rich mini-preview only (dot strip removed).
+  // Custom swatches use a sibling delete button to avoid nested-interactive.
+  const swatchHTML = (name, c, isActive, isCustom) => {
+    if (!isCustom) return swatchInner(name, c, isActive, false);
+    return `<span class="theme-swatch-wrap"><span class="sw-wrap-inner">${swatchInner(name, c, isActive, true)}</span><button type="button" class="theme-delete-btn" data-delete="${name}" title="Delete theme ${name}" aria-label="Delete theme ${name}"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></span>`;
+  };
+
   // Render preset swatches
-  grid.innerHTML = Object.entries(THEMES).map(([name, c]) => `
-    <div class="theme-swatch${name === activeName ? ' active' : ''}" data-theme="${name}">
-      <div class="theme-swatch-colors">
-        <span style="background:${c.bg}"></span>
-        <span style="background:${c.panel}"></span>
-        <span style="background:${c.fg}"></span>
-        <span style="background:${c.red}"></span>
-      </div>
-      ${name === 'dark' ? 'original' : (name === 'gpt' ? 'GPT' : name)}
-    </div>
-  `).join('');
+  grid.innerHTML = Object.entries(THEMES).map(([name, c]) => swatchHTML(name, c, name === activeName, false)).join('');
 
   // Render custom theme swatches into separate card
   const userGrid = document.getElementById('themeUserGrid');
   const userCard = document.getElementById('themeUserCard');
+  const emptyState = document.getElementById('theme-empty-state');
   const customEntries = Object.entries(customThemes);
-  if (customEntries.length > 0 && userGrid && userCard) {
-    userCard.style.display = '';
-    userGrid.innerHTML = customEntries.map(([name, c]) => `
-      <div class="theme-swatch${name === activeName ? ' active' : ''}" data-theme="${name}" data-custom="1">
-        <div class="theme-swatch-colors">
-          <span style="background:${c.bg}"></span>
-          <span style="background:${c.panel}"></span>
-          <span style="background:${c.fg}"></span>
-          <span style="background:${c.red}"></span>
-        </div>
-        <span class="theme-swatch-name">${name}</span>
-        <button type="button" class="theme-delete-btn" data-delete="${name}" title="Delete theme"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      </div>
-    `).join('');
-  } else if (userCard) {
-    userCard.style.display = 'none';
+  const presetCount = document.getElementById('theme-preset-count');
+  const customCount = document.getElementById('theme-custom-count');
+  if (presetCount) presetCount.textContent = `(${Object.keys(THEMES).length})`;
+  if (customCount) customCount.textContent = `(${customEntries.length}/${MAX_CUSTOM_THEMES})`;
+  if (userGrid && userCard) {
+    if (customEntries.length > 0) {
+      userCard.style.display = '';
+      if (emptyState) emptyState.style.display = 'none';
+      userGrid.innerHTML = customEntries.map(([name, c]) => swatchHTML(name, c, name === activeName, true)).join('');
+    } else {
+      userCard.style.display = 'none';
+      if (emptyState) emptyState.style.display = '';
+    }
+  }
+
+  // Filter input — reuses existing input tokens, filters both grids
+  const searchInput = document.getElementById('theme-search');
+  const noResults = document.getElementById('theme-no-results');
+  const applyThemeFilter = () => {
+    const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
+    let visibleTotal = 0;
+    const matches = (name) => !q || (name || '').toLowerCase().includes(q);
+    // Presets are direct .theme-swatch children; customs are .theme-swatch-wrap
+    grid.querySelectorAll(':scope > .theme-swatch').forEach((sw) => {
+      const hit = matches(sw.dataset.theme);
+      sw.style.display = hit ? '' : 'none';
+      if (hit) visibleTotal += 1;
+    });
+    if (userGrid) {
+      userGrid.querySelectorAll(':scope > .theme-swatch-wrap').forEach((wrap) => {
+        const inner = wrap.querySelector('.theme-swatch');
+        const hit = matches(inner && inner.dataset.theme);
+        wrap.style.display = hit ? '' : 'none';
+        if (hit) visibleTotal += 1;
+      });
+    }
+    if (noResults) noResults.classList.toggle('hidden', visibleTotal !== 0);
+  };
+  if (searchInput && !searchInput.dataset.bound) {
+    searchInput.dataset.bound = '1';
+    searchInput.addEventListener('input', applyThemeFilter);
+  }
+  applyThemeFilter();
+
+  // Empty-state CTA switches to Customize tab (reuses existing tab logic)
+  const emptyCta = document.getElementById('theme-empty-cta');
+  if (emptyCta && !emptyCta.dataset.bound) {
+    emptyCta.dataset.bound = '1';
+    emptyCta.addEventListener('click', () => {
+      const tabs = document.getElementById('theme-tabs');
+      const target = tabs && tabs.querySelector('[data-tab="theme-tab-customize"]');
+      if (target) target.click();
+    });
   }
 
   // Helper: save with current font/density/bgPattern from UI selects
@@ -696,7 +756,7 @@ export function initThemeUI() {
 
   // Click handlers for all swatches (preset + custom) across both grids
   const allGrids = [grid, userGrid].filter(Boolean);
-  function clearAllActive() { allGrids.forEach(g => g.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'))); }
+  function clearAllActive() { allGrids.forEach(g => g.querySelectorAll('.theme-swatch').forEach(s => { s.classList.remove('active'); s.setAttribute('aria-pressed', 'false'); })); }
   allGrids.forEach(g => {
     g.querySelectorAll('.theme-swatch').forEach(sw => {
       sw.addEventListener('click', (e) => {
@@ -707,6 +767,7 @@ export function initThemeUI() {
         applyColors(colors);
         clearAllActive();
         sw.classList.add('active');
+        sw.setAttribute('aria-pressed', 'true');
         syncPickers(colors);
         const ct = sw.dataset.custom ? customThemes[name] : null;
         const f = ct && ct.font ? ct.font : DEFAULT_FONT;
@@ -742,13 +803,18 @@ export function initThemeUI() {
       });
     });
     g.querySelectorAll('.theme-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
+      const doDelete = async (e) => {
+        if (e) { e.stopPropagation(); if (e.preventDefault) e.preventDefault(); }
         const name = btn.dataset.delete;
         if (uiModule && uiModule.styledConfirm) {
           if (!await uiModule.styledConfirm(`Delete theme "${name}"?`, { confirmText: 'Delete', danger: true })) return;
         }
         deleteCustomTheme(name);
+      };
+      // Native <button>: no tabindex/role override needed; extra keys for del.
+      btn.addEventListener('click', doDelete);
+      btn.addEventListener('keydown', (e) => {
+        if (e.key === 'Delete' || e.key === 'Backspace') doDelete(e);
       });
     });
   });
@@ -1224,6 +1290,35 @@ export function initThemeUI() {
       _harmonyHex.textContent = harmonyAccentEl.value;
     });
   }
+  const renderHarmonyPreview = (colors) => {
+    const prev = document.getElementById('harmony-preview');
+    if (!prev) return;
+    const parts = [['Background', colors.bg], ['Panel', colors.panel], ['Text', colors.fg], ['Border', colors.border], ['Accent', colors.red]];
+    prev.innerHTML = parts.map(([label, c]) => `<span style="background:${c}" tabindex="0" role="button" title="${label} ${c} — click to copy" aria-label="Copy ${label} color ${c}" data-hex="${c}"></span>`).join('');
+  };
+  // Click-to-copy on harmony strips (event delegation survives innerHTML resets)
+  const harmonyPrevEl = document.getElementById('harmony-preview');
+  if (harmonyPrevEl && !harmonyPrevEl.dataset.bound) {
+    harmonyPrevEl.dataset.bound = '1';
+    const copyHex = (el) => {
+      const hex = el && el.dataset && el.dataset.hex;
+      if (!hex) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(hex);
+      } catch (_) {}
+      try { uiModule.showToast?.(`Copied ${hex}`); } catch (_) {}
+    };
+    harmonyPrevEl.addEventListener('click', (e) => {
+      const s = e.target.closest('span[data-hex]');
+      if (s) copyHex(s);
+    });
+    harmonyPrevEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        const s = e.target.closest('span[data-hex]');
+        if (s) { e.preventDefault(); copyHex(s); }
+      }
+    });
+  }
   if (harmonyGenBtnEl) {
     const newGen = harmonyGenBtnEl.cloneNode(true);
     harmonyGenBtnEl.parentNode.replaceChild(newGen, harmonyGenBtnEl);
@@ -1235,9 +1330,8 @@ export function initThemeUI() {
       applyColors(colors);
       syncPickers(colors);
       _saveFull('custom', colors);
-      grid.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
-      const prev = document.getElementById('harmony-preview');
-      if (prev) prev.innerHTML = [colors.bg, colors.panel, colors.fg, colors.border, colors.red].map(c => `<span style="background:${c}"></span>`).join('');
+      grid.querySelectorAll('.theme-swatch').forEach(s => { s.classList.remove('active'); s.setAttribute('aria-pressed', 'false'); });
+      renderHarmonyPreview(colors);
     });
   }
   if (harmonyAccentEl) {
@@ -1253,8 +1347,7 @@ export function initThemeUI() {
       const type = document.getElementById('harmony-type').value;
       const mode = document.getElementById('harmony-mode').value;
       const colors = generateHarmonyColors(newAcc.value, type, mode);
-      const prev = document.getElementById('harmony-preview');
-      if (prev) prev.innerHTML = [colors.bg, colors.panel, colors.fg, colors.border, colors.red].map(c => `<span style="background:${c}"></span>`).join('');
+      renderHarmonyPreview(colors);
       // Sync the hex chip beside the picker.
       const hex = document.getElementById('harmony-accent-hex');
       if (hex) hex.textContent = newAcc.value;

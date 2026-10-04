@@ -1,4 +1,4 @@
-<p align="center"><img alt="Zephyrus" src="docs/zephyrus-wordmark.png" width="420"></p>
+<p align="center"><img alt="Zephyrus" src="docs/Zephyrus-Logo.png" width="420"></p>
 
 # Zephyrus
 
@@ -42,7 +42,8 @@ Key properties:
 
 Preview clips live in [`docs/`](docs): `chat.webm`, `research.webm`, `email-outlook.md`, `gallery.webm`, `notes.webm`, `compare.webm`, `document.webm`, plus `zephyrus.jpg`.
 
-![Zephyrus browser preview](docs/zephyrus-browser.jpg)
+
+![Zephyrus UI preview](docs/Zephyrus-Home.png)
 
 ## Quickstart
 
@@ -51,7 +52,7 @@ Prerequisites: Docker for the recommended path, or Python 3.11+ for native.
 ### Docker (recommended)
 
 ```bash
-git clone https://github.com/pewdiepie-archdaemon/zephyrus.git
+git clone https://github.com/yash-dev007/Zephyrus.git
 cd zephyrus
 cp .env.example .env
 docker compose up -d --build
@@ -72,7 +73,7 @@ GPU and extra Compose overlays are documented in [`docs/setup.md`](docs/setup.md
 ### Native Linux / macOS
 
 ```bash
-git clone https://github.com/pewdiepie-archdaemon/zephyrus.git
+git clone https://github.com/yash-dev007/Zephyrus.git
 cd zephyrus
 python3 -m venv venv
 source venv/bin/activate
@@ -92,7 +93,7 @@ ZEPHYRUS_HOST=0.0.0.0 ./start-macos.sh
 ### Native Windows
 
 ```powershell
-git clone https://github.com/pewdiepie-archdaemon/zephyrus.git
+git clone https://github.com/yash-dev007/Zephyrus.git
 cd zephyrus
 powershell -ExecutionPolicy Bypass -File .\launch-windows.ps1
 ```

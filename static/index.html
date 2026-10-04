@@ -474,12 +474,27 @@
     <!-- Tab: Browse themes -->
     <div id="theme-tab-browse" class="theme-tab-panel">
       <div class="admin-card">
-        <h2>Default Themes</h2>
-        <div class="theme-grid" id="themeGrid"></div>
+        <div class="theme-card-head">
+          <h2>Default Themes <span class="theme-count" id="theme-preset-count"></span></h2>
+          <label class="theme-search-wrap" aria-label="Filter themes">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+            <input type="search" id="theme-search" class="theme-search-input" placeholder="Filter themes..." autocomplete="off" aria-label="Filter themes">
+          </label>
+        </div>
+        <div class="theme-grid" id="themeGrid" role="group" aria-label="Default themes"></div>
+        <div class="theme-no-results hidden" id="theme-no-results" role="status" aria-live="polite">No themes match this filter.</div>
       </div>
       <div class="admin-card" id="themeUserCard" style="display:none">
-        <h2>Your Themes</h2>
-        <div class="theme-grid" id="themeUserGrid"></div>
+        <div class="theme-card-head">
+          <h2>Your Themes <span class="theme-count" id="theme-custom-count"></span></h2>
+        </div>
+        <div class="theme-grid" id="themeUserGrid" role="group" aria-label="Your themes"></div>
+      </div>
+      <div class="admin-card theme-empty-state" id="theme-empty-state" style="display:none">
+        <div class="theme-empty-icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a7 7 0 0 0 0 20 4 4 0 0 1 0-8 4 4 0 0 0 0-8"/><circle cx="8" cy="9" r="1.4" fill="currentColor"/><circle cx="15" cy="14" r="1.4" fill="currentColor"/><circle cx="9" cy="15" r="1.4" fill="currentColor"/></svg></div>
+        <div class="theme-empty-title">No custom themes yet</div>
+        <div class="theme-empty-sub">Tune colors in Customize, then Save — up to 8 slots.</div>
+        <button type="button" class="theme-io-btn theme-empty-cta" id="theme-empty-cta" style="max-width:180px;margin:8px auto 0;">Open Customize</button>
       </div>
     </div>
 
@@ -551,7 +566,7 @@
             <label class="theme-fd-label">Accent Color</label>
             <div class="color-row" style="justify-content:flex-start;gap:8px;">
               <input type="color" id="harmony-accent" value="#e06c75">
-              <span id="harmony-accent-hex" style="font-size:11px;opacity:0.65;font-family:ui-monospace,monospace;letter-spacing:0.02em;">#e06c75</span>
+              <span id="harmony-accent-hex" style="font-size:11px;opacity:0.65;letter-spacing:0.02em;">#e06c75</span>
             </div>
           </div>
           <div class="theme-fd-group">

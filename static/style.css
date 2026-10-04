@@ -6674,30 +6674,94 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
        card was removed). The inner .theme-tab-panel keeps overflow:auto, so
        any taller content still scrolls inside. */
     #theme-popup { overflow-y: hidden; max-height: min(85vh, 600px); }
+    /* Desktop-only width cap: the shared edge-resize helper restores the
+       persisted size with inline max-width:none (windowResize.js), which would
+       otherwise defeat a plain cap and let a previously-dragged-wide popup keep
+       rendering 7+ squat columns. !important beats that inline style; the
+       min-width media scope keeps the mobile full-bleed bottom sheet intact. */
+    @media (min-width: 769px) {
+      #theme-popup { max-width: min(620px, 94vw) !important; }
+    }
     #theme-popup .modal-header { flex-shrink: 0; }
     #theme-popup .admin-tabs { margin: 0 -10px 8px; padding: 0 10px; flex-shrink: 0; }
     .theme-tab-panel { overflow-y: auto; min-height: 0; flex: 1; padding-bottom: 10px; }
 
+    .theme-card-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+    .theme-card-head h2 { margin: 0; display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .theme-count { font-size: 11px; font-weight: 600; color: color-mix(in srgb, var(--fg) 60%, transparent); border: 1px solid var(--border); border-radius: 20px; padding: 1px 7px; letter-spacing: 0.02em; flex-shrink: 0; }
+    .theme-search-wrap { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: color-mix(in srgb, var(--fg) 60%, transparent); padding: 4px 8px; flex: 1 1 150px; min-width: 0; max-width: 220px; margin-left: auto; }
+    .theme-search-wrap:focus-within { border-color: var(--red); color: var(--fg); }
+    .theme-search-input { border: none; background: none; color: var(--fg); font-size: 12px; font-family: inherit; outline: none; width: 100%; min-width: 0; padding: 0; }
+    .theme-search-input::placeholder { color: color-mix(in srgb, var(--fg) 35%, transparent); }
+    .theme-no-results { font-size: 12px; color: color-mix(in srgb, var(--fg) 60%, transparent); padding: 8px 2px 12px; }
+    .theme-no-results.hidden { display: none; }
+    .theme-empty-state { text-align: center; padding: 16px 12px; }
+    .theme-empty-icon { display: flex; justify-content: center; color: color-mix(in srgb, var(--fg) 55%, transparent); margin-bottom: 6px; }
+    .theme-empty-title { font-size: 13px; font-weight: 600; color: var(--fg); margin-bottom: 4px; }
+    .theme-empty-sub { font-size: 12px; color: color-mix(in srgb, var(--fg) 60%, transparent); }
+    .theme-empty-cta { display: inline-block; }
     .theme-grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
-      gap: 6px; margin-bottom: 12px;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(min(104px, 100%), 1fr));
+      gap: 8px; margin-bottom: 12px;
     }
+    /* Narrow popup (dragged small / small viewport): search takes its own row,
+       tighter grid. Popup already sets container-type: inline-size, so an
+       unnamed container query tracks the popup width, not the viewport. */
+    @container (max-width: 420px) {
+      .theme-search-wrap { flex-basis: 100%; max-width: none; }
+      .theme-grid { gap: 6px; }
+    }
+    .theme-tab-panel { animation: theme-tab-in 160ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+    @keyframes theme-tab-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
     .theme-swatch {
-      border: 2px solid var(--border); border-radius: 8px; cursor: pointer;
-      padding: 5px; text-align: center; font-size: 0.65rem; color: var(--fg);
-      transition: border-color 0.15s, transform 0.15s;
+      appearance: none; -webkit-appearance: none;
+      background: color-mix(in srgb, var(--panel) 72%, var(--bg));
+      border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+      padding: 6px 6px 7px; text-align: center; font-size: 11px; font-family: inherit; color: var(--fg);
+      transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1), border-color 160ms cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+      position: relative;
     }
-    .theme-swatch:hover { transform: scale(1.06); }
+    .theme-swatch:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--red) 55%, var(--border)); box-shadow: 0 4px 12px color-mix(in srgb, var(--fg) 12%, transparent); }
+    .theme-swatch:active { transform: translateY(0); }
     .theme-swatch.active { border-color: var(--red); box-shadow: 0 0 0 2px color-mix(in srgb, var(--red) 33%, transparent); }
-    .theme-swatch-colors {
-      display: flex; justify-content: center; margin-bottom: 3px;
+    .theme-swatch:focus { outline: none; }
+    .theme-swatch:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+    .sw-preview {
+      position: relative; display: flex; flex-direction: column; height: 52px; border-radius: 6px; overflow: hidden;
+      background: var(--sw-bg); border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+      margin-bottom: 6px;
+      transition: box-shadow 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
     }
-    .theme-swatch-colors span {
-      width: 15px; height: 15px; border-radius: 50%;
-      margin-left: -5px;
-      border: 1.5px solid color-mix(in srgb, var(--fg) 12%, transparent);
+    .theme-swatch:hover .sw-preview { box-shadow: 0 0 0 1px color-mix(in srgb, var(--sw-accent) 38%, transparent); }
+    .theme-swatch.active .sw-preview { box-shadow: 0 0 0 1px color-mix(in srgb, var(--sw-accent) 55%, transparent); }
+    .sw-chrome { display: flex; align-items: center; gap: 3px; padding: 4px 5px; background: var(--sw-panel); border-bottom: 1px solid color-mix(in srgb, var(--sw-fg, var(--fg)) 14%, transparent); flex-shrink: 0; }
+    .sw-chrome i { width: 5px; height: 5px; border-radius: 50%; display: block; }
+    .sw-chrome i:nth-child(1) { background: var(--sw-accent); }
+    .sw-chrome i:nth-child(2) { background: color-mix(in srgb, var(--sw-fg, var(--fg)) 45%, transparent); }
+    .sw-chrome i:nth-child(3) { background: color-mix(in srgb, var(--sw-fg, var(--fg)) 28%, transparent); }
+    .sw-body { display: flex; flex: 1; min-height: 0; }
+    .sw-sidebar { width: 16px; flex-shrink: 0; background: var(--sw-panel); border-right: 1px solid color-mix(in srgb, var(--sw-fg, var(--fg)) 18%, transparent); }
+    .sw-main { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 5px 5px; justify-content: center; }
+    .sw-bubble { display: block; height: 5px; border-radius: 3px; }
+    .sw-bubble-user { width: 68%; align-self: flex-end; background: var(--sw-accent); }
+    .sw-bubble-ai { width: 86%; align-self: flex-start; background: color-mix(in srgb, var(--sw-fg, var(--fg)) 52%, transparent); }
+    .sw-code { display: flex; gap: 3px; margin-top: 1px; }
+    .sw-code i { display: block; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--sw-fg, var(--fg)) 30%, transparent); }
+    .sw-code i:nth-child(1) { width: 42%; }
+    .sw-code i:nth-child(2) { width: 28%; background: color-mix(in srgb, var(--sw-accent) 55%, transparent); }
+    .sw-accent-line { display: block; height: 2px; flex-shrink: 0; background: linear-gradient(90deg, var(--sw-accent), color-mix(in srgb, var(--sw-accent) 30%, var(--sw-bg))); }
+    .sw-check {
+      position: absolute; right: 4px; bottom: 6px; width: 16px; height: 16px; border-radius: 50%;
+      background: var(--red); color: var(--bg); display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 1px 3px color-mix(in srgb, var(--bg) 40%, transparent);
+      opacity: 0; transform: scale(0.5);
+      transition: opacity 160ms cubic-bezier(0.22, 0.61, 0.36, 1), transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
     }
-    .theme-swatch-colors span:first-child { margin-left: 0; }
+    .theme-swatch.active .sw-check { opacity: 1; transform: scale(1); }
+    .theme-swatch-wrap { position: relative; display: block; }
+    .theme-swatch-wrap .theme-swatch { width: 100%; }
+    .theme-swatch-wrap .theme-delete-btn { top: 2px; right: 2px; }
+    .theme-swatch-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
     .theme-custom-label { font-size: 11px; font-weight: 600; color: color-mix(in srgb, var(--fg) 50%, transparent); text-transform: uppercase; letter-spacing: 0.06em; margin: 10px 0 6px; }
     .theme-custom { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
     .color-row { display: flex; align-items: center; gap: 4px; }
@@ -6734,40 +6798,36 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
       text-transform: uppercase; letter-spacing: 0.04em; margin: 6px 0 2px;
       border-top: 1px solid var(--border); padding-top: 6px;
     }
-    .theme-swatch[data-custom] { position: relative; overflow: visible; }
     /* Accent-coloured circular X — always visible (mobile-friendly), sits
-       INSIDE the swatch's top-right corner so it never crops into a
-       neighbouring swatch. */
+       INSIDE the wrap's top-right corner so it never crops into a
+       neighbouring swatch. Contrast-safe via bg token on red. */
     .theme-delete-btn {
       position: absolute;
-      top: -2px;
-      right: -2px;
+      top: 2px;
+      right: 2px;
       width: 20px;
       height: 20px;
       padding: 0;
       border: none;
       border-radius: 50%;
-      background: var(--accent, var(--red, #d92534));
-      color: #fff;
+      background: var(--red);
+      color: var(--bg);
       cursor: pointer;
       z-index: 2;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-      transition: transform 0.12s, background 0.12s;
+      box-shadow: 0 1px 3px color-mix(in srgb, var(--bg) 45%, transparent);
+      transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1), background 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
     }
+    .theme-delete-btn:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
     .theme-delete-btn:hover {
-      background: color-mix(in srgb, var(--accent, var(--red)) 80%, white);
+      background: color-mix(in srgb, var(--red) 80%, var(--fg));
       transform: scale(1.12);
     }
     .theme-delete-btn:active { transform: scale(0.95); }
     .theme-delete-btn svg {
       display: block;
-      /* Optical nudge — the X reads off-center inside the circle without it. */
-      position: relative;
-      left: 1px;
-      top: -1px;
     }
     .theme-save-row {
       display: flex; gap: 6px; margin-top: 8px;
@@ -6837,28 +6897,51 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
     .theme-fd-range::-webkit-slider-thumb {
       -webkit-appearance: none; appearance: none;
       width: 14px; height: 14px; border-radius: 50%;
-      background: var(--red); border: none; margin-top: -5px; cursor: pointer;
+      background: var(--red); border: 2px solid var(--panel); margin-top: -5px; cursor: pointer;
+      box-shadow: 0 0 0 1px var(--border);
+      transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
     }
+    .theme-fd-range::-webkit-slider-thumb:hover { transform: scale(1.15); }
     .theme-fd-range::-moz-range-thumb {
       width: 14px; height: 14px; border-radius: 50%;
-      background: var(--red); border: none; cursor: pointer;
+      background: var(--red); border: 2px solid var(--panel); cursor: pointer;
+      box-shadow: 0 0 0 1px var(--border);
+      transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
     }
     .theme-fd-range:focus { outline: none; }
+    .theme-fd-range:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--red); outline-offset: 2px; }
+    .theme-fd-range:focus-visible::-moz-range-thumb { outline: 2px solid var(--red); outline-offset: 2px; }
     /* Color Harmony Generator */
     .theme-harmony-row { display: flex; gap: 8px; align-items: flex-end; }
     .harmony-generate-btn {
-      padding: 5px 14px; border: 1px solid var(--red); border-radius: 6px;
+      padding: 6px 14px; border: 1px solid var(--red); border-radius: 6px;
       background: transparent; color: var(--red); cursor: pointer;
-      font-size: 12px; white-space: nowrap; transition: all 0.15s;
+      font-size: 12px; white-space: nowrap; transition: background 160ms cubic-bezier(0.22, 0.61, 0.36, 1), transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
       font-family: inherit; width: 100%;
     }
     .harmony-generate-btn:hover { background: color-mix(in srgb, var(--red) 11%, transparent); }
+    .harmony-generate-btn:active { transform: scale(0.98); }
+    .harmony-generate-btn:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
     .harmony-preview {
-      display: flex; height: 20px; border-radius: 6px; overflow: hidden;
+      display: flex; height: 28px; border-radius: 8px; overflow: hidden;
       margin-top: 8px; border: 1px solid var(--border);
     }
     .harmony-preview:empty { display: none; border: none; }
-    .harmony-preview span { flex: 1; }
+    .harmony-preview span { flex: 1; position: relative; cursor: pointer; transition: flex 160ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+    .harmony-preview span:hover { flex: 1.6; }
+    .harmony-preview span:focus { outline: none; }
+    .harmony-preview span:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--red); }
+    /* Customize rhythm + Peek toggle polish — 8px system, existing tokens only */
+    #theme-tab-customize .admin-card { margin-bottom: 8px; }
+    #theme-tab-customize .admin-card h2 { margin: 0 0 8px; }
+    .theme-opacity-wrap { transition: background 160ms cubic-bezier(0.22, 0.61, 0.36, 1), color 160ms cubic-bezier(0.22, 0.61, 0.36, 1), border-color 160ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+    .theme-opacity-wrap.active { border-color: var(--red); color: var(--red); }
+    @media (prefers-reduced-motion: reduce) {
+      .theme-tab-panel { animation: none; }
+      .theme-swatch, .theme-delete-btn, .harmony-generate-btn, .harmony-preview span, .theme-fd-range::-webkit-slider-thumb, .theme-fd-range::-moz-range-thumb, .sw-check, .sw-preview, .theme-opacity-wrap { transition: none; }
+      .theme-swatch:hover { transform: none; }
+      .theme-swatch:hover .sw-preview, .theme-swatch.active .sw-preview { box-shadow: none; }
+    }
     #theme-reset-btn {
       margin-top: 6px; width: 100%; padding: 6px; border: 1px solid var(--border);
       border-radius: 6px; background: var(--bg); color: var(--fg); cursor: pointer;
