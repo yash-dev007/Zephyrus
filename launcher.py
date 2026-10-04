@@ -53,7 +53,7 @@ if getattr(sys, 'frozen', False):
             y = (hs - h) // 2
             splash_root.geometry(f"{w}x{h}+{x}+{y}")
 
-            tk.Label(splash_root, text="⛵ Zephyrus", font=("Segoe UI", 22, "bold"), bg="#1a1c23", fg="#e06c75").pack(pady=(22, 2))
+            tk.Label(splash_root, text="Zephyrus", font=("Segoe UI", 22, "bold"), bg="#1a1c23", fg="#e06c75").pack(pady=(22, 2))
             tk.Label(splash_root, text="Launching background services...", font=("Segoe UI", 10), bg="#1a1c23", fg="#d1d4e0").pack(pady=2)
             tk.Label(splash_root, text="Please wait, this will take a few seconds.", font=("Segoe UI", 8, "italic"), bg="#1a1c23", fg="#5c6370").pack(pady=(12, 0))
 
@@ -66,8 +66,25 @@ if getattr(sys, 'frozen', False):
     threading.Thread(target=show_splash_instantly, daemon=True).start()
 
 
+def _logo_path():
+    # PyInstaller bundles static/ alongside the exe (see Zephyrus.spec);
+    # sys._MEIPASS points at the bundle dir when frozen, repo root otherwise.
+    base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, 'static', 'icons', 'Zep_LOGO.png')
+
+
 def create_tray_image():
-    # Generate a beautiful 64x64 icon matching Zephyrus brand red accent (#e06c75)
+    # Prefer the Zephyrus dragon logo; fall back to the drawn glyph if the
+    # bundled PNG is missing (e.g. partial installs).
+    try:
+        from PIL import Image
+        logo = _logo_path()
+        if os.path.exists(logo):
+            with Image.open(logo) as im:
+                return im.convert('RGBA').resize((64, 64), Image.LANCZOS)
+    except Exception:
+        pass
+    # Fallback: generate a 64x64 icon matching Zephyrus brand red accent (#e06c75)
     from PIL import Image, ImageDraw
     image = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
     dc = ImageDraw.Draw(image)

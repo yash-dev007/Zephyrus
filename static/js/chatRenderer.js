@@ -1460,16 +1460,6 @@ export function showWelcomeScreen() {
     _msg.style.height = '';
     _msg.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  // Re-trigger the L→R clip-wipe reveal on the welcome name each time the
-  // welcome screen is shown (new session, deleted last session, etc.) — without
-  // this, the CSS animation only fires on initial DOM insertion.
-  const wn = document.querySelector('.welcome-name');
-  if (wn) {
-    wn.style.animation = 'none';
-    // force reflow so the next assignment registers as a new animation
-    void wn.offsetHeight;
-    wn.style.animation = '';
-  }
   // Update send button — switches from + Chat to muted arrow on empty session
   if (window._updateSendBtnIcon) setTimeout(window._updateSendBtnIcon, 50);
   const ib = document.getElementById('incognito-btn');

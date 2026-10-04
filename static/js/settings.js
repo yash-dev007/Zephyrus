@@ -2799,7 +2799,7 @@ async function initReminderSettings() {
             new Notification('Test Reminder', {
               body: data.synthesis || 'This is a test reminder.',
               tag: 'reminder-test',
-              icon: '/static/favicon.ico',
+              icon: '/static/icons/icon-192.png',
             });
           } catch {}
         }

@@ -886,8 +886,8 @@ async def serve_calendar(request: Request):
 
 # Per-tool deep-link routes — all serve the same SPA, the JS auto-opens
 # the matching modal based on window.location.pathname. Each route also
-# gets a unique favicon + page title via inline script in index.html so
-# bookmarks render with tool-specific icons.
+# gets a unique page title via inline script in index.html so bookmarks
+# render with tool-specific names.
 @app.get("/cookbook")
 async def serve_cookbook(request: Request):
     return await serve_index(request)

@@ -385,7 +385,7 @@ window.addEventListener('pageshow', clearFreshComposerRestore);
 }
 
 /* ── Release welcome-screen entrance animations once the page is settled ──
-   The splash's entrance animations (#welcome-screen / .welcome-name) are held
+   The splash's entrance animations (#welcome-screen) are held
    by CSS (`body:not(.welcome-ready)`) until this runs, so they no longer play
    while fonts are loading and the layout is still shifting on first paint
    (which made the splash "go haywire"). We flip the flag after fonts are ready

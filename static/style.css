@@ -272,34 +272,7 @@ body.bg-pattern-sparkles {
       background: color-mix(in srgb, var(--accent) 20%, transparent);
     }
 
-    .chat-new-btn {
-      position: absolute;
-      right: 7px;
-      top: 50%;
-      transform: translateY(-50%);
-      background: none;
-      border: none;
-      color: var(--fg);
-      opacity: 0.6;
-      cursor: pointer;
-      padding: 4px;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: opacity 0.08s, background 0.08s, left 0.15s, right 0.15s;
-      flex-shrink: 0;
-      z-index: 1;
-    }
-    .chat-new-btn:hover {
-      opacity: 1;
-      color: var(--accent);
-    }
-    /* Flip new-chat and incognito when sidebar is on the right */
-    body:has(.sidebar.right-side) .chat-new-btn {
-      right: auto;
-      left: 12px;
-    }
+    /* Flip incognito when sidebar is on the right */
     body:has(.sidebar.right-side) .incognito-indicator {
       left: auto;
       right: 12px;
@@ -566,7 +539,7 @@ body.bg-pattern-sparkles {
       align-items: center;
       justify-content: flex-end; /* right-align when sidebar is on left */
       gap: 8px;
-      padding: 15px 10px 0 40px; /* top padding aligns logo with fixed hamburger */
+      padding: 7px 10px 0 40px; /* top padding centers 40px logo on fixed hamburger */
       flex-shrink: 0;
       min-height: 40px;
       border: none !important;
@@ -590,23 +563,6 @@ body.bg-pattern-sparkles {
       padding: 10px 8px 8px;
       min-height: 0;
       transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-    }
-    .sidebar-brand {
-      display: flex;
-      align-items: center;
-      flex-shrink: 0;
-      min-height: 24px;
-    }
-    .sidebar-brand-title {
-      font-size: 1rem;
-      font-weight: 600;
-      line-height: 1.35;
-      color: var(--brand-color, var(--red));
-      white-space: nowrap;
-      user-select: none;
-      position: relative;
-      top: 0;
-      left: -10px;
     }
     .sidebar-sep {
       display: none;
@@ -632,13 +588,6 @@ body.bg-pattern-sparkles {
     }
     .sidebar.right-side .sidebar-inner {
       padding: 8px;
-    }
-    .sidebar.right-side .sidebar-brand {
-      justify-content: flex-start;
-      padding: 2px 30px 4px 4px;
-    }
-    .sidebar.right-side .sidebar-brand-title {
-      margin-left: 10px;
     }
     /* Fixed hamburger — always visible, toggles sidebar */
     .hamburger-btn {
@@ -1903,7 +1852,6 @@ body.bg-pattern-sparkles {
     }
     @media (max-height: 500px) {
       #welcome-screen { top: 22%; }
-      #welcome-screen .welcome-name { font-size: 1.4rem; margin-bottom: 0; }
       #welcome-screen .welcome-sub { opacity: 0; max-height: 0; margin: 0; }
       .incognito-btn { margin-top: 4px !important; }
     }
@@ -1918,26 +1866,14 @@ body.bg-pattern-sparkles {
     }
     @media (max-width: 768px) {
       #welcome-screen { top: 42%; }
-      #welcome-screen .welcome-name { margin-bottom: 2px; }
       #welcome-screen .welcome-sub { margin-bottom: 0; }
       #welcome-screen .incognito-btn { margin-top: 6px; }
     }
-    #welcome-screen .welcome-name {
-      font-size:2.2rem;
-      font-weight:700;
-      background: linear-gradient(135deg, var(--brand-color, var(--red)), color-mix(in srgb, var(--brand-color, var(--red)) 60%, var(--fg)));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-      letter-spacing:0.03em;
-      margin-bottom:10px;
-    }
-    .welcome-boat {
-      width: 1.8rem;
-      height: 1.8rem;
-      margin-right: 0.4rem;
-      vertical-align: -0.15em;
-      color: var(--brand-color, var(--red));
+    #welcome-screen .welcome-logo {
+      display:block;
+      width:min(420px, 80vw);
+      height:auto;
+      margin:0 auto 16px;
     }
     #welcome-screen .welcome-sub {
       font-size:0.85rem;
@@ -2009,7 +1945,6 @@ body.bg-pattern-sparkles {
       width: 100%;
     }
     @media (max-width:768px) {
-      #welcome-screen .welcome-name { font-size:1.8rem; }
       #welcome-screen .welcome-sub { font-size:0.8rem; }
       .chat-container.welcome-active .chat-input-bar {
         margin-bottom:0;
@@ -4346,12 +4281,8 @@ body.bg-pattern-sparkles {
       }
       /* Sidebar header — room for hamburger */
       .sidebar-header {
-        padding: 18px 12px 8px 12px;
+        padding: 7px 12px 8px 12px;
         min-height: 44px;
-      }
-      .sidebar-brand-title {
-        font-size: 1.2rem;
-        left: 0 !important;
       }
       /* Sidebar inner — bigger spacing */
       .sidebar-inner {
@@ -4416,7 +4347,6 @@ body.bg-pattern-sparkles {
         margin-top: -31px;
         padding-top: 31px;
       }
-      .chat-top-bar .chat-new-btn { display: none; }
       .chat-meta-overlay { font-size: 0.65em; max-width: 55%; overflow: visible; left: 50%; top: 50%; transform: translate(-50%, -50%); position: absolute; }
       .chat-meta-overlay .export-dl-btn { display: inline-flex; }
       /* Incognito — smaller on mobile */
@@ -23497,21 +23427,13 @@ body.gallery-selecting .gallery-dl-btn,
 
 /* ── Entrance Animations ── */
 
-/* Welcome name — left-to-right wipe with a touch of horizontal stretch.
-   Fires on initial render via the .welcome-name rule; restarts on Nobody⇄
-   Zephyrus toggle via JS reflow trick. */
-.welcome-name {
-  transform-origin: left center;
-  animation: welcome-name-reveal 0.55s cubic-bezier(0.34, 1.32, 0.55, 1) both;
-}
 /* Hold the welcome-screen entrance animations until the app has finished its
    initial load (fonts loaded + layout settled). Running them mid-load made the
    splash jump/flicker as the page reflowed ("haywire"). Until body.welcome-ready
    is set by JS, the splash sits in its final, static state (no flash, since the
    non-animated state IS the resting state); adding the class then plays the
    entrance once, cleanly. */
-body:not(.welcome-ready) #welcome-screen,
-body:not(.welcome-ready) .welcome-name {
+body:not(.welcome-ready) #welcome-screen {
   animation: none !important;
 }
 /* Hold the splash invisible (the entrance's start state) until ready, so when
@@ -23519,18 +23441,6 @@ body:not(.welcome-ready) .welcome-name {
    from fully-visible to the animation's hidden first frame. */
 body:not(.welcome-ready) #welcome-screen {
   opacity: 0;
-}
-@keyframes welcome-name-reveal {
-  from {
-    clip-path: inset(0 100% 0 0);
-    transform: scaleX(0.96);
-    opacity: 0.5;
-  }
-  to {
-    clip-path: inset(0 0 0 0);
-    transform: scaleX(1);
-    opacity: 1;
-  }
 }
 
 @keyframes welcome-enter {
