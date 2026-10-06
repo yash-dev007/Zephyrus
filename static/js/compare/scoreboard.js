@@ -2,8 +2,8 @@
 import Storage from '../storage.js';
 import state from './state.js';
 import { VOTES_STORAGE_KEY } from './icons.js';
-import themeModule from '../theme.js';
 import uiModule from '../ui.js';
+import { makeWindowDraggable } from '../windowDrag.js';
 
 const escapeHtml = uiModule.esc;
 
@@ -215,9 +215,7 @@ export function showScoreboard() {
   overlay.appendChild(content);
   document.body.appendChild(overlay);
 
-  if (themeModule && themeModule.makeDraggable) {
-    themeModule.makeDraggable(content, header);
-  }
+  makeWindowDraggable(overlay, { content, header });
 }
 
 export default { showScoreboard };

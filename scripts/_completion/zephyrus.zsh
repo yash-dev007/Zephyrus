@@ -1,4 +1,4 @@
-﻿#compdef zephyrus zephyrus-backup zephyrus-calendar zephyrus-contacts zephyrus-cookbook zephyrus-docs zephyrus-gallery zephyrus-mail zephyrus-mcp zephyrus-memory zephyrus-notes zephyrus-personal zephyrus-preset zephyrus-research zephyrus-sessions zephyrus-signature zephyrus-skills zephyrus-tasks zephyrus-theme zephyrus-webhook
+﻿#compdef zephyrus zephyrus-backup zephyrus-calendar zephyrus-contacts zephyrus-cookbook zephyrus-docs zephyrus-gallery zephyrus-mail zephyrus-mcp zephyrus-memory zephyrus-notes zephyrus-personal zephyrus-preset zephyrus-research zephyrus-sessions zephyrus-signature zephyrus-skills zephyrus-tasks zephyrus-webhook
 # Zsh tab-completion for the zephyrus umbrella + sub-CLIs.
 #
 # Drop in any directory on $fpath, e.g.:

@@ -2,9 +2,9 @@
  * Deep Research side panel — open/close, form, job rendering, library.
  */
 import * as jobs from './jobs.js?v=20260630researchthumb';
-import themeModule from '../theme.js';
 import createResearchSynapse from '../researchSynapse.js';
 import spinnerModule from '../spinner.js';
+import { makeWindowDraggable } from '../windowDrag.js';
 import { sortModelIds } from '../modelSort.js';
 
 // Rotating research textarea placeholders — pick one at random each
@@ -289,8 +289,8 @@ export function openPanel(focusJobId) {
 
   // Make the pane draggable by its header — same pattern as Library/Calendar.
   const paneHeader = pane.querySelector('.research-pane-header');
-  if (themeModule && themeModule.makeDraggable && paneHeader) {
-    themeModule.makeDraggable(pane, paneHeader);
+  if (paneHeader) {
+    makeWindowDraggable(overlay, { content: pane, header: paneHeader });
   }
 
   _wireEvents(pane);

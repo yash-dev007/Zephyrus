@@ -525,7 +525,7 @@ If the user asks for a reminder/alarm before the event, pass `reminder_minutes` 
     "send_to_session": "- ```send_to_session``` — Send a message to another session. Line 1 = session_id, rest = message. Use for orchestrating work across sessions.",
     "search_chats": "- ```search_chats``` — Search past session transcripts for direct conversation evidence. Use when user asks 'did we discuss X?', 'find the conversation about Y', or when prior chat context is more appropriate than persistent memory.",
     "pipeline": "- ```pipeline``` — Run a multi-step AI pipeline. Args (JSON) with ordered steps, each specifying a model and prompt. Use for complex workflows.",
-    "ui_control": "- ```ui_control``` — Control the UI: toggle tools on/off, OPEN PANELS, open email reply drafts, switch models, change themes. Commands: `toggle <name> on/off` (names: bash/shell, web/search, research, incognito, document_editor/documents), `open_panel <name>` (panels: documents, gallery, email, sessions, notes, memories/brain, skills, settings, cookbook), `open_email_reply <uid> <folder> <reply|reply-all|ai-reply> <body text>` (opens an email compose document pre-filled with body, DOES NOT send; use this for normal “write/draft a reply saying X” requests), `set_mode agent/chat`, `switch_model <name>`, `set_theme <preset>`, `create_theme <name> <bg> <fg> <panel> <border> <accent>` (optional key=val for advanced colors AND background effects: bgPattern=<none|dots|synapse|rain|constellations|perlin-flow|petals|sparkles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num>, bgEffectSize=<num>, frosted=true|false). \"open documents\" / \"open library\" / \"show gallery\" / \"open inbox\" / \"open notes\" / \"open cookbook\" all map to `open_panel <name>`. Built-in theme presets: dark, light, midnight, paper, cyberpunk, retrowave, forest, ocean, ume, copper, terminal, organs, lavender, gpt, claude, cute. For any other vibe/name, use create_theme.",
+    "ui_control": "- ```ui_control``` — Control the UI: toggle tools on/off, OPEN PANELS, open email reply drafts, switch models. Commands: `toggle <name> on/off` (names: bash/shell, web/search, research, incognito, document_editor/documents), `open_panel <name>` (panels: documents, gallery, email, sessions, notes, memories/brain, skills, settings, cookbook), `open_email_reply <uid> <folder> <reply|reply-all|ai-reply> <body text>` (opens an email compose document pre-filled with body, DOES NOT send; use this for normal “write/draft a reply saying X” requests), `set_mode agent/chat`, `switch_model <name>`. \"open documents\" / \"open library\" / \"show gallery\" / \"open inbox\" / \"open notes\" / \"open cookbook\" all map to `open_panel <name>`.",
     "ask_user": "- ```ask_user``` — Ask the user a multiple-choice question when the task is genuinely ambiguous and the answer changes what you do next (pick an approach, confirm an assumption, choose a target). Args (JSON): {\"question\": \"...\", \"options\": [{\"label\": \"...\", \"description\": \"...\"?}, ...], \"multi\": false?}. 2-6 options. The user gets clickable buttons; calling this ENDS your turn and their choice comes back as your next message. Prefer sensible defaults — only ask when you truly can't proceed well without their input.",
     "update_plan": "- ```update_plan``` — While executing an approved plan, write the plan back: tick steps done or revise them. Args (JSON): {\"plan\": \"- [x] done step\\n- [ ] next step\"}. Always pass the COMPLETE checklist, not a diff. Call it after finishing each step (mark it `- [x]`) and whenever the user asks to change the plan. The user's docked plan window updates live. Does nothing if there's no active plan.",
     "list_served_models": "- ```list_served_models``` — Show what the Cookbook (LLM-serving subsystem) is currently running. NO args. Use this for ANY 'what's running' / 'what's serving' / 'show my cookbook' / 'is anything up' query. DO NOT shell out (`ps aux`, `docker ps`, etc.) — this tool is the source of truth. Failed serve tasks include recent logs plus diagnosis/retry suggestions; use those suggestions to call `serve_model` again with an adjusted command when appropriate.",
@@ -543,7 +543,7 @@ If the user asks for a reminder/alarm before the event, pass `reminder_minutes` 
 ```
 GENERIC LOOPBACK to allowed Zephyrus internal endpoints. Use this whenever the user wants something the UI can do but there's NO named tool for it. Many UI buttons hit /api/* endpoints — you can hit allowed ones. Auth is handled automatically.
 
-**Discovery first.** If you're not sure of the path, call `{"action":"endpoints","filter":"<keyword>"}` (e.g. filter='calendar' or 'gallery' or 'theme') to list available endpoints with their methods + summaries. Then call with action='call'.
+**Discovery first.** If you're not sure of the path, call `{"action":"endpoints","filter":"<keyword>"}` (e.g. filter='calendar' or 'gallery') to list available endpoints with their methods + summaries. Then call with action='call'.
 
 **Common surfaces (use `endpoints` with filter to discover the full set per domain):**
 - Calendar: `/api/calendar/events`, `/api/calendar/calendars`, `/api/calendar/events/{uid}`
@@ -554,7 +554,6 @@ GENERIC LOOPBACK to allowed Zephyrus internal endpoints. Use this whenever the u
 - Notes: `/api/notes`, `/api/notes/{id}`
 - Tasks: `/api/tasks`, `/api/tasks/{id}/run`, `/api/tasks/notifications`
 - Sessions: `/api/sessions`, `/api/session/{id}`, `/api/session/{id}/truncate`
-- Themes: `/api/prefs/themes`, `/api/prefs/custom-themes`
 - Settings: `/api/settings`, `/api/prefs/{key}`
 - Research: `/api/research/start`, `/api/research/tasks` (note: `/api/research/report/{id}` renders HTML — to READ a report's text use the `manage_research` tool with `action:read`, not this endpoint)
 - Compare: `/api/compare/sessions`, `/api/compare/start`
@@ -765,7 +764,7 @@ _ADMIN_KEYWORDS = [
     "webhook", "webhooks", "token", "tokens", "mcp", "server", "skill", "skills",
     "task", "tasks", "schedule", "cron", "setting", "settings", "preference",
     "configure", "config", "setup", "manage", "admin", "pipeline", "second opinion",
-    "list models", "switch model", "change model", "theme", "create theme",
+    "list models", "switch model", "change model",
     # Documents — "show/list/read my docs", "open my notes file", etc.
     # Without these, manage_documents never reaches the prompt and the
     # agent flails (curl, bash) instead of using the right tool.
@@ -1040,7 +1039,7 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
         domains.add("web")
     if has(r"\b(research|deep dive|investigate|look into)\b"):
         domains.add("web")
-    if has(r"\b(open|show|toggle|turn on|turn off|disable|enable|switch model|change model|settings|theme|panel)\b"):
+    if has(r"\b(open|show|toggle|turn on|turn off|disable|enable|switch model|change model|settings|panel)\b"):
         domains.add("ui")
     if has(r"\b(session|chat history|rename chat|delete chat|archive chat|fork chat|list chats)\b"):
         domains.add("sessions")
@@ -4253,7 +4252,6 @@ async def stream_agent_loop(
                 tool_output_data["ui_event"] = result["ui_event"]
                 for k in (
                     "toggle_name", "state", "mode", "model", "endpoint_url",
-                    "theme_name", "colors",
                     # ui_control open_email_reply payload — without these the
                     # frontend openReplyDraft bails on undefined uid and the
                     # reply window silently never opens.

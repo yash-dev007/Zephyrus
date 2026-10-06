@@ -14,7 +14,7 @@
 
 - Imports all feature modules.
 - Exposes a few modules on `window` for legacy inter-module reachability
-  (`themeModule`, `sessionModule`, `uiModule`, `adminModule`, `cookbookModule`).
+  (`sessionModule`, `uiModule`, `adminModule`, `cookbookModule`).
 - Patches `fetch` so any `401` redirects the user to `/login`.
 - Fetches the default chat configuration and handles deep-link route openers
   (`/notes`, `/calendar`, `/email`, `/memory`, `/gallery`, `/cookbook`, `/library`, `/tasks`).
@@ -24,8 +24,9 @@
 - Loads auth status and applies per-user privilege restrictions.
 
 ### `static/index.html`
-*SPA shell.* Loads `app.js` as a module, includes the theme-aware inline script,
-and defines the DOM skeleton that the modules populate (chat history, composer,
+*SPA shell.* Loads `app.js` and `bgEffect.js` as modules, includes an inline
+head script that applies the font / density / text-size preferences early, and
+defines the DOM skeleton that the modules populate (chat history, composer,
 sidebar, icon rail, modals).
 
 ---
@@ -84,9 +85,8 @@ The largest and most central subsystem. Chat submission → backend SSE → prog
 | **`providerDeviceFlow.js`** | OAuth device-flow support for providers. |
 | **`presets.js`** | Character/preset selection, custom preset saving, inject prefix/suffix handling. |
 | **`search.js`** | Web-search settings, provider selection, API key management. |
-| **`settings.js`** | Settings panel (models, search, appearance, users, MCP, RAG, embedding, tokens). |
+| **`settings.js`** | Settings panel (models, search, appearance, users, MCP, RAG, embedding, tokens). Appearance owns the runtime `--font-family` write onto `document.documentElement` and the density / UI-scale classes; `--font-ui` and `--font-content` in `static/style.css` derive from that one property, so a font pick here still wins over both. |
 | **`admin.js`** | Admin panel and privileged user/endpoint configuration. |
-| **`theme.js`** | Theme presets, custom colors, fonts, backgrounds, live theme switching. |
 
 ---
 
@@ -159,6 +159,7 @@ The largest and most central subsystem. Chat submission → backend SSE → prog
 |---|---|
 | **`compare/index.js`** (with `compare/state.js`, `compare/stream.js`, `compare/panes.js`, `compare/selector.js`, `compare/scoreboard.js`, `compare/probe.js`, `compare/vote.js`, `compare/icons.js`) | Model compare mode: parallel streams, panes, scoring, vote UI. |
 | **`censor.js`** | Text/image censor overlay toggles. |
+| **`bgEffect.js`** | Perlin-flow background effect. Owns the app's only background pattern and auto-spawns on DOM ready; the draw loop self-terminates when its body class is removed. |
 | **`a11y.js`** | Accessibility helpers. |
 | **`platform.js`** | Platform detection (macOS/Windows/Linux) and keyboard-modifier helpers. |
 | **`escMenuStack.js`** | Stack manager for dismissible popups. |

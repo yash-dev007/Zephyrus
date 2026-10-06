@@ -3,7 +3,6 @@
 
 // ── Key constants ──
 export const KEYS = {
-  THEME: 'zephyrus-theme',
   TOGGLES: 'zephyrus-toggles',
   SIDEBAR_COLLAPSED: 'sidebar-collapsed',
   SIDEBAR_WIDTH: 'sidebar-width',
@@ -25,6 +24,8 @@ export const KEYS = {
   ADMIN_LAST_TAB: 'admin-last-tab',
   DENSITY: 'zephyrus-density',
   UI_SCALE: 'zephyrus-ui-scale',
+  FONT: 'zephyrus-font',
+  BG_EFFECT: 'zephyrus-bg-effect',
   WORKSPACE: 'zephyrus-workspace'
 };
 

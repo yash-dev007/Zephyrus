@@ -425,43 +425,18 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "ui_control",
-            "description": "Control the user interface. Actions: toggle (turn tools on/off), open_panel (open a modal: documents/library, gallery, email, sessions, notes, memories/brain, skills, settings, cookbook), open_email_reply (open an email reply draft document; DOES NOT send. For 'write/draft a reply saying X', include body with the drafted reply), set_mode, switch_model, set_theme (built-in presets: dark, light, midnight, paper, cyberpunk, retrowave, forest, ocean, ume, copper, terminal, organs, lavender, gpt, claude, cute), create_theme (CREATE any custom theme with a name + colors object — pick distinctive, evocative hex colors that match the requested aesthetic, NOT generic defaults. The theme auto-applies after creation). When a user asks for ANY theme not in the built-in preset list, ALWAYS use create_theme.",
+            "description": "Control the user interface. Actions: toggle (turn tools on/off), open_panel (open a modal: documents/library, gallery, email, sessions, notes, memories/brain, skills, settings, cookbook), open_email_reply (open an email reply draft document; DOES NOT send. For 'write/draft a reply saying X', include body with the drafted reply), set_mode, switch_model, get_toggles.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["toggle", "open_panel", "open_email_reply", "set_mode", "switch_model", "set_theme", "create_theme", "get_toggles"],
-                               "description": "The UI action. Use set_theme for presets, create_theme to build a custom theme with any hex colors"},
-                    "name": {"type": "string", "description": "For toggle: web, bash, research, incognito, document_editor (aliases: shell, search, deepresearch, documents). For open_panel: documents, gallery, email, sessions, notes, brain/memories, skills, settings, cookbook. For open_email_reply: email UID. For set_theme: a preset theme name. For create_theme: the custom theme name."},
-                    "value": {"type": "string", "description": "Value: on/off for toggle, agent/chat for set_mode, model name for switch_model, theme name for set_theme, or folder for open_email_reply"},
+                    "action": {"type": "string", "enum": ["toggle", "open_panel", "open_email_reply", "set_mode", "switch_model", "get_toggles"],
+                               "description": "The UI action"},
+                    "name": {"type": "string", "description": "For toggle: web, bash, research, incognito, document_editor (aliases: shell, search, deepresearch, documents). For open_panel: documents, gallery, email, sessions, notes, brain/memories, skills, settings, cookbook. For open_email_reply: email UID."},
+                    "value": {"type": "string", "description": "Value: on/off for toggle, agent/chat for set_mode, model name for switch_model, or folder for open_email_reply"},
                     "uid": {"type": "string", "description": "Email UID for open_email_reply"},
                     "folder": {"type": "string", "description": "Email folder for open_email_reply (default INBOX)"},
                     "mode": {"type": "string", "description": "Reply draft mode for open_email_reply: reply, reply-all, or ai-reply"},
-                    "body": {"type": "string", "description": "For open_email_reply: reply body to pre-fill. Required whenever the user told you what the reply should say. Opens a draft, does not send."},
-                    "colors": {"type": "object", "description": "For create_theme: the theme colors",
-                               "properties": {
-                                   "bg": {"type": "string", "description": "Background color (hex, e.g. #1a1a2e)"},
-                                   "fg": {"type": "string", "description": "Foreground/text color (hex)"},
-                                   "panel": {"type": "string", "description": "Panel/sidebar background color (hex)"},
-                                   "border": {"type": "string", "description": "Border/divider color (hex)"},
-                                   "accent": {"type": "string", "description": "Accent color for buttons, brand, highlights (hex)"},
-                                   "userBubbleBg": {"type": "string", "description": "User chat bubble background (hex, optional)"},
-                                   "aiBubbleBg": {"type": "string", "description": "AI chat bubble background (hex, optional)"},
-                                   "bubbleBorder": {"type": "string", "description": "Chat bubble border color (hex, optional)"},
-                                   "sidebarBg": {"type": "string", "description": "Sidebar background override (hex, optional)"},
-                                   "sectionAccent": {"type": "string", "description": "Section header accent color (hex, optional)"},
-                                   "brandColor": {"type": "string", "description": "Brand/logo color (hex, optional)"},
-                                   "inputBg": {"type": "string", "description": "Chat input background (hex, optional)"},
-                                   "inputBorder": {"type": "string", "description": "Chat input border (hex, optional)"},
-                                   "sendBtnBg": {"type": "string", "description": "Send button background (hex, optional)"},
-                                   "sendBtnHover": {"type": "string", "description": "Send button hover color (hex, optional)"},
-                                   "codeBg": {"type": "string", "description": "Code block background (hex, optional)"},
-                                   "codeFg": {"type": "string", "description": "Code block text color (hex, optional)"},
-                                   "toggleBg": {"type": "string", "description": "Toggle switch off background (hex, optional)"},
-                                   "toggleActive": {"type": "string", "description": "Toggle switch on color (hex, optional)"},
-                                   "accentPrimary": {"type": "string", "description": "Primary accent override (hex, optional)"},
-                                   "accentError": {"type": "string", "description": "Error/danger color (hex, optional)"}
-                               },
-                               "required": ["bg", "fg", "panel", "border", "accent"]}
+                    "body": {"type": "string", "description": "For open_email_reply: reply body to pre-fill. Required whenever the user told you what the reply should say. Opens a draft, does not send."}
                 },
                 "required": ["action"]
             }
@@ -971,7 +946,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "app_api",
-            "description": "Generic loopback to allowed internal Zephyrus endpoints. Use this when there's no named tool for what the user wants. Hits the same routes the UI buttons hit (cookbook, gallery, library/documents, memory, notes, calendar, tasks, settings, themes, research, compare, etc.). action='endpoints' returns the OpenAPI surface (use `filter` to narrow). action='call' (default) takes method+path+body. Sensitive auth/user/admin/shell paths and host-control Cookbook mutation routes are blocked for safety. Do not use for shell commands; use named command tooling instead. Do not use for package installs, engine rebuilds, PID signalling, or email account discovery; use list_email_accounts for email accounts because /api/email/accounts is owner-filtered in tool context.",
+            "description": "Generic loopback to allowed internal Zephyrus endpoints. Use this when there's no named tool for what the user wants. Hits the same routes the UI buttons hit (cookbook, gallery, library/documents, memory, notes, calendar, tasks, settings, research, compare, etc.). action='endpoints' returns the OpenAPI surface (use `filter` to narrow). action='call' (default) takes method+path+body. Sensitive auth/user/admin/shell paths and host-control Cookbook mutation routes are blocked for safety. Do not use for shell commands; use named command tooling instead. Do not use for package installs, engine rebuilds, PID signalling, or email account discovery; use list_email_accounts for email accounts because /api/email/accounts is owner-filtered in tool context.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1472,27 +1447,6 @@ def function_call_to_tool_block(name: str, arguments: str) -> Optional[ToolBlock
             content = f"set_mode {value or name}"
         elif action == "switch_model":
             content = f"switch_model {value or name}"
-        elif action == "set_theme":
-            content = f"set_theme {value or name}"
-        elif action == "create_theme":
-            colors = args.get("colors", {})
-            theme_name = name or value or "custom"
-            bg = colors.get("bg", "#282c34")
-            fg = colors.get("fg", "#9cdef2")
-            panel = colors.get("panel", "#111111")
-            border = colors.get("border", "#355a66")
-            accent = colors.get("accent", "#e06c75")
-            content = f"create_theme {theme_name} {bg} {fg} {panel} {border} {accent}"
-            # Append advanced overrides as key=value
-            adv_keys = [
-                "userBubbleBg", "aiBubbleBg", "bubbleBorder", "sidebarBg",
-                "sectionAccent", "brandColor", "inputBg", "inputBorder",
-                "sendBtnBg", "sendBtnHover", "codeBg", "codeFg",
-                "toggleBg", "toggleActive", "accentPrimary", "accentError",
-            ]
-            for ak in adv_keys:
-                if colors.get(ak):
-                    content += f" {ak}={colors[ak]}"
         else:
             content = action
     elif tool_type in ("manage_tasks", "manage_skills", "api_call",

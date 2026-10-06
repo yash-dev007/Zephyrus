@@ -4,7 +4,6 @@
  * UI utilities for toasts, modals, scrolling, and user feedback
  */
 
-import themeModule from './theme.js';
 import * as Modals from './modalManager.js';
 import spinnerModule from './spinner.js';
 import { registerMenuDismiss, dismissTopMenu, dismissOrRemove } from './escMenuStack.js';
@@ -870,8 +869,7 @@ if (typeof window !== 'undefined') {
 // blocking any inline style changes. We clear it once the animation completes.
 if ('ontouchstart' in window || window.innerWidth <= 768) {
   document.addEventListener('animationend', (e) => {
-    if (e.animationName === 'sheet-enter' &&
-        (e.target.classList.contains('modal-content') || e.target.id === 'theme-popup')) {
+    if (e.animationName === 'sheet-enter' && e.target.classList.contains('modal-content')) {
       e.target.classList.add('sheet-ready');
     }
   });
@@ -881,7 +879,7 @@ if ('ontouchstart' in window || window.innerWidth <= 768) {
       if (m.type === 'attributes' && m.attributeName === 'class') {
         const modal = m.target;
         if (modal.classList.contains('modal') && !modal.classList.contains('hidden')) {
-          const content = modal.querySelector('.modal-content') || modal.querySelector('#theme-popup');
+          const content = modal.querySelector('.modal-content');
           if (content) {
             content.classList.remove('sheet-ready', 'modal-closing');
           }
@@ -921,8 +919,7 @@ if ('ontouchstart' in window) {
   }
 
   document.addEventListener('touchstart', (e) => {
-    // Match .modal-content or #theme-popup (which acts as modal-content but uses its own ID)
-    const content = e.target.closest('.modal-content') || e.target.closest('#theme-popup');
+    const content = e.target.closest('.modal-content');
     if (!content) return;
 
     // The image editor owns all touches inside its container so the user

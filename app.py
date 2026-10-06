@@ -266,6 +266,7 @@ if AUTH_ENABLED:
         "/api/health",
         "/api/version",
         "/login",
+        "/favicon.ico",
     }
     AUTH_EXEMPT_PREFIXES = ["/static"]
     # Dynamic paths whose own handler proves identity via a path-embedded
@@ -922,6 +923,24 @@ async def serve_login(request: Request):
     if not AUTH_ENABLED:
         return RedirectResponse(url="/", status_code=302)
     return serve_html_with_nonce(request, abs_join(BASE_DIR, "static/login.html"))
+
+@app.get("/favicon.ico")
+async def serve_favicon():
+    """Serve the site favicon. Browsers request /favicon.ico automatically
+    when a page has no explicit icon (or as a fallback), so this must exist
+    even though index.html / login.html link the PNG directly.
+
+    The real .ico is preferred so the response's content-type matches the
+    requested extension; the PNG is the fallback for installs without one.
+    """
+    for candidate, media_type in (
+        ("static/icon.ico", "image/x-icon"),
+        ("static/icons/favicon-32x32.png", "image/png"),
+    ):
+        fav_path = abs_join(BASE_DIR, candidate)
+        if os.path.exists(fav_path):
+            return FileResponse(fav_path, media_type=media_type)
+    raise HTTPException(status_code=404, detail="Favicon not found")
 
 @app.get("/api/version")
 async def get_version():

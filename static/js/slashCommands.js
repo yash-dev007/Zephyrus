@@ -15,7 +15,6 @@ import sessionModule from './sessions.js';
 import modelsModule from './models.js';
 import chatRenderer from './chatRenderer.js';
 import spinnerModule from './spinner.js';
-import themeModule from './theme.js';
 import documentModule from './document.js';
 import workspaceModule from './workspace.js';
 import settingsModule from './settings.js';
@@ -759,7 +758,7 @@ async function handleSetupInput(input) {
 }
 
 /**
- * Handle setup wizard sub-modes (endpoint, theme, features).
+ * Handle setup wizard sub-modes (endpoint, features).
  */
 async function handleSetupWizard(mode, input) {
   if (mode === 'endpoint-provider-first') {
@@ -856,24 +855,6 @@ async function handleSetupWizard(mode, input) {
   }
 
   _addMessage('user', input);
-
-  if (mode === 'theme') {
-    const name = input.trim().toLowerCase();
-    const tm = themeModule;
-    const custom = tm && tm.getCustomThemes ? tm.getCustomThemes() : {};
-    const colors = (tm && tm.THEMES && tm.THEMES[name]) || custom[name];
-    if (tm && colors) {
-      tm.applyColors(colors);
-      tm.save(name, colors);
-      await typewriterReply(`Theme switched to "${name}".`);
-    } else if (tm && tm.applyTheme) {
-      tm.applyTheme(name);
-      await typewriterReply(`Theme switched to "${name}".`);
-    } else {
-      slashReply(`Unknown theme "${name}". Try /theme to see available themes.`);
-    }
-    return;
-  }
 
   if (mode === 'features') {
     const name = input.trim().toLowerCase();
@@ -1371,7 +1352,6 @@ async function _cmdOpen(args, ctx) {
       memories: ['tool-memory-btn', 'rail-memory'],
       research: ['tool-research-btn', 'rail-research'],
       compare: ['tool-compare-btn', 'rail-compare'],
-      theme: ['tool-theme-btn', 'rail-theme'],
     };
     const ids = targets[target];
     if (ids && clickFirst(...ids)) return true;
@@ -1446,61 +1426,6 @@ async function _cmdSettings(args, ctx) {
     slashReply('Could not open Settings.');
     return true;
   }
-  return true;
-}
-
-// ── Theme ──
-
-async function _cmdTheme(args, ctx) {
-  const tm = themeModule;
-  const sub = (args[0] || '').toLowerCase();
-  const custom = tm && tm.getCustomThemes ? tm.getCustomThemes() : {};
-  const customNames = Object.keys(custom);
-  const presetNames = tm && tm.THEMES ? Object.keys(tm.THEMES) : [];
-  if (!sub || !tm || !tm.THEMES) {
-    const customLabel = customNames.length ? `\nCustom: ${customNames.join(', ')}` : '';
-    slashReply(`Usage:\n  /theme &lt;name&gt; — Apply a preset or custom theme\n  /theme save &lt;name&gt; — Save current colors as a custom theme\n  /theme delete &lt;name&gt; — Delete a custom theme\nPresets: ${presetNames.join(', ')}${customLabel}`);
-    return true;
-  }
-  if (sub === 'save' && args[1]) {
-    const saveName = args[1].toLowerCase().replace(/\s+/g, '-');
-    if (tm.THEMES[saveName]) { slashReply('Cannot overwrite a built-in theme.'); return true; }
-    const s = tm.getSaved();
-    const colors = s ? s.colors : tm.THEMES.dark;
-    tm.saveCustomTheme(saveName, colors);
-    tm.save(saveName, colors);
-    await typewriterReply(`Custom theme "${saveName}" saved`);
-    return true;
-  }
-  if (sub === 'delete' || sub === 'del' || sub === 'rm' || sub === 'remove') {
-    if (!args[1]) { slashReply('Usage: /theme delete &lt;name&gt; or /theme delete all'); return true; }
-    const delArg = args[1].toLowerCase().replace(/\s+/g, '-');
-    if (delArg === 'all') {
-      if (!customNames.length) { slashReply('No custom themes to delete'); return true; }
-      for (const n of customNames) { if (tm.deleteCustomTheme) tm.deleteCustomTheme(n); }
-      await typewriterReply(`Deleted ${customNames.length} custom theme${customNames.length !== 1 ? 's' : ''}`);
-      return true;
-    }
-    if (tm.deleteCustomTheme) tm.deleteCustomTheme(delArg);
-    await typewriterReply(`Theme "${delArg}" deleted`);
-    return true;
-  }
-  const name = sub;
-  const colors = tm.THEMES[name] || custom[name];
-  if (!colors) {
-    const customLabel = customNames.length ? ` | Custom: ${customNames.join(', ')}` : '';
-    slashReply(`Unknown theme "${name}". Available: ${presetNames.join(', ')}${customLabel}`);
-    return true;
-  }
-  tm.applyColors(colors);
-  tm.save(name, colors);
-  const grid = document.getElementById('themeGrid');
-  if (grid) {
-    grid.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
-    const sw = grid.querySelector(`[data-theme="${name}"]`);
-    if (sw) sw.classList.add('active');
-  }
-  await typewriterReply(`Theme: ${name}`);
   return true;
 }
 
@@ -2503,7 +2428,7 @@ async function _cmdDemo(args, ctx) {
     { sel: '#sidebar-new-chat-btn', text: 'Start a new chat here. <b>Click it.</b> You can do it!', mode: 'click',
       before() { if (sidebar?.classList.contains('hidden')) sidebar.classList.remove('hidden'); } },
     { sel: '#model-picker-btn',   text: 'Pick your LLM, Local or API.', advanceOnClick: true },
-    { sel: '#mode-agent-btn',     text: '<b>Agent mode</b> gives Zephyrus more control of the app when your model supports tools: create a theme, download a model, make a daily task, organize things, and more.', mode: 'click' },
+    { sel: '#mode-agent-btn',     text: '<b>Agent mode</b> gives Zephyrus more control of the app when your model supports tools: download a model, make a daily task, organize things, and more.', mode: 'click' },
     { sel: '#web-toggle-btn',     text: 'Toggle tools like <b>web search</b>. Zephyrus comes with private built-in <b>SearXNG</b> search.', mode: 'click' },
     { sel: '#overflow-plus-btn',  text: 'More tools can be found here, or in your sidebar. <b>Click to peek.</b>',
       advanceOnClick: true, pulseNext: true, afterDelay: 2200 },
@@ -3044,252 +2969,6 @@ async function _cmdTourCookbook(args, ctx) {
   _clickTab('Search');
   _clear();
   await typewriterReply('That’s Cookbook. Pick a model that catches your eye and let it cook.');
-  return true;
-}
-
-// ── Theme tour ──
-async function _cmdTourTheme(args, ctx) {
-  // Clear the chat input so "/tour-theme" doesn't linger.
-  const _msgEl = document.getElementById('message');
-  if (_msgEl) {
-    _msgEl.value = '';
-    _msgEl.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-
-  // Idempotent tour-styles injection (shared with other tours).
-  if (!document.getElementById('tour-styles')) {
-    const s = document.createElement('style');
-    s.id = 'tour-styles';
-    s.textContent =
-      '#tour-tooltip{position:fixed;z-index:10001;background:var(--bg);color:var(--fg);' +
-      'border:1px solid var(--border);border-radius:8px;padding:12px 14px;max-width:280px;' +
-      'font-family:inherit;font-size:0.8rem;line-height:1.5;' +
-      'box-shadow:0 2px 12px rgba(0,0,0,0.3);pointer-events:auto;' +
-      'opacity:0;transform:translateY(4px);transition:opacity 0.3s ease-out,transform 0.3s ease-out}' +
-      '#tour-tooltip.tour-fade-in{opacity:1;transform:translateY(0)}' +
-      '#tour-tooltip .tour-text{margin-bottom:8px;opacity:0.8}' +
-      '.tour-nav{display:flex;align-items:center;justify-content:space-between}' +
-      '.tour-nav button{background:none;border:1px solid var(--border);color:var(--fg);' +
-      'cursor:pointer;font-family:inherit;border-radius:4px;transition:all .1s}' +
-      '.tour-nav button:hover{background:color-mix(in srgb,var(--fg) 8%,transparent)}' +
-      '.tour-btn-arrow{font-size:1rem;padding:4px 12px;opacity:0.6}' +
-      '.tour-btn-arrow:hover{opacity:1}' +
-      '.tour-btn-arrow.disabled{opacity:0.15;pointer-events:none}' +
-      '.tour-btn-skip{font-size:0.72rem;padding:3px 10px;opacity:0.35;border-color:transparent!important}' +
-      '.tour-btn-skip:hover{opacity:0.6}';
-    document.head.appendChild(s);
-  }
-
-  // Open the theme modal if it isn't already up. Same hamburger / rail
-  // opener pattern as the other tours.
-  let modal = document.getElementById('theme-modal');
-  if (!modal || modal.classList.contains('hidden')) {
-    const opener = document.getElementById('tool-theme-btn')
-      || document.getElementById('rail-theme')
-      || document.getElementById('open-theme-btn');
-    if (opener) opener.click();
-    for (let i = 0; i < 25; i++) {
-      await new Promise(r => setTimeout(r, 80));
-      modal = document.getElementById('theme-modal');
-      if (modal && !modal.classList.contains('hidden')) break;
-    }
-  }
-  if (!modal || modal.classList.contains('hidden')) {
-    slashReply('Could not open Theme. Try clicking the Theme tool first.');
-    return true;
-  }
-
-  document.body.classList.add('tour-active');
-  const tooltip = document.createElement('div');
-  tooltip.id = 'tour-tooltip';
-  document.body.appendChild(tooltip);
-
-  let _halos = [];
-  function _makeHalo(target) {
-    const halo = document.createElement('div');
-    halo.className = 'tour-halo';
-    document.body.appendChild(halo);
-    const update = () => {
-      const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
-    };
-    update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
-    requestAnimationFrame(() => halo.classList.add('tour-fade-in'));
-    return { destroy() {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-      halo.remove();
-    } };
-  }
-  function _clearHalos() {
-    _halos.forEach(h => h.destroy());
-    _halos = [];
-    document.querySelectorAll('.tour-halo').forEach(e => e.remove());
-  }
-  const _clear = () => {
-    document.querySelectorAll('.zephyrus-highlight').forEach(e => e.classList.remove('zephyrus-highlight'));
-    _clearHalos();
-    tooltip.remove();
-    document.body.classList.remove('tour-active');
-  };
-
-  function _positionTooltip(target, placement) {
-    tooltip.style.visibility = 'hidden';
-    tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
-    if (placement === 'center-above') {
-      const top = Math.max(10, window.innerHeight * 0.32 - th / 2);
-      const left = Math.max(10, window.innerWidth / 2 - tw / 2);
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
-      tooltip.style.visibility = '';
-      return;
-    }
-    const r = target.getBoundingClientRect();
-    const gap = 12;
-    let top, left;
-    if (r.bottom + gap + th < window.innerHeight - 10) {
-      top = r.bottom + gap;
-      left = r.left + r.width / 2 - tw / 2;
-    } else if (r.top - gap - th > 10) {
-      top = r.top - gap - th;
-      left = r.left + r.width / 2 - tw / 2;
-    } else {
-      top = r.top + r.height / 2 - th / 2;
-      left = r.right + gap;
-      if (left + tw > window.innerWidth - 10) left = r.left - tw - gap;
-    }
-    if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
-    if (left < 10) left = 10;
-    if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
-    tooltip.style.visibility = '';
-  }
-
-  // Interactive step — show tooltip + halo over one or more targets and
-  // resolve 'next' when the user actually clicks one of the highlighted
-  // elements. Skip button still exits. `extraSel` (optional) adds a
-  // second highlight target whose click also advances the step.
-  function _showStep(sel, text, opts) {
-    opts = opts || {};
-    const isFirst = !!opts.isFirst;
-    const isLast = !!opts.isLast;
-    const before = opts.before;
-    const placement = opts.placement;
-    const extraSel = opts.extraSel;
-    const interactive = !!opts.interactive;
-    return new Promise(resolve => {
-      _clearHalos();
-      if (before) { try { before(); } catch (_) {} }
-      setTimeout(() => {
-        const target = document.querySelector(sel);
-        if (!target) return resolve('skip');
-        _halos.push(_makeHalo(target));
-        const extra = extraSel ? document.querySelector(extraSel) : null;
-        if (extra) _halos.push(_makeHalo(extra));
-        target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-        tooltip.classList.remove('tour-fade-in');
-        tooltip.innerHTML =
-          '<div class="tour-text">' + text + '</div>' +
-          '<div class="tour-nav">' +
-            '<button class="tour-btn-arrow' + (isFirst ? ' disabled' : '') + '" data-act="back">←</button>' +
-            '<button class="tour-btn-skip" data-act="skip">' + (isLast ? 'done' : 'skip tour') + '</button>' +
-            '<button class="tour-btn-arrow" data-act="next">' + (isLast ? '✓' : '→') + '</button>' +
-          '</div>';
-        requestAnimationFrame(() => {
-          _positionTooltip(target, placement);
-          tooltip.classList.add('tour-fade-in');
-        });
-
-        let _onTarget;
-        const cleanup = () => {
-          tooltip.removeEventListener('click', onClick);
-          if (_onTarget) {
-            target.removeEventListener('click', _onTarget, true);
-            if (extra) extra.removeEventListener('click', _onTarget, true);
-          }
-        };
-        const onClick = (e) => {
-          const hit = e.target.closest && e.target.closest('[data-act]');
-          const act = hit && hit.dataset.act;
-          if (!act) return;
-          cleanup();
-          resolve(act);
-        };
-        tooltip.addEventListener('click', onClick);
-        // Interactive: clicking the highlighted target advances. We let
-        // the original click propagate so the user's real action (apply
-        // theme, switch tab, etc.) actually happens.
-        if (interactive) {
-          _onTarget = () => { cleanup(); resolve('next'); };
-          target.addEventListener('click', _onTarget, true);
-          if (extra) extra.addEventListener('click', _onTarget, true);
-        }
-      }, before ? 160 : 0);
-    });
-  }
-
-  // Clicks one of the theme modal's top-level tabs by data-tab id.
-  function _clickTab(tabId) {
-    const tab = modal.querySelector('.admin-tab[data-tab="' + tabId + '"]');
-    if (tab) tab.click();
-  }
-
-  // ── Steps ──
-  // Interactive flow: the user actually clicks each highlighted element
-  // to progress. Skip button exits at any point; arrow buttons still
-  // work as a fallback (read past without touching anything).
-  const steps = [
-    { sel: '#theme-popup',
-      text: '<b>Welcome to Theme.</b> Zephyrus is yours to customize!',
-      placement: 'center-above',
-      before: () => _clickTab('theme-tab-browse') },
-    { sel: '#themeGrid',
-      text: 'Try a <b>default theme</b> — or build your own with <b>Customize</b>.',
-      extraSel: '#theme-tabs .admin-tab[data-tab="theme-tab-customize"]',
-      interactive: true },
-    { sel: '#theme-harmony-card',
-      text: 'Build a quick theme with <b>color harmony</b> — pick one accent color, hit Generate, and a matching palette falls out.',
-      before: () => _clickTab('theme-tab-customize'),
-      interactive: true },
-    { sel: '#themeCustom',
-      text: 'Want finer control? <b>Edit each color individually</b> here — the page updates live.',
-      before: () => _clickTab('theme-tab-customize'),
-      interactive: true },
-    { sel: '#theme-bg-pattern-select',
-      text: 'Add a <b>background animation</b> — rain, petals, constellations, sparkles, embers…',
-      before: () => _clickTab('theme-tab-customize'),
-      interactive: true },
-    { sel: '#theme-opacity-wrap',
-      text: '<b>Peek</b> fades this window so you can see the page behind it while you tweak.',
-      before: () => _clickTab('theme-tab-customize'),
-      interactive: true },
-  ];
-
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i];
-    const res = await _showStep(step.sel, step.text, {
-      isFirst: i === 0,
-      isLast: i === steps.length - 1,
-      before: step.before,
-      placement: step.placement,
-      extraSel: step.extraSel,
-      interactive: step.interactive,
-    });
-    if (res === 'skip') { _clear(); return true; }
-    if (res === 'back') { if (i > 0) i -= 2; continue; }
-  }
-
-  _clear();
-  await typewriterReply('That’s Theme. Make it yours.');
   return true;
 }
 
@@ -5131,34 +4810,6 @@ async function _cmdSetup(args, ctx) {
       return _showSetupEndpointGuide({ simple: true, instant: true });
     }
 
-    if (topic === 'theme' || topic === 'themes') {
-      const tm = themeModule;
-      const presets = tm && tm.THEMES ? Object.keys(tm.THEMES) : [];
-      const customObj = tm && tm.getCustomThemes ? tm.getCustomThemes() : {};
-      const customKeys = Object.keys(customObj);
-
-      // One-shot: /setup theme <name> -> apply directly
-      const themeName = topicArgs.join(' ').trim().toLowerCase().replace(/\s+/g, '-');
-      if (themeName && tm) {
-        const colors = (tm.THEMES && tm.THEMES[themeName]) || customObj[themeName];
-        if (colors) {
-          tm.applyColors(colors);
-          tm.save(themeName, colors);
-          await typewriterReply(`Theme: ${themeName}`);
-        } else {
-          const customLabel = customKeys.length ? ` | Custom: ${customKeys.join(', ')}` : '';
-          slashReply(`Unknown theme "${themeName}". Available: ${presets.join(', ')}${customLabel}`);
-        }
-        return true;
-      }
-
-      const current = (Storage.getJSON(Storage.KEYS.THEME, {}).name) || 'dark';
-      const customLabel = customKeys.length ? `\n\nCustom: ${customKeys.join(', ')}` : '';
-      await typewriterReply(`Current theme: ${current}\n\nAvailable: ${presets.join(', ')}${customLabel}\n\nType a theme name to switch.`);
-      setupMode = 'theme';
-      return true;
-    }
-
     if (topic === 'memory' || topic === 'memories') {
       try {
         const res = await fetch(`${API_BASE}/api/memory`, { credentials: 'same-origin' });
@@ -5185,7 +4836,7 @@ async function _cmdSetup(args, ctx) {
     }
 
     // Unknown topic — hint
-    await typewriterReply(`I don't have a setup wizard for "${topic}" yet. Try: endpoint, theme, memory, or features.`);
+    await typewriterReply(`I don't have a setup wizard for "${topic}" yet. Try: endpoint, memory, or features.`);
     return true;
   }
 
@@ -5910,13 +5561,6 @@ const COMMANDS = {
     handler: _cmdTourLibrary,
     usage: '/tour-library'
   },
-  'tour-theme': {
-    alias: ['theme-tour'],
-    category: 'Tours',
-    help: 'Theme editor tour',
-    handler: _cmdTourTheme,
-    usage: '/tour-theme'
-  },
   'tour-settings': {
     alias: ['tour-setting', 'settings-tour'],
     category: 'Tours',
@@ -5958,13 +5602,6 @@ const COMMANDS = {
     help: 'Send a random starter prompt',
     handler: _cmdPrompt,
     usage: '/prompt'
-  },
-  theme: {
-    alias: [],
-    category: 'Settings',
-    help: 'Change color theme',
-    handler: _cmdTheme,
-    usage: '/theme name'
   },
   settings: {
     alias: ['cfg', 'preferences', 'config'],

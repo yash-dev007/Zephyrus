@@ -89,7 +89,6 @@ Note: this inventory was refreshed against current `dev` after `tests/test_resea
 - `tests/test_skills_cli_preview.py`
 - `tests/test_skills_cli_rows.py`
 - `tests/test_tasks_cli_preview.py`
-- `tests/test_theme_cli_store.py`
 - `tests/test_webhook_cli_mask.py`
 
 ## Files intentionally excluded

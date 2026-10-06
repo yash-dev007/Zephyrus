@@ -7,7 +7,7 @@ import { EYE_OPEN, EYE_CLOSED, ICON_DICE, ICON_PARALLEL, ICON_SEQUENTIAL, SAVE_I
 import { _clearProbeWaves } from './probe.js';
 import uiModule from '../ui.js';
 import spinnerModule from '../spinner.js';
-import themeModule from '../theme.js';
+import { makeWindowDraggable } from '../windowDrag.js';
 
 const escapeHtml = uiModule.esc;
 
@@ -870,9 +870,7 @@ async function showModelSelector() {
     document.body.appendChild(overlay);
 
     // Make draggable via header
-    if (themeModule && themeModule.makeDraggable) {
-      themeModule.makeDraggable(content, header);
-    }
+    makeWindowDraggable(overlay, { content, header });
 
     function cleanup(result) {
       overlay.remove();

@@ -643,7 +643,11 @@ export function modelColor(name) {
   for (let i = 0; i < key.length; i++) {
     hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
   }
-  const hue = ((hash % 360) + 360) % 360;
+  // The hash can land anywhere on the wheel, including the 90-165 band where
+  // green means "added / success". A model name rendering in the success
+  // colour is misleading, so fold that band onto the neighbouring warm hue.
+  let hue = ((hash % 360) + 360) % 360;
+  if (hue >= 90 && hue <= 165) hue = 200;
   return `hsl(${hue}, 55%, 65%)`;
 }
 

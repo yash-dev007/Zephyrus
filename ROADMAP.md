@@ -76,4 +76,24 @@ the codebase, you are probably right to stay away.
 
 ## Not The Focus Right Now
 
-I prob shouldnt add more themes.
+Theming is gone entirely: the theme system, presets, picker, and switcher were all
+removed, and there is now a single UI. Its palette was later redesigned from the
+original green Terminal look to **Ice / Arctic** — black surfaces, cool grey-blue
+text, one ice-blue accent, green reserved for added/success semantics. Don't
+propose new themes or a light mode — see
+`docs/superpowers/specs/2026-10-05-terminal-only-theme-design.md` for why there is
+no runtime theme layer, and
+`docs/superpowers/specs/2026-10-06-ice-arctic-redesign-design.md` for the palette
+and its rules.
+
+A design-system pass then landed on top of that palette. The outcome is a real
+elevation model instead of hairlines (six-step `--surface-*` ladder), an eight-step
+type scale in place of ~27 off-grid sizes, 4px spacing and four radii, two-layer
+shadows that pair a dark drop with a light inset edge, one easing curve with three
+durations, a hybrid font split (`--font-ui` sans for chrome, `--font-content`
+Fira Code for the transcript and code), and — the load-bearing change — **two
+border weights**, because a single value cannot be both a divider and a WCAG
+1.4.11 control edge on a multi-step surface ladder. Tokens, decisions and
+tradeoffs: `docs/superpowers/specs/2026-10-07-design-system-foundation-design.md`.
+This is foundation work, not a feature area: it removes visual drift rather than
+adding surface area, and don't propose extending it into theming.

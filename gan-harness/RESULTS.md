@@ -1,5 +1,7 @@
 # GAN Design Harness — Results (Zephyrus Theme Selection)
 
+> **Superseded.** The theme-selection feature these results describe was removed entirely. The app now has a single theme whose palette was later redesigned from the original green Terminal look to **Ice / Arctic**. See `docs/superpowers/specs/2026-10-05-terminal-only-theme-design.md` (why the runtime theme layer is gone) and `docs/superpowers/specs/2026-10-06-ice-arctic-redesign-design.md` (the palette and its rules).
+
 Parsed invocation:
 - `brief` = "Improve design quality of Zephyrus frontend + theme selection feature"
 - `--max-iterations 10` (default 10, used 3 before plateau)

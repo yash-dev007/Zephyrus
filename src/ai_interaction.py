@@ -561,7 +561,7 @@ async def do_manage_rag(content: str, session_id: Optional[str] = None) -> Dict:
 # ---------------------------------------------------------------------------
 
 async def do_ui_control(content: str, session_id: Optional[str] = None, owner: Optional[str] = None) -> Dict:
-    """Control frontend UI: toggle settings, switch model, change theme.
+    """Control frontend UI: toggle settings, switch model, open panels.
 
     Content format:
       Line 1: action
@@ -571,8 +571,6 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
       toggle <name> <on|off>  — Toggle a setting (web, bash, rag, research, incognito, document_editor)
       set_mode <agent|chat>   — Switch between agent and chat mode
       switch_model <model>    — Change the model for the current session
-      set_theme <preset>      — Apply a built-in theme preset (dark, light, midnight, paper, cyberpunk, retrowave, forest, ocean, ume, copper, terminal, organs, lavender, gpt, claude, cute)
-      create_theme <name> <bg> <fg> <panel> <border> <accent> [key=val ...] — Create custom theme. Optional key=val: advanced color overrides AND background effects: bgPattern=<none|dots|synapse|rain|constellations|perlin-flow|petals|sparkles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num>, bgEffectSize=<num>, frosted=true|false
       open_panel <name>       — Open a panel (documents, gallery, email, sessions, notes, memories, skills, settings, cookbook)
       open_email_reply <uid> [folder] [reply|reply-all|ai-reply] [body text] — Open a reply draft document for an email; does not send. ALWAYS append the body text when the user told you what to say (one-shot draft); only omit body when the user just asked to "open a reply" without content.
       get_toggles             — Return current toggle states (server-side knowledge)
@@ -664,94 +662,6 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
             "model": model_id,
             "endpoint_url": url,
             "results": f"Model switched to '{model_id}'",
-        }
-
-    elif action == "set_theme":
-        theme_name = parts[1].lower() if len(parts) > 1 else ""
-        # Theme colors are defined in static/js/theme.js on the frontend.
-        # We pass the name; the frontend looks it up from presets + custom themes.
-        # Also check user's custom themes stored in prefs.
-        # Must match the THEMES keys in static/js/theme.js.
-        known_presets = [
-            "dark", "light", "midnight", "paper", "cyberpunk", "retrowave",
-            "forest", "ocean", "ume", "copper", "terminal", "organs",
-            "lavender", "gpt", "claude", "cute",
-        ]
-        custom_themes = {}
-        try:
-            from routes.prefs_routes import _load as _load_prefs
-            custom_themes = _load_prefs().get("custom-themes", {}) or {}
-        except Exception:
-            pass
-        all_known = set(known_presets) | set(custom_themes.keys())
-        if theme_name not in all_known:
-            custom_label = f" | Custom: {', '.join(sorted(custom_themes.keys()))}" if custom_themes else ""
-            return {"error": f"Unknown theme '{theme_name}'. Available: {', '.join(sorted(known_presets))}{custom_label}"}
-        return {
-            "ui_event": "set_theme",
-            "theme_name": theme_name,
-            "results": f"Theme changed to '{theme_name}'",
-        }
-
-    elif action == "create_theme":
-        # Re-split without limit to get all parts
-        parts = lines[0].strip().split()
-        # create_theme <name> <bg> <fg> <panel> <border> <accent> [key=value ...]
-        if len(parts) < 7:
-            return {"error": "create_theme needs: create_theme <name> <bg> <fg> <panel> <border> <accent> (all hex colors). Optional advanced color key=value pairs (userBubbleBg, aiBubbleBg, bubbleBorder, sidebarBg, sectionAccent, brandColor, inputBg, inputBorder, sendBtnBg, sendBtnHover, codeBg, codeFg, toggleBg, toggleActive, accentPrimary, accentError). Optional background EFFECTS: bgPattern=<none|dots|synapse|rain|constellations|perlin-flow|petals|sparkles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num e.g. 1>, bgEffectSize=<num e.g. 1>, frosted=true|false"}
-        name = parts[1].lower().replace(" ", "-")
-        colors = {"bg": parts[2], "fg": parts[3], "panel": parts[4], "border": parts[5], "red": parts[6]}
-        # Validate base hex colors
-        import re as _re
-        for k, v in colors.items():
-            if not _re.match(r'^#[0-9a-fA-F]{6}$', v):
-                return {"error": f"Invalid hex color for {k}: '{v}'. Use format #RRGGBB"}
-        # Parse optional advanced key=value pairs
-        adv_keys = {
-            "userBubbleBg", "aiBubbleBg", "bubbleBorder", "sidebarBg",
-            "sectionAccent", "brandColor", "inputBg", "inputBorder",
-            "sendBtnBg", "sendBtnHover", "codeBg", "codeFg",
-            "toggleBg", "toggleActive", "accentPrimary", "accentError",
-        }
-        advanced = {}
-        # Background-effect fields (animated pattern + frosted glass). Different
-        # value types than the hex-only advanced keys, so parse separately.
-        _BG_PATTERNS = {"none", "dots", "synapse", "rain", "constellations",
-                        "perlin-flow", "petals", "sparkles", "embers"}
-        bg = {}
-        for part in parts[7:]:
-            if "=" not in part:
-                continue
-            ak, av = part.split("=", 1)
-            if ak in adv_keys:
-                if not _re.match(r'^#[0-9a-fA-F]{6}$', av):
-                    return {"error": f"Invalid hex color for advanced key {ak}: '{av}'. Use format #RRGGBB"}
-                advanced[ak] = av
-            elif ak == "bgPattern":
-                if av not in _BG_PATTERNS:
-                    return {"error": f"Invalid bgPattern '{av}'. Use one of: {', '.join(sorted(_BG_PATTERNS))}"}
-                bg["pattern"] = av
-            elif ak == "bgEffectColor":
-                if not _re.match(r'^#[0-9a-fA-F]{6}$', av):
-                    return {"error": f"Invalid hex color for bgEffectColor: '{av}'. Use format #RRGGBB"}
-                bg["effectColor"] = av
-            elif ak in ("bgEffectIntensity", "bgEffectSize"):
-                try:
-                    bg["effectIntensity" if ak == "bgEffectIntensity" else "effectSize"] = float(av)
-                except ValueError:
-                    return {"error": f"Invalid number for {ak}: '{av}'"}
-            elif ak == "frosted":
-                bg["frosted"] = av.lower() in ("true", "1", "yes", "on")
-        if advanced:
-            colors["advanced"] = advanced
-        return {
-            "ui_event": "create_theme",
-            "theme_name": name,
-            "colors": colors,
-            "bg": bg or None,
-            "results": f"Custom theme '{name}' created and applied"
-                       + (f" with {len(advanced)} advanced overrides" if advanced else "")
-                       + (f" + background effect ({bg.get('pattern', 'frosted' if bg.get('frosted') else 'custom')})" if bg else ""),
         }
 
     elif action == "highlight":
@@ -877,7 +787,7 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
         }
 
     else:
-        return {"error": f"Unknown action '{action}'. Use: toggle, set_mode, switch_model, set_theme, highlight, clear_highlight, get_toggles"}
+        return {"error": f"Unknown action '{action}'. Use: toggle, set_mode, switch_model, highlight, clear_highlight, get_toggles"}
 
 
 # ---------------------------------------------------------------------------

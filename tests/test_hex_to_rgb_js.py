@@ -3,9 +3,10 @@
 Driven through `node --input-type=module` (same approach as test_compare_js.py);
 skips when `node` is not installed.
 
-Regression: theme.js parsed hex with fixed substring(0,2)/(2,4)/(4,6) slices, so
-a 3-digit shorthand like "#abc" produced NaN channels (the color picker already
-expanded shorthand correctly — theme parsing did not).
+Regression: the hex parser that used to live in the now-deleted theme module
+parsed hex with fixed substring(0,2)/(2,4)/(4,6) slices, so a 3-digit shorthand
+like "#abc" produced NaN channels (the color picker already expanded shorthand
+correctly — that parser did not).
 """
 import json
 import shutil

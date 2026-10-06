@@ -3,6 +3,8 @@
 
 import uiModule from './ui.js';
 import searchModule from './search.js';
+import Storage, { KEYS } from './storage.js';
+import * as bgEffect from './bgEffect.js';
 import { makeWindowDraggable } from './windowDrag.js';
 import { clearDockSide } from './modalSnap.js';
 import { sortModelIds } from './modelSort.js';
@@ -1820,6 +1822,263 @@ function syncPrivacyCheckboxes() {
 }
 
 /* ═══════════════════════════════════════════
+   APPEARANCE TAB — TEXT & LAYOUT CARD
+   ═══════════════════════════════════════════ */
+
+const _APPEARANCE_PREFS_KEY = 'appearance';
+const _APPEARANCE_FONT_MAP = {
+  mono: "'Fira Code', monospace",
+  sans: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+  serif: "Georgia, 'Times New Roman', serif",
+  opendyslexic: "'OpenDyslexic', sans-serif",
+};
+const _APPEARANCE_DEFAULTS = { font: 'mono', density: 'comfortable', uiScale: '100' };
+const _APPEARANCE_DENSITIES = ['compact', 'comfortable', 'spacious'];
+const _APPEARANCE_UI_SCALES = ['100', '125'];
+
+// Discovered custom font families: { "Family Name": [ {file, url, format} ] }
+let _appearanceCustomFonts = {};
+const _appearanceInjectedFonts = new Set();
+let _appearanceState = Object.assign({}, _APPEARANCE_DEFAULTS);
+let _appearanceInitStarted = false;
+
+function _injectCustomFontFace(family, variants) {
+  if (_appearanceInjectedFonts.has(family)) return;
+  const style = document.createElement('style');
+  style.dataset.customFont = family;
+  const fmtMap = { woff2: 'woff2', woff: 'woff', ttf: 'truetype', otf: 'opentype' };
+  for (const v of variants) {
+    style.textContent += `@font-face { font-family: '${family}'; src: url('${v.url}') format('${fmtMap[v.format] || v.format}'); font-display: swap; }\n`;
+  }
+  document.head.appendChild(style);
+  _appearanceInjectedFonts.add(family);
+}
+
+function _applyAppearanceFontDensity(font, density) {
+  const f = font || _APPEARANCE_DEFAULTS.font;
+  const d = density || _APPEARANCE_DEFAULTS.density;
+  let family = _APPEARANCE_FONT_MAP[f];
+  if (!family && _appearanceCustomFonts[f]) {
+    _injectCustomFontFace(f, _appearanceCustomFonts[f]);
+    family = "'" + f + "', sans-serif";
+  }
+  if (!family) family = _APPEARANCE_FONT_MAP[_APPEARANCE_DEFAULTS.font];
+  document.documentElement.style.setProperty('--font-family', family);
+  document.documentElement.classList.remove('density-compact', 'density-spacious');
+  if (d !== 'comfortable') document.documentElement.classList.add('density-' + d);
+}
+
+function _applyAppearanceUiScale(scale) {
+  const s = scale || _APPEARANCE_DEFAULTS.uiScale;
+  // Legacy 110/140 classes are removed too, so a value stored by an older
+  // build can't leave a stale zoom applied after switching back to Default.
+  document.documentElement.classList.remove('ui-scale-110', 'ui-scale-125', 'ui-scale-140');
+  if (s === '125') document.documentElement.classList.add('ui-scale-125');
+}
+
+function _applyAppearance() {
+  _applyAppearanceFontDensity(_appearanceState.font, _appearanceState.density);
+  _applyAppearanceUiScale(_appearanceState.uiScale);
+}
+
+// One-time. Font and density used to live inside the single `zephyrus-theme`
+// blob, which is gone with the theme system. Copy whatever the user had picked
+// into the new per-setting keys before dropping the blob, so nobody silently
+// loses their choice on upgrade.
+function _migrateLegacyThemePrefs() {
+  try {
+    const raw = localStorage.getItem('zephyrus-theme');
+    if (raw) {
+      let legacy = null;
+      try { legacy = JSON.parse(raw); } catch (e) { legacy = null; }
+      if (legacy && typeof legacy === 'object') {
+        if (legacy.font && localStorage.getItem(KEYS.FONT) === null) {
+          localStorage.setItem(KEYS.FONT, legacy.font);
+        }
+        if (legacy.density && localStorage.getItem(KEYS.DENSITY) === null) {
+          localStorage.setItem(KEYS.DENSITY, legacy.density);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Legacy theme prefs migration failed:', e);
+  }
+  try { localStorage.removeItem('zephyrus-theme'); } catch (e) {}
+}
+
+function _readLocalAppearancePrefs() {
+  return {
+    font: Storage.get(KEYS.FONT, _APPEARANCE_DEFAULTS.font),
+    density: Storage.get(KEYS.DENSITY, _APPEARANCE_DEFAULTS.density),
+    uiScale: Storage.get(KEYS.UI_SCALE, _APPEARANCE_DEFAULTS.uiScale),
+  };
+}
+
+async function _loadAppearancePrefsFromServer() {
+  try {
+    const res = await fetch('/api/prefs/' + _APPEARANCE_PREFS_KEY, { credentials: 'same-origin' });
+    const data = await res.json();
+    const value = data && data.value;
+    return (value && typeof value === 'object' && !Array.isArray(value)) ? value : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function _persistAppearance() {
+  Storage.set(KEYS.FONT, _appearanceState.font);
+  Storage.set(KEYS.DENSITY, _appearanceState.density);
+  Storage.set(KEYS.UI_SCALE, _appearanceState.uiScale);
+  try {
+    fetch('/api/prefs/' + _APPEARANCE_PREFS_KEY, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ value: {
+        font: _appearanceState.font,
+        density: _appearanceState.density,
+        uiScale: _appearanceState.uiScale,
+      } }),
+    }).catch(e => console.warn('Appearance prefs sync failed:', e));
+  } catch (e) {
+    console.warn('Appearance prefs sync error:', e);
+  }
+}
+
+function _syncAppearanceSelects() {
+  const fontSelect = el('appearance-font-select');
+  const densitySelect = el('appearance-density-select');
+  const scaleSelect = el('appearance-text-size-select');
+  if (fontSelect) fontSelect.value = _appearanceState.font;
+  if (densitySelect) densitySelect.value = _appearanceState.density;
+  if (scaleSelect) scaleSelect.value = _appearanceState.uiScale;
+}
+
+function _populateCustomFontOptions(fontSelect) {
+  try {
+    return fetch('/api/fonts/custom', { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => {
+        _appearanceCustomFonts = (data && data.fonts) || {};
+        if (!fontSelect) return;
+        fontSelect.querySelectorAll('option[data-custom-font]').forEach(o => o.remove());
+        for (const fam of Object.keys(_appearanceCustomFonts)) {
+          const opt = document.createElement('option');
+          opt.value = fam;
+          opt.textContent = fam;
+          opt.dataset.customFont = '1';
+          fontSelect.appendChild(opt);
+        }
+      });
+  } catch (e) {
+    console.warn('Custom fonts fetch failed:', e);
+    return Promise.resolve();
+  }
+}
+
+async function initTextLayout() {
+  const fontSelect = el('appearance-font-select');
+  const densitySelect = el('appearance-density-select');
+  const scaleSelect = el('appearance-text-size-select');
+
+  // The state half has to run at load, not just when the Settings modal
+  // opens: the pre-paint head script in index.html reads only localStorage, so
+  // without this the legacy migration never fires, a second browser never
+  // picks up the server value, and a custom font never applies on first paint.
+  if (!_appearanceInitStarted) {
+    _appearanceInitStarted = true;
+    _migrateLegacyThemePrefs();
+
+    // Custom fonts first: a saved font name that isn't one of the built-ins is
+    // only resolvable once the discovery list is in hand.
+    await _populateCustomFontOptions();
+
+    const local = _readLocalAppearancePrefs();
+    const server = await _loadAppearancePrefsFromServer();
+    const merged = Object.assign({}, local, server || {});
+    if (!_APPEARANCE_FONT_MAP[merged.font] && !_appearanceCustomFonts[merged.font]) {
+      merged.font = _APPEARANCE_DEFAULTS.font;
+    }
+    if (_APPEARANCE_DENSITIES.indexOf(merged.density) === -1) {
+      merged.density = _APPEARANCE_DEFAULTS.density;
+    }
+    if (_APPEARANCE_UI_SCALES.indexOf(String(merged.uiScale)) === -1) {
+      merged.uiScale = _APPEARANCE_DEFAULTS.uiScale;
+    }
+    _appearanceState = { font: merged.font, density: merged.density, uiScale: String(merged.uiScale) };
+
+    _applyAppearance();
+  }
+
+  // The wiring half needs the selects, so it waits for the modal markup. It
+  // runs once per initTextLayout call and the boot call plus initAll() both
+  // reach here, so the bindings are marked to avoid a double persist.
+  if (!fontSelect || !densitySelect || !scaleSelect) return;
+  _syncAppearanceSelects();
+
+  const update = (key, value) => {
+    _appearanceState[key] = value;
+    _applyAppearance();
+    _persistAppearance();
+  };
+  if (fontSelect.dataset.bound !== '1') {
+    fontSelect.dataset.bound = '1';
+    fontSelect.addEventListener('change', () => update('font', fontSelect.value));
+  }
+  if (densitySelect.dataset.bound !== '1') {
+    densitySelect.dataset.bound = '1';
+    densitySelect.addEventListener('change', () => update('density', densitySelect.value));
+  }
+  if (scaleSelect.dataset.bound !== '1') {
+    scaleSelect.dataset.bound = '1';
+    scaleSelect.addEventListener('change', () => update('uiScale', scaleSelect.value));
+  }
+
+  const bgToggle = el('appearance-bg-effect-toggle');
+  if (bgToggle && bgToggle.dataset.bound !== '1') {
+    bgToggle.dataset.bound = '1';
+    let on = true;
+    try { on = localStorage.getItem(KEYS.BG_EFFECT) !== '0'; } catch (e) { on = true; }
+    bgToggle.checked = on;
+    bgToggle.addEventListener('change', () => {
+      try { localStorage.setItem(KEYS.BG_EFFECT, bgToggle.checked ? '1' : '0'); } catch (e) {}
+      if (bgToggle.checked) bgEffect.startBackgroundEffect();
+      else bgEffect.stopBackgroundEffect();
+    });
+  }
+
+  const resetBtn = el('appearance-text-layout-reset');
+  if (resetBtn && resetBtn.dataset.bound !== '1') {
+    resetBtn.dataset.bound = '1';
+    resetBtn.addEventListener('click', () => {
+      _appearanceState = Object.assign({}, _APPEARANCE_DEFAULTS);
+      _applyAppearance();
+      _syncAppearanceSelects();
+      _persistAppearance();
+    });
+  }
+
+  // Custom fonts may have finished discovering after the boot call above, so
+  // re-run the apply in case the saved family is one of them.
+  if (fontSelect && !fontSelect.querySelector('option[data-custom-font]') && Object.keys(_appearanceCustomFonts).length) {
+    _populateCustomFontOptions(fontSelect);
+    _applyAppearance();
+    _syncAppearanceSelects();
+  }
+}
+
+// Load state at page load, not only when Settings is opened: the pre-paint
+// head script reads localStorage directly, so migration, cross-device sync and
+// custom fonts all have to be applied before the user visits the panel.
+(function () {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { initTextLayout(); }, { once: true });
+  } else {
+    initTextLayout();
+  }
+})();
+
+/* ═══════════════════════════════════════════
    SHORTCUTS TAB
    ═══════════════════════════════════════════ */
 
@@ -1845,7 +2104,6 @@ const SHORTCUT_DEFAULTS = {
   open_memory:    '',
   open_notes:     '',
   open_tasks:     '',
-  open_theme:     '',
 };
 
 const SHORTCUT_ICONS = {
@@ -1868,7 +2126,6 @@ const SHORTCUT_ICONS = {
   open_memory:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.4-1.2 4.5-3 5.7V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.3C6.2 13.5 5 11.4 5 9a7 7 0 0 1 7-7z"/><line x1="10" y1="22" x2="14" y2="22"/></svg>',
   open_notes:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5"/><path d="M8 17.5 15.5 10l2.5 2.5L10.5 20H8z"/></svg>',
   open_tasks:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>',
-  open_theme:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20 5 5 0 0 0 5-5 3 3 0 0 0-3-3h-2a3 3 0 0 1-3-3 5 5 0 0 1 5-5"/></svg>',
 };
 
 const SHORTCUT_LABELS = {
@@ -1891,14 +2148,13 @@ const SHORTCUT_LABELS = {
   open_memory:    'Open Memory',
   open_notes:     'Open Notes',
   open_tasks:     'Open Tasks',
-  open_theme:     'Open Theme',
 };
 
 const SHORTCUT_CATEGORIES = [
   { name: 'Navigation', keys: ['search', 'toggle_sidebar', 'focus_input', 'settings'] },
   { name: 'Sessions', keys: ['new_session', 'fav_session', 'delete_session'] },
   { name: 'Tools', keys: ['incognito', 'tts', 'cancel'] },
-  { name: 'Open Tools', keys: ['open_calendar', 'open_compare', 'open_cookbook', 'open_research', 'open_gallery', 'open_library', 'open_memory', 'open_notes', 'open_tasks', 'open_theme'] },
+  { name: 'Open Tools', keys: ['open_calendar', 'open_compare', 'open_cookbook', 'open_research', 'open_gallery', 'open_library', 'open_memory', 'open_notes', 'open_tasks'] },
 ];
 
 function _formatKeyCaps(combo) {
@@ -1945,6 +2201,12 @@ async function initShortcuts() {
     const settings = await res.json();
     if (settings.keybinds) keybinds = { ...keybinds, ...settings.keybinds };
   } catch (e) {}
+  // Drop bindings for actions that no longer exist, matching the prune in
+  // keyboard-shortcuts.js. Without this, saving from this panel would write
+  // the stale entries straight back and they'd return on every page load.
+  for (const action of Object.keys(keybinds)) {
+    if (!Object.prototype.hasOwnProperty.call(SHORTCUT_DEFAULTS, action)) delete keybinds[action];
+  }
 
   function _findConflicts() {
     const comboMap = {};
@@ -2335,6 +2597,7 @@ function initAll() {
   initResearchSearchSettings();
   initAgentSettings();
   initAppearance();
+  initTextLayout();
   initShortcuts();
   initAccount();
   initIntegrations();

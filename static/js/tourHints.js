@@ -9,7 +9,7 @@ const HINT_SEEN_KEY = 'zephyrus-hint-drag-to-snap-seen';
 // Allow-list of modals where the snap/fullscreen hint makes sense.
 // These are the full-window "tool" modals where users commonly want to
 // reposition or fullscreen the pane (email, calendar, cookbook, gallery,
-// library, brain memories, tasks, theme, compare). Transient modals
+// library, brain memories, tasks, compare). Transient modals
 // like settings, prompts, rename dialogs, custom-preset picker, etc.
 // are excluded — opening those is task-focused and the snap tip would
 // be noise.
@@ -23,7 +23,6 @@ const SHOW_MODALS = new Set([
   'library-modal',     // chat-history library (sessions.js)
   'memory-modal',      // brain / memories
   'tasks-modal',
-  'theme-modal',
 ]);
 
 // Some modals have dynamic per-instance IDs (e.g. one window per opened

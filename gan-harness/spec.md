@@ -1,5 +1,7 @@
 # GAN Design Spec — Zephyrus Frontend + Theme Selection
 
+> **Superseded.** The theme-selection feature described below was removed entirely. The app now has a single theme whose palette was later redesigned from the original green Terminal look to **Ice / Arctic**. See `docs/superpowers/specs/2026-10-05-terminal-only-theme-design.md` (why the runtime theme layer is gone) and `docs/superpowers/specs/2026-10-06-ice-arctic-redesign-design.md` (the palette and its rules).
+
 ## Brief (parsed)
 Improve design quality of the existing Zephyrus frontend, with special focus on the theme selection feature, to reach a weighted score >= 9.0.
 

@@ -31,7 +31,7 @@ import settingsModule from './js/settings.js';
 import './js/modalManager.js';
 // Desktop window tiling — drag a modal near an edge/corner to snap.
 import './js/tileManager.js';
-import themeModule from './js/theme.js';
+
 // IMPORTANT: import cookbook.js with NO ?v= query — the same plain specifier
 // every other importer (cookbook-hwfit.js / cookbook-diagnosis.js) uses. A query
 // mismatch makes the browser load cookbook.js twice as separate modules (two
@@ -47,7 +47,6 @@ import { initSidebarLayout, syncRailSide } from './js/sidebar-layout.js';
 import { initSectionCollapse, initSectionDrag } from './js/section-management.js';
 
 const API_BASE = window.location.origin;
-window.themeModule = themeModule;
 window.sessionModule = sessionModule;
 window.uiModule = uiModule;
 window.adminModule = adminModule;
@@ -171,7 +170,6 @@ function initRailHoverLabels() {
     'rail-memory': 'Brain',
     'rail-notes': 'Notes',
     'rail-tasks': 'Tasks',
-    'rail-theme': 'Theme',
     'rail-settings': 'Settings',
   };
   document.querySelectorAll('#icon-rail .icon-rail-btn').forEach(btn => {
@@ -698,13 +696,6 @@ function initializeEventListeners() {
         return;
       }
 
-      // Theme popup
-      const themeModal = document.getElementById('theme-modal');
-      if (themeModal && !themeModal.classList.contains('hidden')) {
-        themeModule.closePopup();
-        return;
-      }
-
       // Calendar owns a few inner Escape layers (settings panel, event form,
       // then the calendar modal itself). Let calendar.js handle those instead
       // of falling through to unrelated page-level fallbacks like document
@@ -778,7 +769,6 @@ function initializeEventListeners() {
   // ── Shared modal dismiss helper ──
   const _modalSidebarMap = {
     'memory-modal': null,
-    'theme-modal': null,
   };
   const _dynamicModalIds = ['library-modal', 'archive-modal', 'doclib-modal', 'gallery-modal', 'tasks-modal'];
   function dismissModal(modal) {
@@ -792,7 +782,7 @@ function initializeEventListeners() {
       );
       if (editing) return;
     }
-    const content = modal.querySelector('.modal-content') || modal.querySelector('#theme-popup');
+    const content = modal.querySelector('.modal-content');
     if (content && !content.classList.contains('modal-closing')) {
       content.classList.remove('sheet-ready');
       content.style.transform = '';
@@ -1262,14 +1252,6 @@ function initializeEventListeners() {
     });
   }
 
-  const toolThemeBtn = el('tool-theme-btn');
-  if (toolThemeBtn) {
-    toolThemeBtn.addEventListener('click', () => {
-      const tm = document.getElementById('theme-modal');
-      if (tm) tm.classList.remove('hidden');
-    });
-  }
-
   // Sidebar toggle
   const toggleSidebarOption = el('toggle-sidebar-option');
   if (toggleSidebarOption) {
@@ -1587,14 +1569,6 @@ function initializeEventListeners() {
   // Memory management
   const memoryModal = el('memory-modal');
   const closeMemoryBtn = el('close-memory-modal');
-
-  // Theme popup close button
-  const closeThemeBtn = el('close-theme-popup');
-  if (closeThemeBtn && themeModule) {
-    closeThemeBtn.addEventListener('click', () => {
-      themeModule.closePopup();
-    });
-  }
 
   // Rename session modal
   const renameSessionModal = el('rename-session-modal');
@@ -2593,7 +2567,6 @@ function initializeEventListeners() {
     'tool-memory':         '#tool-memory-btn',
     'tool-notes':          '#tool-notes-btn',
     'tool-tasks':          '#tool-tasks-btn',
-    'tool-theme':          '#tool-theme-btn',
     'user-bar':            '#user-bar-profile',
     'sidebar-settings-btn':'#user-bar-settings',
     'chat-meta':           '.chat-meta-overlay',
@@ -3121,7 +3094,7 @@ function initializeEventListeners() {
 
   // Mobile: horizontal swipe on a tabbed window switches tabs. Works for any
   // tab bar whose buttons are siblings and switch on click (Prompt, Library,
-  // Brain, Theme) — we just click the prev/next tab so the existing switch
+  // Brain, Admin) — we just click the prev/next tab so the existing switch
   // logic runs. Swipes that start on interactive controls (sliders, inputs,
   // the chip dock) are ignored so they don't fight text selection / dragging.
   (function initTabSwipe() {
@@ -3625,7 +3598,6 @@ function startZephyrusApp() {
     'rail-calendar':  'tool-calendar-btn',
     'rail-notes':     'tool-notes-btn',
     'rail-memory':    'tool-memory-btn',
-    'rail-theme':     'tool-theme-btn',
     'rail-email':     'email-section-title',
   };
   Object.entries(_railToolMap).forEach(([railId, toolId]) => {
@@ -3686,7 +3658,7 @@ function startZephyrusApp() {
   }
 
   // Sync the contextual rail icons. Tool launchers (calendar/compare/cookbook/
-  // research/gallery/tasks/archive/memory/notes/theme/email) are now
+  // research/gallery/tasks/archive/memory/notes/email) are now
   // always-visible launchers, so only the doc + background-chat indicators
   // are shown/hidden dynamically here.
   function _syncRailDynamic() {

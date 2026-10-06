@@ -4,7 +4,6 @@
 
 import uiModule from './ui.js';
 import Storage from './storage.js';
-import themeModule from './theme.js';
 import markdownModule from './markdown.js';
 import sessionModule from './sessions.js';
 import documentModule from './document.js';
@@ -62,49 +61,6 @@ export function handleUIControl(uiData) {
     } else if (uiEvent === 'switch_model' || uiData.ui_event === 'switch_model') {
       var modelDisplay = document.querySelector('.current-model-name, #current-model');
       if (modelDisplay) modelDisplay.textContent = uiData.model;
-
-    } else if (uiEvent === 'set_theme' || uiData.ui_event === 'set_theme') {
-      var tm = themeModule;
-      if (tm && tm.THEMES && tm.applyColors && tm.save) {
-        var themeName = uiData.theme_name;
-        if (themeName === 'chatgpt') themeName = 'gpt';  // renamed preset
-        var customThemes = tm.getCustomThemes ? tm.getCustomThemes() : {};
-        var colors = tm.THEMES[themeName] || customThemes[themeName] || uiData.colors;
-        if (colors) {
-          tm.applyColors(colors);
-          tm.save(themeName, colors);
-          var grid = document.getElementById('themeGrid');
-          if (grid) {
-            grid.querySelectorAll('.theme-swatch').forEach(function(s) { s.classList.remove('active'); });
-            var sw = grid.querySelector('[data-theme="' + themeName + '"]');
-            if (sw) sw.classList.add('active');
-          }
-        }
-      }
-
-    } else if (uiEvent === 'create_theme' || uiData.ui_event === 'create_theme') {
-      var tm2 = themeModule;
-      if (tm2 && tm2.applyColors && tm2.save) {
-        var colors2 = uiData.colors;
-        var name = uiData.theme_name || 'custom';
-        if (colors2) {
-          tm2.applyColors(colors2);
-          tm2.save(name, colors2);
-          // Background effects (animated pattern / frosted glass) the model
-          // optionally set — apply them live and persist with the theme so
-          // they survive re-applying it later.
-          var bg = uiData.bg || null;
-          var opts = {};
-          if (bg) {
-            if (bg.pattern && tm2.applyBgPattern) { tm2.applyBgPattern(bg.pattern); opts.bgPattern = bg.pattern; }
-            if (bg.effectColor && tm2.applyBgEffectColor) { tm2.applyBgEffectColor(bg.effectColor); opts.bgEffectColor = bg.effectColor; }
-            if (bg.effectIntensity != null && tm2.applyBgEffectIntensity) { tm2.applyBgEffectIntensity(bg.effectIntensity); opts.bgEffectIntensity = bg.effectIntensity; }
-            if (bg.effectSize != null && tm2.applyBgEffectSize) { tm2.applyBgEffectSize(bg.effectSize); opts.bgEffectSize = bg.effectSize; }
-            if (bg.frosted != null && tm2.applyFrostedGlass) { tm2.applyFrostedGlass(bg.frosted); opts.frosted = bg.frosted; }
-          }
-          if (tm2.saveCustomTheme) tm2.saveCustomTheme(name, colors2, Object.keys(opts).length ? opts : undefined);
-        }
-      }
 
     } else if (uiEvent === 'highlight' || uiData.ui_event === 'highlight') {
       document.querySelectorAll('.zephyrus-highlight').forEach(function(e) { e.classList.remove('zephyrus-highlight'); });

@@ -236,7 +236,7 @@ Conventions that matter for review:
 - Paths: use named constants from `src/constants.py` (`AUTH_FILE`, `SETTINGS_FILE`, `TTS_CACHE_DIR`, ...). Never hardcode `/app/...` or relative `data/...`.
 - Loopback URLs: use `internal_api_base()` (honors `ZEPHYRUS_INTERNAL_BASE` / `APP_PORT`), not `http://localhost:7000`.
 - Commits: Conventional Commits (`fix(search): ...`, `feat(notes): ...`).
-- Visual changes: run the app, attach screenshots/clips, reuse CSS variables and existing components, no emoji in UI, `Fira Code` + dark theme by default.
+- Visual changes: run the app, attach desktop + 375px screenshots/clips, reuse CSS variables and existing components, no emoji in UI. One theme (Ice / Arctic: black surfaces, ice-blue accent) on a design system of CSS variables — surfaces `--bg`/`--surface-1`…`--surface-4`/`--elevated`, type `--text-xs`…`--text-3xl`, 4px spacing, `--radius-*`, two-layer `--shadow-*`, `--border-control` for control edges.
 - PRs go to `dev` with test steps and linked issues. Agent-generated bulk PRs without a prior issue may be closed.
 
 Full rules: [CONTRIBUTING](CONTRIBUTING.md).

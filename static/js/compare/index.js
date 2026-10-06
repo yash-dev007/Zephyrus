@@ -36,8 +36,8 @@ import Storage from '../storage.js';
 import uiModule from '../ui.js';
 import sessionModule from '../sessions.js';
 import spinnerModule from '../spinner.js';
-import themeModule from '../theme.js';
 import presetsModule from '../presets.js';
+import { makeWindowDraggable } from '../windowDrag.js';
 import markdownModule from '../markdown.js';
 import { bindMenuDismiss } from '../escMenuStack.js';
 
@@ -1504,9 +1504,7 @@ async function showShufflePoolEditor() {
   overlay.appendChild(content);
   document.body.appendChild(overlay);
 
-  if (themeModule && themeModule.makeDraggable) {
-    themeModule.makeDraggable(content, header);
-  }
+  makeWindowDraggable(overlay, { content, header });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

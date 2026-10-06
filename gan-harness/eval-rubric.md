@@ -1,5 +1,7 @@
 # Design-Focused Eval Rubric
 
+> **Superseded.** The theme-picker rubric below scored a feature that was removed entirely. The app now has a single theme whose palette was later redesigned from the original green Terminal look to **Ice / Arctic**. See `docs/superpowers/specs/2026-10-05-terminal-only-theme-design.md` (why the runtime theme layer is gone) and `docs/superpowers/specs/2026-10-06-ice-arctic-redesign-design.md` (the palette and its rules).
+
 Weighted score = sum(score * weight). Pass >= 9.0. Max 10 iterations.
 
 ### Design Quality (weight: 0.35)

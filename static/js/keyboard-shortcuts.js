@@ -12,7 +12,7 @@ const _defaultKeybinds = {
   // Open-tool shortcuts (Calendar bound by default; rest unbound).
   open_calendar: 'ctrl+alt+c', open_compare: '', open_cookbook: '',
   open_research: '', open_gallery: '', open_library: '', open_memory: '',
-  open_notes: '', open_tasks: '', open_theme: '',
+  open_notes: '', open_tasks: '',
 };
 
 export function _matchesCombo(e, combo, isMac = IS_MAC) {
@@ -58,7 +58,24 @@ export function initKeyboardShortcuts(modules) {
   // Load saved keybinds
   fetch('/api/auth/settings', { credentials: 'same-origin' })
     .then(r => r.json())
-    .then(s => { if (s.keybinds) window._zephyrusKeybinds = { ..._defaultKeybinds, ...s.keybinds }; })
+    .then(s => {
+      const saved = (s && s.keybinds && typeof s.keybinds === 'object' && !Array.isArray(s.keybinds))
+        ? s.keybinds : {};
+      const merged = { ..._defaultKeybinds, ...saved };
+      const stale = Object.keys(merged).filter(a => !Object.prototype.hasOwnProperty.call(_defaultKeybinds, a));
+      for (const action of stale) delete merged[action];
+      window._zephyrusKeybinds = merged;
+      // Only an admin can write this route, and keybinds are global app
+      // settings rather than per-user — so for everyone else the POST would be
+      // a guaranteed 403 on every page load. The in-memory prune above is
+      // enough to keep this session correct.
+      if (!stale.length || !window._isAdmin) return;
+      fetch('/api/auth/settings', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keybinds: merged }),
+      }).catch(() => {});
+    })
     .catch(() => {});
 
   // ── Esc cancels select mode (capture phase, before modal-close) ──
@@ -97,7 +114,6 @@ export function initKeyboardShortcuts(modules) {
   // opens it (mirrors modalManager's _AUTO_WIRE, plus email's section title).
   const _WINDOW_TRIGGERS = {
     'settings-modal':         'user-bar-settings',
-    'theme-modal':            'tool-theme-btn',
     'tasks-modal':            'tool-tasks-btn',
     'notes-panel':            'tool-notes-btn',
     'memory-modal':           'tool-memory-btn',
@@ -272,7 +288,6 @@ export function initKeyboardShortcuts(modules) {
       open_memory:   'tool-memory-btn',
       open_notes:    'tool-notes-btn',
       open_tasks:    'tool-tasks-btn',
-      open_theme:    'tool-theme-btn',
     };
     for (const action in _toolBtns) {
       if (_matchesCombo(e, kb[action])) {

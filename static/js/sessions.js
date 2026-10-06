@@ -6,8 +6,8 @@ import uiModule, { autoResize, styledPrompt } from './ui.js';
 import chatRenderer from './chatRenderer.js';
 import { providerLogo } from './providers.js';
 import { initModelPicker, updateModelPicker } from './modelPicker.js';
-import themeModule from './theme.js';
 import spinnerModule from './spinner.js';
+import { makeWindowDraggable } from './windowDrag.js';
 
 const API_BASE = window.location.origin;
 
@@ -3025,8 +3025,8 @@ export function openLibrary(defaultTab) {
   // Draggable
   const _clContent = modal.querySelector('.modal-content');
   const _clHeader = modal.querySelector('.modal-header');
-  if (themeModule && themeModule.makeDraggable && _clContent && _clHeader) {
-    themeModule.makeDraggable(_clContent, _clHeader);
+  if (_clContent && _clHeader) {
+    makeWindowDraggable(modal, { content: _clContent, header: _clHeader });
   }
 
   document.getElementById('lib-close').addEventListener('click', closeLibrary);
@@ -3391,8 +3391,8 @@ export function openArchive() {
   // Make draggable via header
   const _arcContent = modal.querySelector('.modal-content');
   const _arcHeader = modal.querySelector('.modal-header');
-  if (themeModule && themeModule.makeDraggable && _arcContent && _arcHeader) {
-    themeModule.makeDraggable(_arcContent, _arcHeader);
+  if (_arcContent && _arcHeader) {
+    makeWindowDraggable(modal, { content: _arcContent, header: _arcHeader });
   }
 
   document.getElementById('archive-close').addEventListener('click', closeArchive);

@@ -410,7 +410,7 @@ export function attachColorPicker(inputEl) {
   inputEl.readOnly = true;
   inputEl.classList.add('cp-swatch-input');
 
-  // Wrap .value so ANY assignment (from theme.js applyColors etc.) auto-updates the swatch bg.
+  // Wrap .value so ANY assignment auto-updates the swatch bg.
   Object.defineProperty(inputEl, 'value', {
     configurable: true,
     get() { return _NATIVE_VALUE_DESC.get.call(this); },
