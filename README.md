@@ -43,7 +43,7 @@ Key properties:
 Preview clips live in [`docs/`](docs): `chat.webm`, `research.webm`, `email-outlook.md`, `gallery.webm`, `notes.webm`, `compare.webm`, `document.webm`, plus `zephyrus.jpg`.
 
 
-![Zephyrus UI preview](docs/Zephyrus-Home.png)
+![Zephyrus UI preview](docs/Zephyrus-Chat.png)
 
 ## Quickstart
 
