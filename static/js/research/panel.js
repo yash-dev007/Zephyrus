@@ -1,7 +1,7 @@
 ﻿/**
  * Deep Research side panel — open/close, form, job rendering, library.
  */
-import * as jobs from './jobs.js?v=20260630researchthumb';
+import * as jobs from './jobs.js';
 import createResearchSynapse from '../researchSynapse.js';
 import spinnerModule from '../spinner.js';
 import { makeWindowDraggable } from '../windowDrag.js';
@@ -191,7 +191,7 @@ async function _updateResearchCount() {
     if (!res.ok) return;
     const data = await res.json();
     const n = data.total || 0;
-    el.textContent = n + (n === 1 ? ' research' : ' research');
+    el.textContent = n === 1 ? '1 research' : n + ' research';
   } catch {}
 }
 
@@ -245,10 +245,12 @@ export function openPanel(focusJobId) {
     if (focusJobId) _focusJob(focusJobId);
     return;
   }
-  _open = true;
-
+  // Bail BEFORE setting _open — otherwise the panel is marked open with no
+  // overlay in the DOM, so isOpen() reports true while nothing is rendered and
+  // every later toggle()/close() short-circuits on a panel that doesn't exist.
   const container = document.getElementById('chat-container');
   if (!container) return;
+  _open = true;
 
   document.body.classList.add('research-panel-view');
   const btn = document.getElementById('tool-research-btn');

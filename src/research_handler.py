@@ -23,6 +23,16 @@ logger = logging.getLogger(__name__)
 RESEARCH_DATA_DIR = Path(DEEP_RESEARCH_DIR)
 _RESEARCH_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,128}$")
 
+# Statuses after which a task entry is finished and its bulky payload is dead
+# weight. "running" is the only live status.
+_TERMINAL_STATUSES = ("done", "error", "cancelled")
+
+# How long a finished entry keeps its full payload before being trimmed. Long
+# enough that an in-flight SSE stream or a result-peek right after completion
+# still reads from memory; short enough that a long-lived server does not
+# accumulate every run's findings forever.
+_FINISHED_ENTRY_TTL_SECONDS = 3600
+
 
 def _bounded_int(value, *, default: int, minimum: int, maximum: int) -> int:
     try:
@@ -293,6 +303,12 @@ class ResearchHandler:
             if existing.get("status") == "running":
                 self.cancel_research(session_id)
 
+        # Reclaim memory from long-finished runs before adding another one.
+        try:
+            self._release_finished_tasks()
+        except Exception as prune_err:
+            logger.warning(f"Failed to release finished research tasks: {prune_err}")
+
         entry = {
             "task": None,
             "researcher": None,
@@ -443,6 +459,54 @@ class ResearchHandler:
             except Exception:
                 pass
         return None
+
+    def _release_finished_tasks(self, ttl: int = _FINISHED_ENTRY_TTL_SECONDS) -> int:
+        """Reclaim memory held by runs that finished long ago.
+
+        A finished entry holds `researcher` (every finding extracted during the
+        run, plus the evolving report), the formatted report string and the
+        source list. None of that is read once the run is over. `_active_tasks`
+        was otherwise append-only — `clear_result()` is the only thing that ever
+        popped an entry, and only if the client actually consumed the result — so
+        every research job started in this process pinned its full finding set
+        for the lifetime of the server.
+
+        Two cases, because persistence differs by outcome:
+
+        * **Persisted** (`done`, written by `_save_result()`) → drop the entry
+          entirely. Every accessor (`get_status`, `get_result`, `get_sources`,
+          `get_raw_findings`) reads the memory copy *before* falling back to
+          disk, so the entry has to be gone for the disk copy to be reachable.
+          Blanking `entry["result"]` instead would make those accessors return
+          `None` rather than fall through.
+        * **Not persisted** (`error`, `cancelled` — `_save_result()` never runs
+          for either) → keep the entry, because it is the only record of what
+          happened, but drop `researcher`, which is the bulk of the footprint.
+
+        Only entries past `ttl` are touched, so an in-flight SSE stream or a
+        result-peek right after completion still reads from memory.
+
+        Returns the number of entries released.
+        """
+        now = time.time()
+        released = 0
+        for session_id, entry in list(self._active_tasks.items()):
+            if entry.get("status") not in _TERMINAL_STATUSES:
+                continue
+            if now - (entry.get("started_at") or 0) < ttl:
+                continue
+            path = _research_json_path(session_id)
+            if path is not None and path.exists():
+                del self._active_tasks[session_id]
+            else:
+                # Sole record of a failed/cancelled run — keep the summary text,
+                # drop the finding set.
+                entry.pop("researcher", None)
+                entry.pop("sources", None)
+            released += 1
+        if released:
+            logger.info(f"Released {released} finished research task(s)")
+        return released
 
     def cancel_research(self, session_id: str) -> bool:
         """Cancel running research for a session."""
@@ -779,12 +843,17 @@ class ResearchHandler:
         if is_continuation:
             logger.info(f"Prior: {len(prior_findings or [])} findings, {len(prior_urls or set())} URLs")
 
-        # Probe the endpoint before committing to a long research run
+        # Probe the endpoint before committing to a long research run.
+        # This is INSIDE the try below on purpose: an unreachable model or a bad
+        # key used to raise straight out of call_research_service(), bypassing
+        # the fallback chain entirely — so a dead research model surfaced as a
+        # hard error even though the basic web-search fallback (which needs no
+        # LLM) could still have produced a usable answer.
         if progress_callback:
             progress_callback({"phase": "probing", "model": llm_model})
-        await self._probe_endpoint(llm_endpoint, llm_model, llm_headers)
 
         try:
+            await self._probe_endpoint(llm_endpoint, llm_model, llm_headers)
             from src.deep_research import DeepResearcher
 
             from src.settings import get_setting

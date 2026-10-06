@@ -32,14 +32,16 @@ import './js/modalManager.js';
 // Desktop window tiling — drag a modal near an edge/corner to snap.
 import './js/tileManager.js';
 
-// IMPORTANT: import cookbook.js with NO ?v= query — the same plain specifier
-// every other importer (cookbook-hwfit.js / cookbook-diagnosis.js) uses. A query
-// mismatch makes the browser load cookbook.js twice as separate modules (two
-// _envState objects), which broke server selection. Keep all cookbook imports
-// unversioned so this can't recur.
+// IMPORTANT: import these with NO ?v= query — the same plain specifier every
+// other importer uses. A query mismatch makes the browser load the module twice
+// as separate instances (two module-scope state objects), which broke server
+// selection for cookbook.js and left research's agent-started jobs adopted into
+// a second, never-rendered _jobs array. sw.js is already network-first for
+// /static JS, so ?v= buys no cache-busting anyway.
+// Keep ALL imports of a given module on one identical specifier to stop this recurring.
 import cookbookModule from './js/cookbook.js';
 import groupModule from './js/group.js';
-import * as researchPanelModule from './js/research/panel.js?v=20260630researchthumb';
+import * as researchPanelModule from './js/research/panel.js';
 import ttsModule from './js/tts-ai.js';
 import spinnerModule from './js/spinner.js';
 import { initKeyboardShortcuts } from './js/keyboard-shortcuts.js';
