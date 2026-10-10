@@ -1596,7 +1596,7 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
     modal.className = 'modal';
     modal.id = 'doclib-modal';
     modal.innerHTML = `
-      <div class="modal-content doclib-modal-content" style="width:min(640px, 92vw);background:var(--bg);">
+      <div class="modal-content doclib-modal-content" style="width:var(--window-w);background:var(--bg);">
         <div class="modal-header">
           <!-- Header title + icon mirror the currently-active sub-tab (Chats /
                Documents / Research / Archive) so the user sees ONE icon at

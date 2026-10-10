@@ -19,12 +19,6 @@
 <style>
   @font-face { font-family: 'Fira Code'; font-weight: 400; font-style: normal; font-display: swap; src: url('/static/fonts/FiraCode-Regular.woff2') format('woff2'); }
   @font-face { font-family: 'Fira Code'; font-weight: 600; font-style: normal; font-display: swap; src: url('/static/fonts/FiraCode-SemiBold.woff2') format('woff2'); }
-  /* Inter, same face the app shell uses for chrome. Without it this page had
-     no sans at all and every label fell back to the OS default, which is part
-     of why login read as a different product. */
-  @font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; font-display: swap; src: url('/static/fonts/Inter-Regular.woff2') format('woff2'); }
-  @font-face { font-family: 'Inter'; font-weight: 500; font-style: normal; font-display: swap; src: url('/static/fonts/Inter-Medium.woff2') format('woff2'); }
-  @font-face { font-family: 'Inter'; font-weight: 600; font-style: normal; font-display: swap; src: url('/static/fonts/Inter-SemiBold.woff2') format('woff2'); }
   /* Palette "Ice / Arctic", as declared in the :root block of static/style.css.
      This page is served before the main stylesheet, so it cannot inherit those
      tokens and needs its own copy. That makes this block the one place the two
@@ -33,119 +27,55 @@
      reads, add it here too. tests/test_select_dropdown_theme_css.py
      (test_login_palette_matches_app_root) pins the tokens below to the ones in
      style.css, so a drift fails the suite. Only the tokens actually read here
-     are declared; do not mirror the whole block.
-     ITERATION 1: the ladder, the type scale, the spacing scale, the radii,
-     the two-layer shadows and the plate were added, because this page was
-     painting a --panel card with a 1px control border and no shadow — i.e.
-     faking elevation with a hairline, on a surface where --elevated did not
-     even resolve. It now reads the same depth model as every other surface.
-     --border-control was a STALE #697782 here while the app had moved to
-     #757575, so the login inputs were drawing a lighter edge than every
-     other control in the product. */
+     are declared; do not mirror the whole block. */
   :root {
     --bg: #000000; --panel: #141c23; --border: #373737;
     --fg: #d2d2d2; --fg-muted: #a3a3a3; --fg-subtle: #939393;
-    --border-control: #757575;
+    --border-control: #697782;
     --accent: #f1f1f1; --danger: #ff5f56;
     --bg-effect-intensity: 1;
-    --surface-1: #0c0c0c; --surface-2: #141414; --surface-3: #1b1b1b;
-    --surface-4: #232323; --elevated: #2b2b2b;
-    --border-subtle: #2b2b2b;
-    --fg-strong: #f1f1f1;
-    --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-    --font-content: 'Fira Code', ui-monospace, monospace;
-    --text-xs: 11px; --text-sm: 12px; --text-base: 13px; --text-md: 14px;
-    --text-lg: 16px; --text-xl: 20px; --text-2xl: 26px; --text-3xl: 34px;
-    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
-    --space-5: 20px; --space-6: 24px; --space-7: 28px; --space-8: 32px;
-    --space-9: 36px; --space-10: 40px;
-    --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-full: 999px;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.03);
-    --shadow-md: 0 4px 12px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04);
-    --shadow-lg: 0 16px 48px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05);
   }
-  /* Same idea as the chat canvas, one object smaller: the survey is at full
-     strength and the card is the only thing that needs protecting, so the scrim
-     is a single soft pool behind the card rather than a full-viewport radial
-     that dimmed the field everywhere it was supposed to be seen. `--plate-tint`
-     is the same 92% the transcript plate uses, so the login and the chat are
-     the same product. */
-  body::before {
-    content: "";
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background: radial-gradient(78% 52% at 50% 34%,
-      color-mix(in srgb, var(--bg) 88%, transparent) 0%,
-      color-mix(in srgb, var(--bg) 52%, transparent) 46%,
-      transparent 100%);
-    opacity: 1;
-  }
-  /* The bootstrap class still has a job: it carries the user's
-     background-effect intensity. More intensity means less scrim over the
-     field, so the preference moves the thing it is actually about. */
-  body.bg-pattern-dots::before {
-    opacity: calc(1.5 - 0.5 * var(--bg-effect-intensity, 1));
+  body.bg-pattern-dots {
+    background-image: radial-gradient(color-mix(in srgb, var(--bg-effect-color, var(--fg)) calc(5% * var(--bg-effect-intensity, 1)), transparent) 1px, transparent 1px);
+    background-size: 20px 20px; background-attachment: fixed;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  /* The topographic field, on the first surface the user ever sees. This page
-     used to carry a 20px dot grid — the one background in the product with no
-     relationship to anything else. The survey map is the app's identity, so
-     the login inherits it and the product starts by being itself.
-     Unconditional, deliberately. It used to hang off `body.bg-pattern-dots`,
-     a class only an inline script adds, so a CSP nonce that failed to
-     substitute — or any failure of that one script — left the login with no
-     background at all. Identity is not something a login page should lose to
-     a nonce. It also lives here rather than in its own rule above, because a
-     separate `body { background-image }` block is erased by the `background`
-     shorthand in this rule; background-COLOR keeps both. */
   body {
-    font-family: var(--font-ui);
-    font-size: var(--text-base);
-    background-color: var(--bg);
-    /* topo-field.png — the label-free derivation of topo-dark.png; see the
-       note in static/style.css §1. */
-    background-image: url("/static/icons/topo-field.png");
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-attachment: fixed;
-    color: var(--fg);
+    font-family: 'Fira Code', monospace;
+    background: var(--bg); color: var(--fg);
     display: flex; justify-content: center; align-items: flex-start;
     min-height: 100vh; min-height: 100dvh;
     padding-top: 15vh;
-    transition: padding-top var(--dur-base, 180ms) ease;
+    transition: padding-top 0.2s ease;
   }
-  main { position: relative; z-index: 1; }
-  /* The card is a ladder rung with a real two-layer shadow, not a --panel
-     rectangle wearing a 1px outline. The inset light edge is what tells the
-     eye the surface is raised — on a pure-black canvas the dark drop alone is
-     invisible where it falls, which is exactly why this card read as flat. */
   .card {
-    background: var(--surface-2);
-    border: 0;
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
-    padding: var(--space-8); width: 360px; max-width: 90vw;
+    background: var(--panel); border: 1px solid var(--border-control); border-radius: 12px;
+    padding: 2rem; width: 360px; max-width: 90vw;
     position: relative; z-index: 1;
   }
   .logo {
-    text-align: center; margin-bottom: var(--space-6);
+    text-align: center; margin-bottom: 1.5rem;
   }
-  .logo img {
-    display: block;
-    height: 40px;
-    width: auto;
-    max-width: 100%;
-    margin: 0 auto;
-    object-fit: contain;
-    user-select: none;
+  .logo span {
+    font-family: 'Fira Code', monospace;
+    font-size: 2rem; font-weight: 600;
+    letter-spacing: 0.04em;
+    /* Accent gradient wordmark for the login screen. --brand-color resolves to
+       --accent in static/style.css; the fallback matches so the page still
+       renders if that chain ever changes. --red is no longer usable here — it
+       is the deprecated alias for --danger, so a wordmark built on it would
+       render red. */
+    background: linear-gradient(135deg, var(--brand-color, var(--accent)), color-mix(in srgb, var(--brand-color, var(--accent)) 60%, var(--fg)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
   }
-
-  .setup-note { color: var(--fg-subtle); font-size: var(--text-sm); margin-bottom: var(--space-4); text-align: center; }
-  label { display: block; font-size: var(--text-sm); margin-bottom: var(--space-1); color: var(--fg-muted); }
+  .setup-note { color: color-mix(in srgb, var(--fg) 60%, transparent); font-size: 0.8rem; margin-bottom: 1rem; text-align: center; }
+  label { display: block; font-size: 0.85rem; margin-bottom: 0.3rem; color: color-mix(in srgb, var(--fg) 65%, transparent); }
   input:not(.remember-check) {
-    width: 100%; padding: var(--space-3) var(--space-3); margin-bottom: var(--space-4);
-    background: var(--surface-1); border: 1px solid var(--border-control); border-radius: var(--radius-sm);
-    color: var(--fg); font-size: var(--text-md); font-family: var(--font-content);
+    width: 100%; padding: 0.6rem 0.8rem; margin-bottom: 1rem;
+    background: var(--bg); border: 1px solid var(--border-control); border-radius: 6px;
+    color: var(--fg); font-size: 0.95rem; font-family: 'Fira Code', monospace;
   }
   input:focus { outline: none; border-color: var(--accent); }
   /* On touch devices keep inputs at >=16px so iOS Safari doesn't zoom the whole
@@ -154,7 +84,7 @@
      equivalent rule in static/style.css; mirror it here. !important also lifts
      the dynamically-inserted 2FA input, which pins font-size:14px inline. */
   @media (hover: none) and (pointer: coarse) {
-    input:not(.remember-check) { font-size: 16px !important; }  /* off-scale on purpose: iOS zoom floor */
+    input:not(.remember-check) { font-size: 16px !important; }
   }
   /* Clear, visible focus ring for keyboard users on every focusable control.
      Matches the global :focus-visible rule in static/style.css:5707. */
@@ -164,39 +94,40 @@
   }
   button {
     width: 100%;
-    /* Symmetric vertical padding on the spacing scale. The old pair was
-       calc(0.7rem + 1px) / calc(0.7rem - 1px) — a 1px optical nudge that
-       left the label visibly off-centre. */
-    padding: var(--space-3) var(--space-4);
-    border: none; border-radius: var(--radius-sm);
+    /* Asymmetric vertical padding nudges the label 1px down while keeping
+       the button's total height the same as 0.7rem all-around. */
+    padding: calc(0.7rem + 1px) 0.7rem calc(0.7rem - 1px);
+    border: none; border-radius: 6px;
     /* Fill with the accent and set the label to var(--bg), matching
        .setup-wizard .setup-connect-btn in static/style.css — this is the
        app's primary action button, and selection/send is not a danger state,
        so it follows --accent, not the deprecated --red (which now resolves to
        --danger and would paint this red). --accent measures 11.07:1 on --bg,
        so the var(--bg) label clears 11.07:1 on this fill. */
-    background: var(--accent); color: var(--bg); font-size: var(--text-base); cursor: pointer;
-    font-weight: 600; font-family: var(--font-ui);
+    background: var(--accent); color: var(--bg); font-size: 1rem; cursor: pointer;
+    font-weight: 600; font-family: 'Fira Code', monospace;
   }
   /* Hover darkens the fill only — not `opacity`, which would dim the label
      toward --panel along with it. var(--bg) on this mix stays at 8.04:1. */
-  button:hover { background: color-mix(in srgb, var(--accent) 85%, var(--bg)); }
+  button:hover { background: color-mix(in srgb, var(--accent) 85%, #000); }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   /* var(--danger) is 7.02:1 on --bg and on --panel; this replaced a hardcoded
      #e55 so the error colour comes from the palette instead of a private value. */
-  .error { color: var(--danger); font-size: var(--text-sm); margin-bottom: var(--space-3); display: none; }
+  .error { color: var(--danger); font-size: 0.85rem; margin-bottom: 0.75rem; display: none; }
   /* --fg-muted, not color-mix(--fg 50%, transparent): the mix measured 3.85:1 on
      this --panel card once --fg became a desaturated grey, and alpha-mixing a
      muted token compounds with anything else that dims it. */
-  .toggle { text-align: center; margin-top: var(--space-5); font-size: var(--text-sm); color: var(--fg-muted); }
+  .toggle { text-align: center; margin-top: calc(1rem + 4px); font-size: 0.85rem; color: var(--fg-muted); }
   .toggle a { color: var(--accent); cursor: pointer; text-decoration: none; }
   .toggle a:hover { text-decoration: underline; }
-  .pw-wrapper { position: relative; margin-bottom: var(--space-4); }
-  .pw-wrapper input:not(.remember-check) { padding-right: var(--space-8); margin-bottom: 0; }
+  .pw-wrapper { position: relative; margin-bottom: 1rem; }
+  .pw-wrapper input:not(.remember-check) { padding-right: 2.5rem; margin-bottom: 0; }
   .pw-toggle {
-    position: absolute; right: var(--space-2); top: 50%;
-    transform: translateY(-50%);
-    background: none; border: none; padding: var(--space-1); cursor: pointer;
+    position: absolute; right: 8px; top: 50%;
+    /* +1px on the centering offset nudges the eye icon down 1px so it
+       lines up visually with the input text baseline. */
+    transform: translateY(calc(-50% + 1px));
+    background: none; border: none; padding: 4px; cursor: pointer;
     /* --fg-muted, not color-mix(--fg 40%, transparent): the mix measured 2.94:1 on
        this --panel card. Hover steps up to full --fg. */
     color: var(--fg-muted); width: auto;
@@ -204,30 +135,20 @@
   }
   .pw-toggle:hover { color: var(--fg); background: none; }
   .pw-toggle svg { display: block; }
-  /* "Remember me" is a labelled control in the card's own flow, not a bare dot
-     floating inside the username field. It used to be an absolutely positioned
-     16px dot parked inside `.pw-wrapper`, which measured at x 840-856 / y
-     264-280 while the username input occupied x 572-868 / y 250-293 — an
-     unlabelled mark sitting in a text box, on the first surface the user ever
-     sees. It also carried `display: flex !important`, which meant the
-     setMode() call that hides it in setup and signup modes silently did
-     nothing. A row with a real label has neither problem. */
-  .remember-row { margin-bottom: var(--space-4); }
   .remember-toggle {
-    display: inline-flex; align-items: center; gap: var(--space-2);
-    background: none; border: none; padding: 0; margin: 0; cursor: pointer;
-    font-family: var(--font-ui); font-size: var(--text-sm);
-    color: var(--fg-muted);
-    transition: color var(--dur-fast, 120ms) var(--ease-out, ease);
+    position: absolute !important; right: 13px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; padding: 2px; cursor: pointer;
+    width: 14px !important; height: 14px !important; display: flex !important;
+    align-items: center; justify-content: center;
+    font-size: 0; margin: 0; color: transparent;
   }
-  .remember-toggle:hover { color: var(--fg); }
-  .remember-label { line-height: 1; user-select: none; }
   /* Visually hide the native checkbox but keep it in the accessibility tree
-     and keyboard-focusable (display:none would drop it from tab order). The
-     dot is inside the <label>, so the whole row is the hit target natively. */
+     and keyboard-focusable (display:none would drop it from tab order). It
+     overlays the dot so a click/tap still toggles it. */
   .remember-toggle .remember-check {
-    position: absolute; width: 1px; height: 1px; margin: -1px;
-    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%; margin: 0;
+    opacity: 0; cursor: pointer;
   }
   .remember-toggle .remember-check:focus-visible + .remember-dot {
     outline: 2px solid var(--accent); outline-offset: 2px;
@@ -250,17 +171,14 @@
   .remember-toggle:hover .remember-dot {
     border-color: var(--fg);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .remember-toggle, .remember-dot { transition-duration: 0ms; }
-  }
   .version-label {
-    position: fixed; bottom: var(--space-3); right: var(--space-4);
-    font-size: var(--text-xs);
+    position: fixed; bottom: 12px; right: 16px;
+    font-size: 0.7rem;
     /* --fg-subtle (6.88:1 on --bg) rather than `opacity: 0.25` on inherited
        --fg, which measured 1.70:1 once --fg stopped being a near-maximum
        luminance green. */
     color: var(--fg-subtle);
-    font-family: var(--font-content);
+    font-family: 'Fira Code', monospace;
     pointer-events: none; user-select: none;
   }
   /* Whirlpool-style spinner shown in the submit button while login /
@@ -279,23 +197,12 @@
     vertical-align: -3px;
   }
   @keyframes login-spin { to { transform: rotate(360deg); } }
-  /* Reduced-motion gate. This page had an infinite spinner with no gate, so a
-     reduced-motion user got a permanently rotating element on the only screen
-     they cannot navigate away from without submitting. The end state is kept —
-     only the motion goes. */
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation-duration: 0ms !important;
-      transition-duration: 0ms !important;
-    }
-    body { transition: none; }
-  }
 </style>
 </head>
 <body>
 <main class="card">
   <h1 class="logo">
-    <img src="/static/icons/Zephyrus-Logo.png" width="780" height="210" alt="Zephyrus">
+    <span>Zephyrus</span>
   </h1>
   <p class="setup-note" id="setupNote" style="display:none"></p>
 
@@ -305,6 +212,10 @@
     <label for="username">Username</label>
     <div class="pw-wrapper">
       <input id="username" name="username" type="text" required autofocus autocomplete="username">
+      <label class="remember-toggle" id="rememberToggle" title="Remember me">
+        <input type="checkbox" class="remember-check" id="remember" checked aria-label="Remember me">
+        <span class="remember-dot" aria-hidden="true"></span>
+      </label>
     </div>
 
     <label for="password">Password</label>
@@ -313,14 +224,6 @@
       <button type="button" class="pw-toggle" id="pwToggle" tabindex="-1" aria-label="Show password">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><line x1="8" y1="16" x2="16" y2="8"/><line x1="8" y1="8" x2="16" y2="16"/></svg>
       </button>
-    </div>
-
-    <div class="remember-row" id="rememberToggle">
-      <label class="remember-toggle" for="remember">
-        <input type="checkbox" class="remember-check" id="remember" checked>
-        <span class="remember-dot" aria-hidden="true"></span>
-        <span class="remember-label">Remember me</span>
-      </label>
     </div>
 
     <div id="confirmGroup" style="display:none">

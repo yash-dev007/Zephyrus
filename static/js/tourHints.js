@@ -73,15 +73,27 @@ function _show(modal) {
   pop.className = 'tour-hint';
   pop.innerHTML = `
     <div class="tour-hint-visual" aria-hidden="true">
-      <svg viewBox="0 0 100 60" width="160" height="96">
+      <!-- 200x120, not 160x96. At 160 the 34x22 viewBox unit rect rendered
+           ~54px wide with the frame at stroke-opacity 0.18 and the window
+           filled with --bg, so the whole diagram read as a broken-image
+           glyph. Scaling further is not the answer either: the canvas scales
+           its strokes too, and at 240 the dragged window became the
+           loudest object on the screen — a hint has to be quieter than the
+           window it is pointing at. So: a larger canvas than 160, a real
+           ladder rung for the window body, and the stroke weight pulled back
+           so the diagram sits behind the sentence instead of competing
+           with it. Colour comes from .tour-hint-visual (--fg-subtle), not
+           from the accent. -->
+      <svg viewBox="0 0 100 60" width="200" height="120">
         <!-- ambient frame -->
-        <rect x="0.5" y="0.5" width="99" height="59" rx="3" fill="none" stroke="currentColor" stroke-opacity="0.18" />
-        <!-- snap-zone preview (right half) -->
+        <rect x="0.5" y="0.5" width="99" height="59" rx="3" fill="none" stroke="currentColor" stroke-opacity="0.4" />
+        <!-- snap-zone preview (right half): the target has to be visible or
+             the diagram does not say where the window is going. -->
         <rect class="th-zone" x="51" y="2" width="47" height="56" rx="2" fill="currentColor" opacity="0" />
         <!-- the modal being dragged -->
         <g class="th-modal-group">
-          <rect x="22" y="20" width="34" height="22" rx="2.5" fill="var(--bg)" stroke="currentColor" stroke-width="1.2" />
-          <rect x="22" y="20" width="34" height="5"  rx="2.5" fill="currentColor" opacity="0.35" />
+          <rect x="22" y="20" width="34" height="22" rx="2.5" fill="var(--surface-3)" stroke="currentColor" stroke-opacity="0.7" stroke-width="0.7" />
+          <rect x="22" y="20" width="34" height="5"  rx="2.5" fill="currentColor" opacity="0.3" />
         </g>
         <!-- cursor -->
         <path class="th-cursor" d="M0 0 L0 9 L2.5 7 L4.5 10 L6 9 L4 6 L7 6 Z" fill="currentColor" />

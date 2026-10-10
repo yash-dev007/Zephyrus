@@ -16,6 +16,25 @@ const REPORT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
 const CHAT_ABOUT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
 const COPY_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
 const CHECK_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+/* The rest of the message action row. These used to be Unicode dingbats
+   (U+270E pencil, U+2715 cross, U+00B7 middots, U+21BB arrow, U+2702, U+2ADD)
+   set as textContent at --text-xl. Three problems, all visible in a still
+   frame: they resolve to different fallback fonts per glyph so the row had
+   three different stroke weights, their optical sizes disagreed badly (the
+   pencil is visually smaller than the middots at the same font-size), and
+   they were the only non-SVG marks in a UI whose entire icon language is the
+   monochrome stroke set used everywhere else. Same 12px box, same stroke
+   geometry, same currentColor — so the row is now one object instead of six
+   unrelated characters. */
+const _ICO = (inner) => '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+const EDIT_ICON = _ICO('<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>');
+const DELETE_ICON = _ICO('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>');
+const MORE_ICON = _ICO('<circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/>');
+const RESEND_ICON = _ICO('<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>');
+const REGEN_ICON = _ICO('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>');
+const SHORTEN_ICON = _ICO('<polyline points="4 14 10 14 10 20"/><path d="M20 4v6h-6"/><line x1="14" y1="10" x2="3" y2="21"/>');
+const EXPLAIN_ICON = _ICO('<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>');
+const FORK_ICON = _ICO('<line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>');
 
 /** Sanitize a URL for use in href — only allow http(s) and protocol-relative. */
 function _safeHref(url) {
@@ -1508,27 +1527,27 @@ export function createMsgFooter(msgElement) {
       btn.innerHTML = CHECK_ICON;
       setTimeout(() => { btn.innerHTML = COPY_ICON; }, 1500);
     }},
-    { id: 'edit', icon: '\u270E', title: 'Edit', cls: 'msg-action-btn', handler(e) {
+    { id: 'edit', icon: EDIT_ICON, title: 'Edit', cls: 'msg-action-btn', html: true, handler(e) {
       e.stopPropagation();
       if (window.chatModule?.editAIMessage) window.chatModule.editAIMessage(msgElement);
     }},
-    { id: 'regen', icon: '\u21BB', title: 'Regenerate from here', cls: 'msg-action-btn', handler(e) {
+    { id: 'regen', icon: REGEN_ICON, title: 'Regenerate from here', cls: 'msg-action-btn', html: true, handler(e) {
       e.stopPropagation();
       if (window.chatModule?.regenerateFrom) window.chatModule.regenerateFrom(msgElement);
     }},
-    { id: 'shorten', icon: '\u2702', title: 'Rewrite shorter', cls: 'msg-action-btn', handler(e) {
+    { id: 'shorten', icon: SHORTEN_ICON, title: 'Rewrite shorter', cls: 'msg-action-btn', html: true, handler(e) {
       e.stopPropagation();
       if (window.chatModule?.rewriteWith) window.chatModule.rewriteWith(msgElement, 'Rewrite your last response to be shorter and more concise. Keep the key information but cut the fluff.');
     }},
-    { id: 'explain', icon: '?', title: 'Explain simpler', cls: 'msg-action-btn', handler(e) {
+    { id: 'explain', icon: EXPLAIN_ICON, title: 'Explain simpler', cls: 'msg-action-btn', html: true, handler(e) {
       e.stopPropagation();
       if (window.chatModule?.rewriteWith) window.chatModule.rewriteWith(msgElement, 'Explain your last response in simpler terms. Use plain language and short sentences.');
     }},
-    { id: 'fork', icon: '\u2ADD', title: 'Fork conversation', cls: 'msg-action-btn', handler(e) {
+    { id: 'fork', icon: FORK_ICON, title: 'Fork conversation', cls: 'msg-action-btn', html: true, handler(e) {
       e.stopPropagation();
       if (window.chatModule?.forkFrom) window.chatModule.forkFrom(msgElement);
     }},
-    { id: 'delete', icon: '\u2715', title: 'Delete message', cls: 'msg-action-btn msg-delete-btn', handler(e) {
+    { id: 'delete', icon: DELETE_ICON, title: 'Delete message', cls: 'msg-action-btn msg-delete-btn', html: true, handler(e) {
       e.stopPropagation();
       if (window.chatModule?.deleteMessage) window.chatModule.deleteMessage(msgElement);
     }},
@@ -1570,7 +1589,7 @@ export function createMsgFooter(msgElement) {
     moreBtn.className = 'msg-action-btn msg-more-btn';
     moreBtn.type = 'button';
     moreBtn.title = 'More actions';
-    moreBtn.textContent = '\u00B7\u00B7\u00B7';
+    moreBtn.innerHTML = MORE_ICON;
     moreBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       // Toggle overflow menu — close any existing one first (through its own
@@ -1712,11 +1731,11 @@ export function createUserMsgFooter(msgElement) {
   actions.className = 'msg-actions';
 
   const allActions = [
-    { id: 'edit', icon: '\u270E', title: 'Edit message', cls: 'msg-action-btn', handler(e) {
+    { id: 'edit', icon: EDIT_ICON, title: 'Edit message', cls: 'msg-action-btn', html: true, handler(e) {
       e.stopPropagation();
       if (window.chatModule?.editUserMessage) window.chatModule.editUserMessage(msgElement);
     }},
-    { id: 'delete', icon: '\u2715', title: 'Delete message', cls: 'msg-action-btn msg-delete-btn', handler(e) {
+    { id: 'delete', icon: DELETE_ICON, title: 'Delete message', cls: 'msg-action-btn msg-delete-btn', html: true, handler(e) {
       e.stopPropagation();
       if (window.chatModule?.deleteMessage) window.chatModule.deleteMessage(msgElement);
     }},
@@ -1727,7 +1746,7 @@ export function createUserMsgFooter(msgElement) {
       btn.innerHTML = CHECK_ICON;
       setTimeout(() => { btn.innerHTML = COPY_ICON; }, 1500);
     }},
-    { id: 'resend', icon: '\u21BB', title: 'Resend message', cls: 'msg-action-btn', handler(e) {
+    { id: 'resend', icon: RESEND_ICON, title: 'Resend message', cls: 'msg-action-btn', html: true, handler(e) {
       e.stopPropagation();
       if (window.chatModule?.resendUserMessage) window.chatModule.resendUserMessage(msgElement);
     }},
@@ -1761,7 +1780,7 @@ export function createUserMsgFooter(msgElement) {
     moreBtn.className = 'msg-action-btn msg-more-btn';
     moreBtn.type = 'button';
     moreBtn.title = 'More actions';
-    moreBtn.textContent = '\u00B7\u00B7\u00B7';
+    moreBtn.innerHTML = MORE_ICON;
     moreBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       const existing = document.querySelector('.msg-overflow-menu');
@@ -1855,7 +1874,11 @@ export function displayMetrics(messageElement, metrics) {
   metricsContainer.title = 'Click for details';
   const metricsDivider = document.createElement('span');
   metricsDivider.className = 'metrics-divider';
-  metricsDivider.textContent = ' | ';
+  // Middot, not pipe. The footer row mixed this pipe with the middot the
+  // image-metrics label uses, so a single line of meta could show both. The
+  // middot is already the app's separator elsewhere and is optically lighter
+  // at meta size, which keeps the numbers ahead of the punctuation.
+  metricsDivider.textContent = ' \u00B7 ';
   metricsDivider.style.color = 'var(--color-muted-alt)';
   metricsDivider.style.pointerEvents = 'none';
   metricsContainer.addEventListener('click', (e) => {
@@ -2085,7 +2108,7 @@ export function displayMetrics(messageElement, metrics) {
     }
     if (ctxRing) {
       const ctxDiv = document.createElement('span');
-      ctxDiv.textContent = ' | ';
+      ctxDiv.textContent = ' \u00B7 ';
       ctxDiv.style.color = 'var(--color-muted-alt)';
       ctxDiv.style.pointerEvents = 'none';
       ctxDiv.className = 'ctx-divider';

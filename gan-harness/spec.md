@@ -1,50 +1,114 @@
-# GAN Design Spec — Zephyrus Frontend + Theme Selection
+# GAN Design Spec — Zephyrus Whole UI
 
-> **Superseded.** The theme-selection feature described below was removed entirely. The app now has a single theme whose palette was later redesigned from the original green Terminal look to **Ice / Arctic**. See `docs/superpowers/specs/2026-10-05-terminal-only-theme-design.md` (why the runtime theme layer is gone) and `docs/superpowers/specs/2026-10-06-ice-arctic-redesign-design.md` (the palette and its rules).
+Run date: 2026-10-08. Mode: design (no planner — this file *is* the spec).
+Supersedes the 2026-10-06 theme-picker run; its `spec.md` / `eval-rubric.md` /
+`RESULTS.md` content is preserved in git history at commit `916c571`.
 
 ## Brief (parsed)
-Improve design quality of the existing Zephyrus frontend, with special focus on the theme selection feature, to reach a weighted score >= 9.0.
 
-## Scope
-- Primary surface: `#theme-popup` modal in `static/index.html` (459-669):
-  - Tabs: Themes / Customize (`#theme-tabs`)
-  - Browse: Default Themes grid `#themeGrid`, Your Themes `#themeUserGrid` + `#themeUserCard`
-  - Customize: Colors `.theme-custom`, More Colors `#themeAdvanced`, Harmony generator `#theme-harmony-card`, Font & Layout, Save/Share, Reset, Peek toggle `#theme-opacity-wrap`
-- Secondary: overall frontend cohesion that theme affects — chat bubbles, sidebar (`--sidebar-bg`, `--brand-color`), input area, code blocks (`--hl-*`), controls, scrollbars, background patterns, frosted glass.
-- Logic: `static/js/theme.js` (THEMES, applyColors, applyFontDensity, applyBgPattern, initThemeUI). Do not break persistence (localStorage `zephyrus-theme`, `zephyrus-custom-themes` + `/api/prefs/theme` sync).
+> Run the GAN design harness against the **whole Zephyrus project UI**.
 
-## Constraints (from CONTRIBUTING.md — must obey)
-- Reuse existing CSS variables (`--bg`, `--fg`, `--panel`, `--border`, `--red`, etc). Do not introduce new color literals for theming.
-- Reuse existing button, input, card, border classes. No parallel styling systems.
-- No Unicode emoji in UI or code. Use inline SVG monochrome icons matching `static/index.html`.
-- Monospaced `Fira Code` for primary UI text. Don't override.
-- Dark theme is default; light work via existing theme system, not hard-coded.
-- Don't hardcode paths/ports. Use `src/constants.py` if touching Python (not needed here).
-- Run app locally + screenshot for visual changes. Mention checks in summary.
+Operator decisions taken at parse time:
 
-## Visual Excellence Goals (Generator PRIMARY goal)
-> A stunning half-finished app beats a functional ugly one. Push for creative leaps — unusual layouts, custom animations, distinctive color work — while preserving all existing functionality.
+| Decision | Value | Source |
+|---|---|---|
+| Latitude | **Bold, inside the token system** | operator |
+| Iteration scope | **Whole UI every iteration** | operator |
+| `--max-iterations` | 10 | default |
+| `--pass-threshold` | 7.5 weighted | default (design default) |
 
-Specific directions:
-1. Theme swatches: evolve from flat 4-dot strips to rich mini-previews (browser-chrome mock: sidebar+chat+bubble dots) with hover lift, active ring using `--red` at 33% mix, smooth 160ms cubic-bezier, keyboard focus-visible.
-2. Browse tab: section hierarchy (`Default Themes` / `Your Themes`), search/filter input reusing `.theme-fd-select` style, empty-state for custom, count badges.
-3. Customize tab: grouped cards with consistent 8px rhythm, zone-highlight on hover (already via `initThemeZoneHighlight` — polish it), reset buttons only visible when `.changed`.
-4. Harmony generator + Save/Share + Font/Layout: tighten spacing, align rows, unify `.theme-io-btn`, `.harmony-generate-btn`, `#theme-save-go`.
-5. Micro-interactions: swatch select ripple/check, tab switch fade/slide, peek toggle eye animation, range slider thumb polish, toast on save.
-6. Accessibility: focus rings, aria-pressed/selected on swatches, contrast-safe text via `color-mix(in srgb, var(--fg) ...)`, reduced-motion media query.
-7. Responsive: modal `max-height: min(85vh, 600px)`, `.theme-grid` auto-fill minmax, mobile full-sheet rules preserved (see style.css 6930-6951, 7120-7138).
-8. Craft details: consistent border-radius, 1px `var(--border)`, no layout shift on tab switch, no global `*` margin reset.
+## What "whole UI" covers
 
-## Functional Invariants (must not regress)
-- 16 presets render + click applies + persists.
-- Custom themes max 8, save/delete/sync, overwrite guard for built-ins.
-- Font/density/text-size/frosted/pattern/intensity/size/effect-color all apply live.
-- Advanced overrides tracking (old-default vs new-default logic) preserved.
-- Peek toggle only on Customize, restores on tab switch.
-- `node --check static/js/theme.js`, `python -m py_compile`, `pytest` relevant tests pass.
+Every surface reachable in the running app, not just the chat shell:
 
-## Config (parsed from user invocation)
-- `--max-iterations 10` (default 10)
-- `--pass-threshold 9.0` (default 7.5, raised per "give me at least 9 score")
-- Mode: design (skip planner, generator + evaluator only)
-- Weights: Design 0.35, Originality 0.30, Craft 0.25, Functionality 0.10
+1. **Shell** — topbar/context pill, sidebar (nav groups, session lists, footer
+   user + settings), main viewport, composer, scroll regions.
+2. **Chat** — transcript, user/assistant bubbles, thinking-process disclosure,
+   per-message action rows, code blocks + syntax highlighting, streaming states,
+   empty/new-chat state, model picker, attachments.
+3. **Overlays** — every modal, drawer, sheet, dropdown, tooltip, toast,
+   context menu, command palette, confirm dialog.
+4. **Workspaces** — Brain, Calendar, Compare, Cookbook, Deep Research, Gallery,
+   Library/Documents, Notes, Tasks, Email (inbox + library + shared).
+5. **Settings** — all tabs, appearance/text-layout controls, admin surfaces.
+6. **Auth** — `static/login.html`, first-run setup.
+7. **Responsive** — 1440px desktop **and** 375px mobile for every surface above.
+
+## Latitude: bold, inside the token system
+
+The Generator is expected to take creative leaps. The leaps are in **layout,
+composition, information design, motion, density, hierarchy, and the values of
+the existing tokens** — not in inventing a parallel styling system.
+
+Green light:
+- Editing token **values** in the `:root` block (`static/style.css`).
+- New layout structures, grid/flex composition, responsive behaviour.
+- New motion: transitions, transforms, staged reveals — via `--dur-*` / `--ease-out`.
+- New depth staging using the existing surface ladder.
+- Reworking information hierarchy, empty states, onboarding, affordances.
+
+Hard red lines (from `CONTRIBUTING.md` — a PR breaking these is closed):
+
+- **No new colour literals outside `:root`.** Every colour is a token.
+- **No new spacing, radius, or font-size values.** `--space-1..10`,
+  `--radius-sm/md/lg/full`, `--text-xs..3xl` only.
+- **Depth from the surface ladder, not from a hairline.** Reaching for
+  `border: 1px solid` to make something look raised is a defect.
+- **Control edges use `--border-control`, never `--border`.** Inputs, selects,
+  toggles, checkboxes, focusable wells.
+- **Chrome is `--font-ui`, content is `--font-content`.** Never flip a
+  code-rendering surface to the sans.
+- **Shadows are two-layer** (`--shadow-sm/md/lg`). Never a single-layer shadow.
+- **Motion tokens paired with the `prefers-reduced-motion` gate.** New animated
+  surfaces must be reachable from that block in `static/style.css`.
+- **No Unicode emoji anywhere in UI or code.** Inline SVG in the existing
+  monochrome style, or plain text.
+- **No parallel components.** Extend the existing widget; do not build a
+  parallel one.
+- **Palette rules:** danger/error never share a token with the accent; every text
+  token clears 4.5:1 against the surface it actually renders on; adjacent
+  `--hl-*` syntax tokens ≥30° apart in hue; decoration is never load-bearing.
+
+## Functional invariants (a regression here fails the run regardless of looks)
+
+- Chat send, streaming render, and abort still work.
+- Sidebar navigation still reaches every workspace.
+- Modals open, close, trap focus, and restore it.
+- Settings + appearance prefs persist across reload (localStorage + `/api/prefs/*`).
+- Auth path, API-token path, and `AUTH_ENABLED=false` path all still work.
+- No new console errors; no 4xx/5xx asset regressions.
+- `node --check` on every touched JS file.
+- `./venv/bin/python -m pytest` — **the full suite must stay green.** This
+  includes `tests/test_design_tokens_brutal.py`, which audits token resolution,
+  contrast floors, reduced-motion, and responsiveness.
+- `./venv/bin/python -m py_compile app.py routes/*.py src/*.py` if Python is touched.
+
+## Harness mechanics (how the Evaluator sees the UI)
+
+- Server: `127.0.0.1:7000`, booted by `/tmp/opencode/serve.sh` with
+  `AUTH_ENABLED=false LOCALHOST_BYPASS=true`. Loopback only.
+- Screenshot/interaction driver: `/tmp/opencode/pw/shot.mjs`, driven with a JSON
+  plan. Actions: `goto click hover hoverAll wait waitFor scroll type press eval shot`.
+  Writes PNGs plus a console log (pageerrors, failed requests, HTTP ≥400) and a
+  per-step results JSON.
+- **Appearance is pinned** to `{font: mono, density: comfortable, uiScale: 100}`
+  via request interception on `/api/prefs/appearance`. The saved user pref in
+  `data/` is `serif` @ 125%; without the pin every screenshot would render in
+  Georgia and scores would not be comparable across iterations. User data is
+  never mutated.
+- Both viewports are mandatory evidence: **1440×900 and 375×812**.
+
+## Working-tree safety
+
+The tree had ~1,800 lines of uncommitted design work at run start (Ice/Arctic
+redesign + in-progress topographic direction). A snapshot lives in
+`gan-harness/baseline/` (`HEAD`, `worktree.patch`, `style.css`, `index.html`,
+`login.html`, `untracked-assets.tar.gz`). Any iteration can be reverted from it.
+The Generator must not delete or rewrite that in-progress direction.
+
+## Definition of done
+
+Weighted score ≥ 7.5 against `eval-rubric.md`, with the full pytest suite green
+and screenshot evidence at both viewports. On plateau (no weighted gain for 3
+consecutive iterations) the harness stops and flags for human review rather than
+burning the remaining budget.

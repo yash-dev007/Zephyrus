@@ -46,9 +46,8 @@
      and 1.47 because below ~1.06 the step is imperceptible (Terminal's
      #0a0a0a, 1.06:1, is why it had no surface at all) and above ~1.5 the
      surfaces stop reading as the same material.
-     WIRED: the ladder is live on every surface. This block is the ladder's
-     only definition; a surface that wants to be "just a bit lighter" reaches
-     for the next rung here, never for a new hex. */
+     NOT YET WIRED: nothing outside this :root block reads these tokens yet —
+     call sites are migrated in the next phase. */
   --surface-1: #0c0c0c;
   --surface-2: #141414;
   --surface-3: #1b1b1b;
@@ -247,11 +246,7 @@
    * migrating the 1,392 call sites onto them is the next phase, and the
    * 9/10px band in particular should collapse into --text-xs / --text-sm
    * rather than survive.
-   * WIRED: the transcript, code, logs, paths, ids and hex are on
-   * --text-md; chrome is on --text-base/--text-sm. The 9px/10px band is
-   * gone at every viewport measured — sub-11px is now reserved for
-   * decorative glyphs (a drag grip, a status dot, a keycap), never for a
-   * count badge a person is meant to read. */
+   * NOT YET WIRED: no selector outside this :root block reads them yet. */
   --text-xs:   11px;    /* badges, keycaps, the smallest labels */
   --text-sm:   12px;    /* secondary UI text, timestamps */
   --text-base: 13px;    /* default UI body — buttons, nav rows, inputs */
@@ -269,33 +264,26 @@
   --tracking-wide: 0.06em;
 
   /* ── Spacing scale ───────────────────────────────────────────────────
-   * A 4px grid, ten steps, contiguous: --space-N is always 4N. The scale was
-   * previously missing --space-5, -6, -7, -9 and -10, which is why so much of
-   * the stylesheet had to spell 20/24/28/36/40px as a literal — every honest
-   * value above 16px had no token to reach for, and that gap is the root
-   * cause of the off-scale padding cluster rather than a symptom of it. The
-   * scale is now closed, so a value either lands on a step or is genuinely
-   * wrong. There is deliberately no half-grid step: nothing on the ladder
-   * should need a 6px gap, and inventing one is what started the drift. */
+   * A 4px grid. padding / margin / gap currently use 22 ad-hoc pixel values
+   * (1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 18, 22, 28, 30, 38, 44, 48, 60,
+   * 64 …), most of them 1-3px off a 4 or 8 multiple, which is exactly the
+   * drift that makes a UI feel hand-assembled. Named steps are 4 / 8 / 12 /
+   * 16 / 20 / 24 / 32 / 40 — 20 and 24 exist because they are already in
+   * heavy use and fold cleanly onto the 4px grid; 6px has no step because
+   * nothing on the ladder should need a half-grid gap.
+   * NOT YET WIRED: migration is the next phase. */
   --space-1:  4px;
   --space-2:  8px;
   --space-3:  12px;
   --space-4:  16px;
-  --space-5:  20px;
-  --space-6:  24px;
-  --space-7:  28px;
   --space-8:  32px;
-  --space-9:  36px;
-  --space-10: 40px;
 
   /* ── Radius scale ────────────────────────────────────────────────────
    * Four steps, down from eleven competing values (2, 3, 4, 5, 6, 7, 8, 9,
    * 10, 11, 12, 14, 18, 20, plus 50% and 999px). The intermediates were
    * almost entirely accidental drift off 6/8/12. --radius-full absorbs the
    * pill and avatar-dot cases that 999px and 50% were both being used for.
-   * WIRED at the control level — every input, select, and button radius is a
-   * token. The long tail is the migration in progress: live off-scale radii
-   * are counted, not hidden, so what is left is what is left. */
+   * NOT YET WIRED: migration is the next phase. */
   --radius-sm: 6px;     /* inputs, small buttons */
   --radius-md: 8px;     /* cards, list rows */
   --radius-lg: 12px;    /* modals, panels */
@@ -311,12 +299,8 @@
    * above and therefore raised. Ink is the same hue as the canvas, which
    * keeps the palette unchanged: these add luminance at 1px scale only and
    * do not introduce a new colour.
-   * WIRED: every elevation drop in the app resolves to one of these three.
-   * Audited at source and at runtime — zero single-layer elevation drops
-   * remain. The values that are deliberately NOT here are `0 0 0 Npx`
-   * selection rings, `0 0 Npx Mpx` glows, keyframe pulses, and the
-   * `.notes-quick-add` spread trick: those are not elevation, and forcing
-   * them through an elevation token would say the wrong thing. */
+   * NOT YET WIRED: the 281 existing box-shadow declarations are not yet
+   * on these tokens. */
   --shadow-sm: 0 1px 2px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.03);
   --shadow-md: 0 4px 12px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04);
   --shadow-lg: 0 16px 48px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05);
@@ -350,61 +334,11 @@
    * gate (reduce / drop the duration, keep the end state). The base
    * transition on body already runs at 160ms with the same cubic-bezier
    * spelled inline, which is the duplication these tokens remove.
-   * WIRED, and gated: every consumer of these is reachable from the
-   * consolidated `prefers-reduced-motion: reduce` block at the end of this
-   * file, which zeroes the duration and keeps the end state. Verified in the
-   * running app under `reducedMotion: 'reduce'`: zero elements retain a live
-   * animation. */
+   * NOT YET WIRED: no transition outside this :root block reads them yet. */
   --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
   --dur-fast: 120ms;
   --dur-base: 180ms;
   --dur-slow: 280ms;
-
-  /* ── Window geometry ─────────────────────────────────────────────────
-   * Every workspace presents as a floating window, and until these three
-   * tokens existed each one invented its own width, its own centre axis and
-   * its own title-bar height (five widths, four axes, three title bars
-   * across nine surfaces — the single clearest "pile of surfaces" signal in
-   * the app). A window is now a shape, not a per-module decision:
-   *   --window-w          the default measure for a workspace window
-   *   --window-w-wide     the opt-in for the four genuinely data-dense ones
-   *                       (Cookbook, Gallery, Compare, Settings)
-   *   --window-title-h    one title-bar height for all of them, so the
-   *                       chrome rhythm survives switching workspaces
-   * --shell-scrim is the dim the app puts behind an overlay. The search
-   * palette was the only surface that dimmed, and it was the best-composed
-   * overlay in the app for exactly that reason — extracted here so every
-   * overlay belongs to the same product as the surface behind it. */
-  --window-w: min(760px, 92vw);
-  --window-w-wide: min(1080px, 94vw);
-  --window-title-h: 40px;
-  /* Percentage, not a fraction. This is consumed by color-mix() as a mix
-     weight, and color-mix rejects a unitless number — which silently
-     invalidated the whole `background` declaration on .modal, so the scrim
-     measured rgba(0,0,0,0) and no overlay dimmed at all. The blur half of
-     the same rule still applied, which is why the failure looked like "the
-     scrim is only half working" rather than "the scrim never existed". */
-  --shell-scrim: 55%;
-
-  /* ── The survey sheet ────────────────────────────────────────────────
-   * The topographic field is the app's identity and its worst legibility
-   * problem at the same time: the one thing a user reads all day was sitting
-   * directly on live contour art. These tokens resolve it by narrowing the
-   * field rather than deleting it.
-   *
-   * The chat column is a sheet of survey paper. The terrain runs at
-   * --field-opacity across the whole column, and the transcript sits on a
-   * plate that is exactly as wide as the scroll container's content box —
-   * which is the reading measure, because .msg is capped at 85% of it. The
-   * layout's own padding gutters become the margins the terrain occupies, so
-   * the survey is strongest exactly where nothing is read and the prose never
-   * touches a contour. --plate-tint is how solid the plate is; it was 92% over
-   * a full-bleed band, and it is 92% over a third of the width now, so the
-   * terrain spends its contrast budget in the gutters instead of under a
-   * paragraph. */
-  --field-opacity: 0.9;
-  --plate-tint: 92%;
-  --plate-color: color-mix(in srgb, var(--bg) var(--plate-tint), transparent);
 }
 
 /* ── Reset & Base ── */
@@ -419,24 +353,17 @@ body {
      below so left + right docks can coexist without skewing the whole body. */
   transition: padding-left 160ms cubic-bezier(0.22, 0.61, 0.36, 1),
               padding-right 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  font-family: var(--font-ui);
+  font-family: var(--font-family, 'Fira Code', monospace);
   /* The hybrid split, derived here rather than in :root so the runtime
      --font-family written onto the document element by the font
      preference (static/js/settings.js, static/index.html) stays the
-     single source of that choice.
-     CHANGED THIS ITERATION. Both families used to read
-     `var(--font-family, …)`, which meant the appearance font preference
-     overwrote chrome as well as content — with the default mono pick
-     selected, --font-ui resolved to Fira Code and the split did not exist
-     at runtime. Measured: .list-item, .send-btn, .settings-nav-item and
-     body all computed "Fira Code". The contract in CONTRIBUTING is that the
-     preference governs CONTENT and chrome has its own face, so chrome is
-     now pinned to --font-sans and only --font-content follows the user's
-     pick. The app therefore has a real mono/sans split: prose, code,
-     logs, paths, ids and keycaps monospaced; navigation, buttons, labels
-     and panel chrome proportional. The runtime writer's contract is
-     untouched — it still sets --font-family, and content still honours it. */
-  --font-ui: var(--font-sans);
+     single source of that choice. A user pick replaces the stack on
+     BOTH families, exactly as the line above already does for body; with
+     no pick, --font-ui falls back to the proportional sans for nav,
+     buttons, labels and panel chrome, while --font-content falls back to
+     Fira Code for the chat transcript, code, and inputs. The declaration
+     above is left untouched so the writer's contract stays legible. */
+  --font-ui: var(--font-family, var(--font-sans));
   --font-content: var(--font-family, var(--font-mono));
   display: flex;
   height: 100%;
@@ -667,7 +594,7 @@ body.bg-pattern-perlin-flow {
       background: none; border: none;
       color: inherit;
       cursor: pointer;
-      padding: 4px 5px; border-radius: var(--radius-sm);
+      padding: 4px 5px; border-radius: 4px;
       display: flex; align-items: center;
       transition: color 0.08s, background 0.08s;
     }
@@ -680,7 +607,7 @@ body.bg-pattern-perlin-flow {
       position: fixed;
       background: var(--surface-4); border: 1px solid var(--border-control);
       border-radius: 8px; padding: 4px; min-width: 120px;
-      var(--shadow-md)
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
       z-index: 300;
       color: var(--fg);
     }
@@ -735,7 +662,7 @@ body.bg-pattern-perlin-flow {
       min-height: 0;
       margin: 0;
       padding: 0;
-      var(--shadow-md)
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
       backdrop-filter: blur(10px);
       position: relative;
     }
@@ -938,32 +865,20 @@ body.bg-pattern-perlin-flow {
       left: 9px;
       right: auto;
       z-index: 210;
-      width: 32px;
-      height: 32px;
+      width: 30px;
+      height: 30px;
       align-items: center;
       justify-content: center;
-      background: var(--surface-2);
+      background: none;
       border: none;
-      border-radius: var(--radius-md);
-      box-shadow: var(--shadow-sm);
-      color: var(--fg);
+      color: var(--hamburger-color, var(--fg));
       cursor: pointer;
-      opacity: 1;
+      opacity: 0.5;
       -webkit-tap-highlight-color: transparent;
       outline: none;
       transition: opacity 0.15s;
       padding: 0;
       display: flex;
-    }
-    .hamburger-btn img {
-      display: block;
-      width: 20px;
-      height: auto;
-      aspect-ratio: 125 / 138;
-      object-fit: contain;
-      user-select: none;
-      -webkit-user-drag: none;
-      pointer-events: none;
     }
     body.hamburger-right .hamburger-btn {
       left: auto;
@@ -1168,7 +1083,7 @@ body.bg-pattern-perlin-flow {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      border-radius: var(--radius-sm);
+      border-radius: 4px;
       flex-shrink: 0;
       transition: background 0.15s, color 0.15s;
     }
@@ -1202,7 +1117,7 @@ body.bg-pattern-perlin-flow {
       border-radius: 999px;
       color: var(--fg); font-family: var(--font-ui); font-size: var(--text-sm);
       cursor: grab; touch-action: none; user-select: none;
-      var(--shadow-md)
+      box-shadow: 0 4px 14px rgba(0,0,0,0.35);
       transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s, border-color 0.15s;
       animation: dock-chip-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
     }
@@ -1213,7 +1128,7 @@ body.bg-pattern-perlin-flow {
     .minimized-dock-chip:active { cursor: grabbing; }
     .minimized-dock-chip.dragging {
       cursor: grabbing; z-index: 1000;
-      var(--shadow-md)
+      box-shadow: 0 8px 24px rgba(0,0,0,0.55);
       transition: none;
       opacity: 0.95;
     }
@@ -1221,7 +1136,7 @@ body.bg-pattern-perlin-flow {
     #minimized-dock.dock-dragging { cursor: grabbing; }
     #minimized-dock.dock-dragging .minimized-dock-chip {
       transition: none;
-      var(--shadow-md)
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
     }
     /* Subtle visual cue that edge chips drag the whole dock */
     #minimized-dock .minimized-dock-chip:first-child:not(:only-child),
@@ -1249,7 +1164,7 @@ body.bg-pattern-perlin-flow {
       .minimized-dock-label,
       .minimized-dock-x { display: none !important; }
       .minimized-dock-chip.chip-free-drag {
-        box-shadow: var(--shadow-md),
+        box-shadow: 0 8px 22px rgba(0,0,0,0.55),
                     0 0 0 2px color-mix(in srgb, var(--accent-ink, var(--red)) 50%, transparent) !important;
       }
       /* Long-press hint — chip swells and settles while the detach timer
@@ -1285,7 +1200,7 @@ body.bg-pattern-perlin-flow {
       @keyframes chip-long-press-pulse {
         0%, 100% { transform: scale(1); }
         50%      { transform: scale(1.42);
-                   box-shadow: var(--shadow-lg),
+                   box-shadow: 0 14px 42px rgba(0,0,0,0.66),
                                0 0 0 16px color-mix(in srgb, var(--accent-ink, var(--red)) 42%, transparent),
                                 0 0 72px color-mix(in srgb, #fff 44%, transparent),
                                 0 0 118px color-mix(in srgb, #fff 32%, transparent); }
@@ -1300,7 +1215,7 @@ body.bg-pattern-perlin-flow {
          modal. Tap it to minimize. */
       .minimized-dock-chip.chip-active {
         border-color: var(--accent-ink, var(--red)) !important;
-        box-shadow: var(--shadow-md),
+        box-shadow: 0 4px 14px rgba(0,0,0,0.35),
                     0 0 0 2px color-mix(in srgb, var(--accent-ink, var(--red)) 35%, transparent);
       }
       .minimized-dock-chip.chip-active svg { opacity: 1; }
@@ -1319,7 +1234,7 @@ body.bg-pattern-perlin-flow {
       pointer-events: none;
       opacity: 0;
       z-index: 9000;
-      var(--shadow-md)
+      box-shadow: 0 8px 28px color-mix(in srgb, var(--accent-ink, var(--red, #e53935)) 55%, transparent);
       transition: opacity 0.18s ease,
                   transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1),
                   box-shadow 0.18s ease;
@@ -1555,7 +1470,7 @@ body.bg-pattern-perlin-flow {
         opacity: 0.85;
       }
       50% {
-        var(--shadow-sm)
+        box-shadow: 0 0 6px 2px color-mix(in srgb, var(--accent-ink, var(--red)) 55%, transparent);
         opacity: 1;
       }
     }
@@ -1588,7 +1503,7 @@ body.bg-pattern-perlin-flow {
     .section-header-flex > div { display: flex; align-items: center; gap: 2px; }
     .section-header-btn {
       all: unset;
-      cursor: pointer; opacity: 0.4; padding: 1px 3px; border-radius: var(--radius-sm);
+      cursor: pointer; opacity: 0.4; padding: 1px 3px; border-radius: 4px;
       display: inline-flex; align-items: center; justify-content: center;
       transition: opacity var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
     }
@@ -1893,7 +1808,7 @@ body.bg-pattern-perlin-flow {
     .models-row.dragging,
     .session-folder.dragging {
       opacity: 0.95;
-      var(--shadow-md)
+      box-shadow: 0 8px 24px color-mix(in srgb, var(--accent-ink) 30%, transparent);
       border-color: var(--accent-ink);
       background: var(--surface-2);
       cursor: grabbing;
@@ -2071,7 +1986,7 @@ body.bg-pattern-perlin-flow {
       width: auto !important;
       min-width: 0 !important;
       padding: 0 5px !important;
-      border-radius: var(--radius-sm);
+      border-radius: 4px;
       color: var(--fg);
       /* Always visible at rest. On hover (devices that have it) the + spins
          90° and "new" reveals to its right — neat expand affordance. */
@@ -2305,7 +2220,7 @@ body.bg-pattern-perlin-flow {
       transform: translate(-50%, -50%) scale(0.95);
     }
     @media (max-width: 768px) {
-      .chat-container.welcome-active #welcome-screen { top: 40%; bottom: auto; }
+      #welcome-screen { top: 42%; }
       #welcome-screen .welcome-sub { margin-bottom: 0; }
       #welcome-screen .incognito-btn { margin-top: 6px; }
     }
@@ -2380,19 +2295,18 @@ body.bg-pattern-perlin-flow {
       transition: margin var(--dur-slow) var(--ease-out), max-width var(--dur-slow) var(--ease-out);
     }
     .chat-container.welcome-active .chat-input-bar {
-      margin-bottom:22vh;
+      margin-bottom:24vh;
       margin-left:auto;
       margin-right:auto;
       max-width: 800px;
       width: 100%;
     }
-    /* Hero sits just above the raised composer: fixed top % keeps the
-       mark and tagline on screen on every height (bottom-anchoring
-       proved fragile against the -50% centering shift), while the
-       composer's 22vh lift leaves one clear gap to the tagline. */
+    /* Lift the hero while the composer is raised so the tip text and the
+       Nobody button never slide behind the input bar (they sit earlier in
+       DOM order, so the composer would otherwise paint over them and the
+       button would go unclickable). */
     .chat-container.welcome-active #welcome-screen {
-      top: 34%;
-      bottom: auto;
+      top: 32%;
     }
     /* On shorter viewports the stack still collides — collapse the tip with
        the same animated technique as the height guards below, instead of
@@ -2402,14 +2316,6 @@ body.bg-pattern-perlin-flow {
         opacity: 0;
         max-height: 0;
         margin: 0;
-      }
-    }
-    /* Short viewports: the bottom anchor would push the logo off the top —
-       fall back to a top position so the mark stays on screen. */
-    @media (max-height: 600px) {
-      .chat-container.welcome-active #welcome-screen {
-        bottom: auto;
-        top: 20%;
       }
     }
     @media (max-width:768px) {
@@ -2887,10 +2793,7 @@ body.bg-pattern-perlin-flow {
       gap: 4px;
       align-items: center;
       flex-wrap: nowrap;
-      /* Visible so the tools popup is never clipped by this row — collapsed
-         buttons already leave the flow via display:none, so no clipping is
-         needed here. */
-      overflow: visible;
+      overflow: hidden;
       min-width: 0;
       flex: 1;
     }
@@ -3166,14 +3069,14 @@ body.bg-pattern-perlin-flow {
       /* Idle / new-chat / mic states blend the picked Send Btn color into
          the panel so the user's color choice is visible across every state,
          not only briefly while typing. */
-      background: color-mix(in srgb, var(--send-btn-bg, var(--accent-ink)) 30%, var(--elevated), var(--elevated)));
+      background: color-mix(in srgb, var(--send-btn-bg, var(--accent-ink)) 30%, var(--elevated), #2a2a2a));
       color: var(--fg);
       border: 1px solid var(--border-control);
       transition: width var(--dur-slow) var(--ease-out), background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), border-radius var(--dur-slow) var(--ease-out);
     }
     .send-btn.mic-mode:hover,
     .send-btn.newchat-mode:hover {
-      background: color-mix(in srgb, var(--send-btn-hover, var(--send-btn-bg, var(--accent-ink))) 85%, var(--elevated), var(--elevated)));
+      background: color-mix(in srgb, var(--send-btn-hover, var(--send-btn-bg, var(--accent-ink))) 85%, var(--elevated), #2a2a2a));
       /* Not var(--fg) like the idle state: at 85% accent this hover fill is a
          light olive, so the glyph has to go dark to stay readable. */
       color: var(--bg);
@@ -3432,7 +3335,7 @@ body.bg-pattern-perlin-flow {
       box-sizing: border-box;
       padding: var(--space-1) 30px var(--space-1) var(--space-2);
       font-size: var(--text-base);
-      border: 1px solid var(--border-control);
+      border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       background: var(--surface-3);
       color: var(--fg);
@@ -3722,7 +3625,7 @@ body.bg-pattern-perlin-flow {
       border-radius: 10px;
       padding: 4px;
       min-width: 170px;
-      var(--shadow-md)
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
       z-index: 1000;
       /* Container spring-in: the rounded panel scales/grows out of the
          chevron's position before the menu items domino in on top. */
@@ -3880,7 +3783,7 @@ body.bg-pattern-perlin-flow {
     .toggle .slider:before {
       position:absolute; content:""; height:12px; width:12px; left:2px; top:2px;
       background:var(--bg); border-radius:50%; transform:translateX(0); transition:transform var(--dur-fast) var(--ease-out);
-      var(--shadow-sm)
+      box-shadow:0 1px 2px rgba(0,0,0,0.25);
     }
     .toggle input:checked + .slider { background:var(--toggle-active); }
     .toggle input:checked + .slider:before { transform:translateX(14px); }
@@ -3957,7 +3860,7 @@ body.bg-pattern-perlin-flow {
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 12px 14px;
-      var(--shadow-md)
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
       min-width: 220px;
       max-width: 280px;
       font-size: var(--text-md);
@@ -4033,7 +3936,7 @@ body.bg-pattern-perlin-flow {
       max-height: 50vh;
       overflow-y: auto;
       z-index: 300;
-      var(--shadow-md)
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
       font-size: var(--text-sm);
     }
     .memory-used-row {
@@ -4097,7 +4000,7 @@ body.bg-pattern-perlin-flow {
     .msg-action-btn {
       background:none; border:none;
       color:var(--muted, var(--color-muted-alt)); font-size:var(--text-xl); cursor:pointer;
-      padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm);
+      padding:2px 6px; border-radius:4px;
       transition: color .15s;
       line-height:1;
     }
@@ -4114,7 +4017,7 @@ body.bg-pattern-perlin-flow {
       border:1px solid var(--border);
       border-radius:6px;
       padding:4px;
-      var(--shadow-md)
+      box-shadow:0 4px 16px rgba(0,0,0,0.4);
       z-index:100;
       min-width:150px;
     }
@@ -4322,7 +4225,7 @@ body.bg-pattern-perlin-flow {
       padding:10px 14px;
       font-size:var(--text-base);
       color:var(--fg);
-      var(--shadow-md)
+      box-shadow:0 8px 24px rgba(0,0,0,0.4);
       min-width:180px;
       line-height:1.7;
     }
@@ -4789,7 +4692,7 @@ body.bg-pattern-perlin-flow {
         z-index: 400;
         width: 80% !important;
         max-width: 340px;
-        var(--shadow-md)
+        box-shadow: 4px 0 20px rgba(0,0,0,0.5);
         transition: transform 0.25s ease, opacity 0.25s ease !important;
         opacity: 1 !important;
         overflow: visible !important;
@@ -4811,7 +4714,7 @@ body.bg-pattern-perlin-flow {
       }
       .sidebar.right-side {
         left: auto; right: 0;
-        var(--shadow-md)
+        box-shadow: -4px 0 20px rgba(0,0,0,0.5);
       }
       /* Backdrop behind sidebar */
       #sidebar-backdrop {
@@ -4929,11 +4832,11 @@ body.bg-pattern-perlin-flow {
         top: 0; bottom: 0; left: 0;
         z-index: 200;
         width: 48px;
-        var(--shadow-md)
+        box-shadow: 2px 0 12px rgba(0,0,0,0.4);
       }
       .icon-rail.mobile-mini.right-side {
         left: auto; right: 0;
-        var(--shadow-md)
+        box-shadow: -2px 0 12px rgba(0,0,0,0.4);
       }
       /* Chat bubbles — AI stretches full width, user stays compact */
       .msg { font-size: var(--text-base); }
@@ -5671,7 +5574,7 @@ body.bg-pattern-perlin-flow {
       border-radius: 10px;
       background: color-mix(in srgb, var(--surface-3), var(--bg)) 72%, transparent);
       padding: 10px 12px 12px;
-      var(--shadow-md)
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
     }
     .session-skeleton-bubble.is-user {
       align-self: flex-end;
@@ -5750,8 +5653,6 @@ body.bg-pattern-perlin-flow {
       #tasks-modal,
       #memory-modal,
       #doclib-modal,
-      #cookbook-modal,
-      #compare-modal,
       #compare-model-overlay,
       #research-overlay,
       #settings-modal,
@@ -5863,7 +5764,7 @@ body.bg-pattern-perlin-flow {
       line-height:1;
       text-indent:0;
       cursor:pointer;
-      border-radius: var(--radius-sm);
+      border-radius:4px;
       line-height:1;
       flex-shrink:0;
     }
@@ -5887,7 +5788,7 @@ body.bg-pattern-perlin-flow {
       justify-content:center;
       line-height:1;
       cursor:pointer;
-      border-radius: var(--radius-sm);
+      border-radius:4px;
       flex-shrink:0;
       margin-left:auto; /* push to the right so it docks next to .close-btn */
       margin-right:4px;
@@ -5931,7 +5832,7 @@ body.bg-pattern-perlin-flow {
       font-size:var(--text-sm);
       color:var(--fg);
       max-width:220px;
-      var(--shadow-md)
+      box-shadow:0 -2px 8px rgba(0,0,0,0.25);
       transition:background 0.15s;
     }
     .modal-dock-item:hover { background:var(--bg); }
@@ -6154,7 +6055,7 @@ body.bg-pattern-perlin-flow {
       background:var(--surface-2);
       color: var(--accent-ink);
       border:none;
-      border-radius: var(--radius-full);
+      border-radius:10px;
       width:38px; height:38px;
       padding:0;
       display:flex; align-items:center; justify-content:center;
@@ -6243,12 +6144,7 @@ body.bg-pattern-perlin-flow {
     #agent-indicator.active {
       display: block;
       border-color: var(--color-agent-active);
-      /* The glow carries the agent hue off --color-agent-active rather than a
-     * literal pure green: green is reserved for added/success in this palette,
-   * and an agent that is merely running is neither. Kept as a 0 0 blur (a
-   * selection glow, not an elevation drop, so it does not belong on a
-   * --shadow-* token). */
-  box-shadow: 0 0 var(--space-3) color-mix(in srgb, var(--color-agent-active) 30%, transparent);
+      box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
     }
     #agent-indicator:hover {
       border-color: var(--color-agent-active);
@@ -6316,7 +6212,7 @@ body.bg-pattern-perlin-flow {
       -webkit-appearance: none;
       width: 18px;
       height: 18px;
-      border: 2px solid var(--border-control);
+      border: 2px solid var(--border);
       border-radius: 50%;
       outline: none;
       margin: 0;
@@ -6405,7 +6301,7 @@ body.bg-pattern-perlin-flow {
     #custom-preset-modal .modal-body textarea,
     #custom-preset-modal .modal-body input[type="text"] {
       background: var(--surface-4);
-      border: 1px solid var(--border-control);
+      border: 1px solid var(--border);
       border-radius: 6px;
       color: var(--fg);
       padding: 8px 10px;
@@ -6525,7 +6421,7 @@ body.bg-pattern-perlin-flow {
       background: var(--bg);
       border-radius: 50%;
       transition: transform 0.2s;
-      var(--shadow-sm)
+      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
     }
     .vis-row input:checked + .vis-switch {
       background: var(--toggle-active);
@@ -6629,17 +6525,15 @@ body.bg-pattern-perlin-flow {
     .tour-hint {
       position: fixed;
       z-index: 10002;
-      background: var(--surface-2);
+      background: var(--bg);
       color: var(--fg);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
-      padding: var(--space-3) var(--space-4) var(--space-2);
-      /* Wide enough for the 200px illustration plus its gutter, so the
-         diagram is not scaled down on the way in. */
-      width: 232px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px 10px;
+      width: 240px;
       font-size: var(--text-sm);
       line-height: 1.5;
-      var(--shadow-md)
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.32);
       opacity: 0;
       transform: translateY(-4px);
       transition: opacity 0.28s ease-out, transform 0.28s ease-out;
@@ -6650,14 +6544,10 @@ body.bg-pattern-perlin-flow {
     .tour-hint-visual {
       display: flex;
       justify-content: center;
-      margin-bottom: var(--space-2);
-      /* --fg-subtle, not the accent. The hint's job is to explain the drag
-         gesture; at near-white accent ink the illustration outranked the
-         window it was annotating and read as the primary object on screen.
-         The sentence below it is the content and carries the accent. */
-      color: var(--fg-subtle);
+      margin-bottom: 8px;
+      color: var(--accent-ink, var(--red));
     }
-    .tour-hint-visual svg { display: block; width: 200px; height: 120px; }
+    .tour-hint-visual svg { display: block; }
     .tour-hint-text { margin-bottom: 10px; opacity: 0.92; }
     .tour-hint-text b { color: var(--accent-ink, var(--red)); font-weight: 600; }
     .tour-hint-dismiss {
@@ -6778,7 +6668,7 @@ body.bg-pattern-perlin-flow {
       background: var(--surface-4);
       border: 1px solid var(--border);
       border-radius: 10px;
-      var(--shadow-md), 0 0 0 1px color-mix(in srgb, var(--fg) 5%, transparent)
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px color-mix(in srgb, var(--fg) 5%, transparent);
       z-index: 1000;
       display: none;
       min-width: 220px;
@@ -6988,7 +6878,7 @@ body.bg-pattern-perlin-flow {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      var(--shadow-md)
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
     
     #recording-indicator.hidden {
@@ -7078,7 +6968,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 12px;
-      var(--shadow-lg), 0 0 0 1px color-mix(in srgb, var(--fg) 6%, transparent)
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px color-mix(in srgb, var(--fg) 6%, transparent);
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -7088,7 +6978,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
       width: 100%;
       background: transparent;
       border: none;
-      border-bottom: 1px solid var(--border-control);
+      border-bottom: 1px solid var(--border);
       outline: none;
       color: var(--fg);
       font-size: var(--text-lg);
@@ -7510,7 +7400,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
       background: var(--surface-4);
       border: 1px solid var(--border);
       border-radius: 6px;
-      var(--shadow-md)
+      box-shadow: 0 -4px 16px rgba(0,0,0,0.3);
       padding: 4px;
       z-index: 1000;
     }
@@ -7559,7 +7449,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
       background: var(--surface-2);
       border: 1px solid color-mix(in srgb, var(--color-success, #4caf50) 50%, transparent);
       border-radius: 8px;
-      var(--shadow-md)
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.2);
       color: var(--fg);
       width: fit-content;
       z-index: 5;
@@ -7607,19 +7497,12 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
     .compare-probe-overlay {
       position: fixed; inset: 0; z-index: 300;
       background: rgba(0,0,0,0.5); display: flex;
-align-items: center;
-      justify-content: center;
-      /* Chrome is --font-ui at a scale step. It measured 13.3333px at
-         runtime — a 10pt value inherited from somewhere upstream, which is
-         why the send button was the only control in the app off the type
-         scale. */
-      font-family: var(--font-ui);
-      font-size: var(--text-base);
+      align-items: center; justify-content: center;
     }
     .compare-probe-card {
       background: var(--surface-2); border-radius: 12px; padding: 20px 24px;
       display: flex; flex-direction: column; align-items: center; gap: 12px;
-      min-width: 280px; max-width: 90vw; var(--shadow-md)
+      min-width: 280px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
       overflow: hidden;
     }
     .compare-probe-title {
@@ -7812,7 +7695,7 @@ align-items: center;
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 8px;
-      var(--shadow-md)
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
       padding: 4px;
     }
     .pane-model-item {
@@ -7984,7 +7867,7 @@ align-items: center;
       max-height: 300px;
       overflow-y: auto;
       min-width: 220px;
-      var(--shadow-md)
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
       padding: 4px;
     }
     .add-pane-search {
@@ -8028,25 +7911,25 @@ align-items: center;
     .compare-reset-toggle:hover {
       opacity: 0.7; background: color-mix(in srgb, var(--fg) 6%, transparent);
     }
-    /* One selected treatment for the whole toggle row. Blind, Save, Dice and
-     * Parallel were four vocabularies for "this is on" in one panel — orange,
-     * green, white, and a saturated blue (#5b8def) that is not in the palette
-     * at all — and Parallel was painted orange unconditionally, so that row
-     * read as two selections at once. Selected is now the same four-part
-     * signal everywhere: full opacity, --fg-strong label ink, an --accent-ink
-     * border, and a 10% accent wash. The mode names still carry their own hue
-     * in their labels and icons; only the selection state is unified. */
-    .compare-blind-toggle.active,
-    .compare-save-toggle.active,
-    .compare-dice-toggle.active,
-    .compare-parallel-toggle.active {
-      opacity: 1;
-      color: var(--fg-strong);
-      border-color: var(--accent-ink);
+    .compare-blind-toggle.active {
+      opacity: 1; color: var(--color-blind-orange); border-color: var(--color-blind-orange);
+      background: rgba(255, 152, 0, 0.1);
+    }
+    .compare-save-toggle.active {
+      opacity: 1; color: var(--color-save-green); border-color: var(--color-save-green);
+      background: color-mix(in srgb, var(--color-save-green) 10%, transparent);
+    }
+    .compare-dice-toggle.active {
+      opacity: 1; color: var(--accent-ink); border-color: var(--accent-ink);
       background: color-mix(in srgb, var(--accent-ink) 10%, transparent);
     }
     .compare-parallel-toggle {
-      opacity: 0.35;
+      opacity: 1; color: #e0a050; border-color: #e0a050;
+      background: rgba(224, 160, 80, 0.1);
+    }
+    .compare-parallel-toggle.active {
+      color: #5b8def; border-color: #5b8def;
+      background: rgba(91, 141, 239, 0.1);
     }
     @media (max-width: 520px) {
       .compare-toggle-label { display: none; }
@@ -8185,7 +8068,7 @@ align-items: center;
     .censored-item:hover { filter: blur(3px); background: rgba(255,100,100,0.15); }
     .censored-item.revealed {
       filter: none;
-      background: color-mix(in srgb, var(--success) 8%, transparent);
+      background: rgba(100,255,100,0.08);
       user-select: auto;
       cursor: text;
     }
@@ -8498,7 +8381,7 @@ button.hamburger {
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 12px;
-  var(--shadow-sm)
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .agent-toggle label {
@@ -8668,12 +8551,7 @@ button.hamburger {
 #agent-indicator.active {
   display: block;
   border-color: var(--color-agent-active);
-  /* The glow carries the agent hue off --color-agent-active rather than a
-     * literal pure green: green is reserved for added/success in this palette,
-   * and an agent that is merely running is neither. Kept as a 0 0 blur (a
-   * selection glow, not an elevation drop, so it does not belong on a
-   * --shadow-* token). */
-  box-shadow: 0 0 var(--space-3) color-mix(in srgb, var(--color-agent-active) 30%, transparent);
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
 }
 #agent-indicator:hover {
   border-color: var(--color-agent-active);
@@ -8719,7 +8597,7 @@ button.hamburger {
   border-radius: 8px;
   padding: 12px;
   margin-top: 12px;
-  var(--shadow-sm)
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .chat-controls-row {
@@ -8790,7 +8668,7 @@ button.hamburger {
   background-color: var(--bg);
   border-radius: 50%;
   transition: transform var(--dur-fast) var(--ease-out);
-  var(--shadow-sm)
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
 }
 
 .toggle-switch input:checked + .toggle-slider {
@@ -8929,7 +8807,7 @@ button.hamburger {
   margin: 4px 0;
 }
 .attach-image-preview img {
-  var(--shadow-sm)
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
   /* Same border as the chat bubbles. */
   border: 1px solid var(--bubble-border, var(--border));
 }
@@ -8967,7 +8845,7 @@ button.hamburger {
 .thumb.thumb-image button:hover {
   transform: scale(1.12);
   filter: brightness(1.12);
-  var(--shadow-md)
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
 }
 .thumb.thumb-image button:active {
   transform: scale(0.96);
@@ -8990,7 +8868,7 @@ button.hamburger {
   background: var(--surface-4), #111);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-lg)
+  box-shadow: 0 18px 50px rgba(0,0,0,0.45);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -9150,7 +9028,7 @@ button.hamburger {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  var(--shadow-md)
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 #recording-indicator.hidden {
@@ -9230,22 +9108,14 @@ body.fullwidth-chat .chat-history {
 .msg .body .stream-content {
   width: 100%;
 }
-/* The thinking disclosure was a full-width bordered box with a rotated
-   triangle in a chip on the right — pixel-for-pixel the silhouette of a
-   native <select>, which is why it read as an OS control dropped into the
-   transcript rather than as part of it. It is now a micro-label in the same
-   uppercase letterspaced register as the sidebar section titles, with a
-   chevron that rotates on the accent. Quiet, on-system, and it stops
-   competing with the answer it sits above. No border and no fill: the
-   disclosure is a label, and a label does not need elevation. */
 .thinking-section {
-  margin: var(--space-3) 0;
+  margin: 12px 0;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent-ink) 30%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-ink) 5%, transparent);
   overflow: hidden;
   transition: all 0.3s ease;
 }
@@ -9253,20 +9123,14 @@ body.fullwidth-chat .chat-history {
 .thinking-header {
   display: flex;
   align-items: center;
-  /* flex-start, not space-between: with the toggle at flex-end the chevron
-     landed 640px from its own label and read as a broken control. The
-     disclosure is a label plus its affordance, so the affordance sits next
-     to the label. Zero inline padding so the micro-label shares the prose
-     column's left edge instead of sitting 8px inside it. */
-  justify-content: flex-start;
-  gap: var(--space-1);
-  padding: var(--space-1) 0;
-  border-radius: var(--radius-sm);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
   cursor: pointer;
   user-select: none;
-  background: transparent;
-  border-bottom: 0;
-  transition: background var(--dur-fast) var(--ease-out);
+  background: color-mix(in srgb, var(--accent-ink) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-ink) 20%, transparent);
+  transition: background 0.2s ease;
 }
 
 .thinking-header > .token-new {
@@ -9278,17 +9142,15 @@ body.fullwidth-chat .chat-history {
 }
 
 .thinking-header:hover {
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  background: color-mix(in srgb, var(--accent-ink) 12%, transparent);
 }
 
 .thinking-header-left {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  color: var(--fg-subtle);
+  gap: 8px;
+  font-size: var(--text-md);
+  color: var(--accent-ink);
   font-weight: 500;
   overflow: hidden;
   min-width: 0;
@@ -9306,12 +9168,9 @@ body.fullwidth-chat .chat-history {
 }
 
 .thinking-toggle {
-  font-size: var(--text-sm);
-  color: var(--fg-subtle);
-  transition: transform var(--dur-base) var(--ease-out);
-}
-.thinking-header:hover .thinking-toggle {
+  font-size: var(--text-md);
   color: var(--accent-ink);
+  transition: transform 0.3s ease;
 }
 .thinking-toggle::after {
   content: '\25BC'; /* ▼ */
@@ -10552,7 +10411,7 @@ details a:hover {
   background: var(--accent-ink);
   cursor: pointer;
   border: 2px solid var(--surface-3);
-  var(--shadow-sm)
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
 }
 
 .preset-range::-moz-range-thumb {
@@ -10562,7 +10421,7 @@ details a:hover {
   background: var(--accent-ink);
   cursor: pointer;
   border: 2px solid var(--surface-3);
-  var(--shadow-sm)
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
 }
 
 .preset-range::-webkit-slider-runnable-track {
@@ -10793,6 +10652,9 @@ details a:hover {
   flex: 1;
 }
 .char-template-select {
+  background: var(--surface-4);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   color: var(--fg);
   padding: 6px 8px;
   font-size: var(--text-base);
@@ -11295,7 +11157,7 @@ textarea.memory-add-input {
   background: var(--surface-4), var(--bg));
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 6px 20px rgba(0,0,0,0.22);
   padding: 4px;
 }
 .memory-sort-item {
@@ -11486,7 +11348,7 @@ textarea.memory-add-input {
   max-width: 6px;
   max-height: 6px;
   padding: 0;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 50%;
   background: transparent;
   cursor: pointer;
@@ -11515,14 +11377,11 @@ textarea.memory-add-input {
 }
 
 .memory-search-input {
-  height: var(--space-6);
-  margin-top: var(--space-2);
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-sm);
-  /* A search field is a control boundary — --border-control, not --border.
-     Same rule as .settings-select and the bare select: 1.4.11 applies to the
-     edge you are meant to click into. */
-  border: 1px solid var(--border-control);
+  height: 24px;
+  margin-top: 6px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
   background: var(--bg);
   color: var(--fg);
   font-family: inherit;
@@ -11779,7 +11638,10 @@ textarea.memory-add-input {
 }
 
 .memory-edit-cat-select {
+  background: var(--bg);
   color: var(--fg);
+  border: 1px solid var(--accent-ink);
+  border-radius: 4px;
   font-family: var(--font-ui);
   font-size: var(--text-xs);
   padding: 2px 8px;
@@ -11834,7 +11696,7 @@ textarea.memory-add-input {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px;
-  var(--shadow-md)
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   min-width: auto;
   width: max-content;
 }
@@ -12060,13 +11922,22 @@ textarea.memory-add-input {
 .memory-sort-select {
   position: relative;
   top: 3px;
+  background: var(--bg);
   color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   font-family: var(--font-ui);
   font-size: var(--text-xs);
   height: 24px;
   padding: 0 22px 0 8px;
   cursor: pointer;
+  -webkit-appearance: none;
   -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  background-size: 10px 10px;
   transition: border-color 0.12s, background 0.12s;
 }
 .memory-sort-select:hover {
@@ -12187,7 +12058,7 @@ textarea.memory-add-input {
   background: var(--surface-4), var(--bg));
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 6px 20px rgba(0,0,0,0.22);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -12560,7 +12431,7 @@ textarea.memory-add-input {
   flex-direction: column;
   background: var(--bg);
   border-left: 1px solid var(--border);
-  var(--shadow-md)
+  box-shadow: -10px 0 22px rgba(0, 0, 0, 0.16);
   overflow: hidden;
   height: 100%;
   position: relative;
@@ -13006,7 +12877,7 @@ textarea.memory-add-input {
   background: var(--bg);
   border: 1px solid var(--border); border-radius: 8px;
   padding: 4px;
-  var(--shadow-md)
+  box-shadow: 0 10px 28px rgba(0,0,0,0.32);
   max-height: 60vh; overflow-y: auto;
   z-index: 10000;
   min-width: 160px;
@@ -13031,8 +12902,14 @@ textarea.memory-add-input {
 .doc-langpicker-item .doc-langpicker-label { max-width: 220px; }
 
 .doc-language-select {
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239cdef2' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 15 12 9 18 15'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
   color: var(--fg);
   color-scheme: dark;
+  border: 1px solid var(--border);
+  border-radius: 5px;
   position: relative;
   top: 0;
   font-family: var(--font-ui);
@@ -13046,6 +12923,7 @@ textarea.memory-add-input {
   opacity: 0.8;
   cursor: pointer;
   -moz-appearance: none;
+  appearance: none;
 }
 /* New-tab "+" spins on hover, like the library sidebar "+". */
 .doc-tab-new svg { transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
@@ -13120,7 +12998,7 @@ textarea.memory-add-input {
   border-radius: 4px;
   padding: 4px 0;
   min-width: 140px;
-  var(--shadow-md)
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 .doc-overflow-menu.open { display: block; }
 .doc-overflow-item {
@@ -13477,7 +13355,7 @@ textarea.memory-add-input {
   padding: 4px;
   min-width: 0;
   width: max-content;
-  var(--shadow-md)
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
   backdrop-filter: blur(12px);
 }
 .md-toolbar-overflow-menu.open {
@@ -13918,7 +13796,7 @@ mark.doc-find-mark.current {
   border-radius: 6px;
   font-size: var(--text-sm);
   color: var(--fg);
-  var(--shadow-md)
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   backdrop-filter: blur(12px);
   animation: modal-enter 0.15s ease-out;
 }
@@ -13971,7 +13849,7 @@ mark.doc-find-mark.current {
   border-radius: 10px;
   padding: 12px 12px 10px;
   font-size: var(--text-sm);
-  var(--shadow-md)
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
   animation: suggestion-enter 0.25s ease-out;
   z-index: 250;
   overflow: visible;
@@ -14352,7 +14230,7 @@ mark.doc-find-mark.current {
   display: flex;
   flex-direction: column;
   z-index: 200;
-  var(--shadow-md)
+  box-shadow: 4px 0 16px rgba(0,0,0,0.35);
   animation: version-slide-in 0.2s ease-out;
   /* Match the app modal aesthetic so nothing inherits the large body font. */
   font-family: var(--font-ui);
@@ -14378,7 +14256,7 @@ mark.doc-find-mark.current {
     border-left: none;
     border-top: 1px solid var(--border);
     border-radius: 14px 14px 0 0;
-    var(--shadow-md)
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.3);
     /* It's a bottom sheet on mobile — slide UP from the bottom, not in from
        the left (the desktop animation looked like a black box janking in). */
     animation: version-slide-up 0.2s ease-out;
@@ -14881,7 +14759,7 @@ body:has(.doc-version-panel:not(.hidden)) .hamburger-btn {
   background: var(--bg);
   border-radius: 50%;
   transition: transform var(--dur-fast) var(--ease-out);
-  var(--shadow-sm)
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
 }
 .admin-switch input:checked + .admin-slider {
   background: var(--toggle-active);
@@ -15296,7 +15174,7 @@ span[id$="-logo"] svg:not([width]) {
   max-height: 280px; overflow-y: auto;
   background: var(--surface-4);
   border: 1px solid var(--border); border-radius: 6px;
-  var(--shadow-md)
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
   padding: 4px;
 }
 .adm-provider-menu.hidden { display: none; }
@@ -15470,7 +15348,7 @@ span[id$="-logo"] svg:not([width]) {
   height: 32px;
   box-sizing: border-box;
   background: var(--surface-4);
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--fg);
   font-family: inherit;
@@ -15495,6 +15373,9 @@ span[id$="-logo"] svg:not([width]) {
 .admin-model-form input,
 .admin-model-form select {
   padding: var(--space-1) var(--space-2);
+  background: var(--surface-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--fg);
   font-size: var(--text-sm);
 }
@@ -15635,7 +15516,7 @@ span[id$="-logo"] svg:not([width]) {
   flex: 1;
   padding: 5px 8px;
   background: var(--bg);
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--fg);
   font-size: var(--text-sm);
@@ -15704,6 +15585,9 @@ span[id$="-logo"] svg:not([width]) {
 
 /* Selects in admin cards */
 .admin-card select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   color: var(--fg);
   font-size: var(--text-sm);
 }
@@ -16012,7 +15896,7 @@ span[id$="-logo"] svg:not([width]) {
     font-weight: 600;
     line-height: 1;
     cursor: pointer;
-    var(--shadow-md)
+    box-shadow: 0 6px 18px rgba(0,0,0,.38), 0 2px 6px rgba(0,0,0,.28);
     z-index: 30;
     pointer-events: auto;
     /* This (base) transition governs the EXPAND — slower + graceful. */
@@ -16068,7 +15952,7 @@ span[id$="-logo"] svg:not([width]) {
   #email-lib-modal .email-lib-fab:active {
     transform: scale(0.93);
     filter: brightness(0.92);
-    var(--shadow-md)
+    box-shadow: 0 3px 10px rgba(0,0,0,.4);
   }
 }
 @keyframes emailFabPop {
@@ -16176,7 +16060,7 @@ span[id$="-logo"] svg:not([width]) {
   width: var(--email-doc-split-email-w, 420px) !important;
   max-width: var(--email-doc-split-email-w, 420px) !important;
   border-right: 1px solid var(--border);
-  var(--shadow-md)
+  box-shadow: 4px 0 14px rgba(0, 0, 0, 0.18);
   border-radius: 0;
 }
 @media (min-width: 769px) {
@@ -16258,7 +16142,7 @@ body.right-dock-active:not(.email-doc-split-active) .doc-editor-pane {
 }
 .modal.modal-right-docked .modal-content {
   border-left: 1px solid var(--border);
-  var(--shadow-md)
+  box-shadow: -4px 0 14px rgba(0, 0, 0, 0.18);
   border-radius: 0;
 }
 .modal.modal-left-docked {
@@ -16267,7 +16151,7 @@ body.right-dock-active:not(.email-doc-split-active) .doc-editor-pane {
 }
 .modal.modal-left-docked .modal-content {
   border-right: 1px solid var(--border);
-  var(--shadow-md)
+  box-shadow: 4px 0 14px rgba(0, 0, 0, 0.18);
   border-radius: 0;
   /* Pin transitions OFF on the dock's positioning properties. The wide
      sidebar collapse/expand changes --sidebar-w instantly, which means
@@ -16489,7 +16373,7 @@ body.right-dock-active:not(.email-doc-split-active) .doc-editor-pane {
   /* Neutral frame on the active email — the accent border + glow felt
      overbearing on desktop; the size jump alone is enough signal. */
   border: 1px solid var(--border) !important;
-  var(--shadow-md) !important
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12) !important;
   animation: none !important;
 }
 /* Desktop-only, ONLY on the currently-expanded email card. Nudges the title
@@ -17657,7 +17541,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   background: var(--surface-4), var(--bg));
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 6px 20px rgba(0,0,0,0.22);
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -18006,7 +17890,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   appearance: none;
   width: 13px;
   height: 13px;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg);
   cursor: pointer;
@@ -18238,15 +18122,16 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
 .gallery-search:focus {
   border-color: var(--accent-ink);
 }
-/* Chrome for these two moved to the global `select` rule (§20). They were
-   re-declaring the whole control here — including a `border` edge on what is
-   a control boundary — at class specificity, which is why a bare `select`
-   rule could never reach them and why they stayed light-grey OS chrome. */
 .gallery-model-filter,
 .gallery-sort {
   padding: 4px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
   font: inherit;
   font-size: var(--text-xs);
+  cursor: pointer;
 }
 .gallery-tag-chips {
   display: flex;
@@ -18262,7 +18147,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   align-items: center;
   justify-content: center;
   gap: 4px;
-  border-radius: var(--radius-full);
+  border-radius: 14px;
   font-size: var(--text-sm);
   line-height: 1;
   border: 1px solid var(--border);
@@ -18576,7 +18461,7 @@ body.gallery-selecting .gallery-dl-btn,
   width: min(560px, 92vw);
   max-height: 88vh;
   display: flex; flex-direction: column; gap: 8px;
-  var(--shadow-lg)
+  box-shadow: 0 14px 40px rgba(0,0,0,0.4);
 }
 .vision-editor-title {
   font-size: var(--text-base); font-weight: 600; color: var(--fg);
@@ -18626,7 +18511,7 @@ body.gallery-selecting .gallery-dl-btn,
 .attach-lightbox img {
   max-width: 100%; max-height: 100%;
   border-radius: 6px;
-  var(--shadow-md)
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   object-fit: contain;
 }
 .attach-lightbox-err {
@@ -18662,7 +18547,7 @@ body.gallery-selecting .gallery-dl-btn,
 }
 .gallery-card:hover {
   border-color: var(--accent-ink);
-  var(--shadow-md)
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-ink) 15%, transparent);
   transform: translateY(-1px);
 }
 .gallery-select-dot {
@@ -18875,7 +18760,7 @@ body.gallery-selecting .gallery-dl-btn,
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 18%, transparent);
   z-index: 12;
   display: flex;
   flex-direction: column;
@@ -19739,7 +19624,7 @@ body.gallery-selecting .gallery-dl-btn,
   }
   50% {
     opacity: 0.85;
-    var(--shadow-sm)
+    box-shadow: 0 0 6px 2px color-mix(in srgb, var(--notif-glow, var(--accent-ink, var(--red))) 55%, transparent);
   }
 }
 .cookbook-clear-btn {
@@ -19960,7 +19845,7 @@ body.gallery-selecting .gallery-dl-btn,
   background: var(--surface-4), #1a1a1a);
   border: 1px solid var(--border);
   border-radius: 6px;
-  var(--shadow-md)
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   font-family: var(--font-content);
   font-size: var(--text-xs);
   color: var(--fg);
@@ -21308,7 +21193,7 @@ body.gallery-selecting .gallery-dl-btn,
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 4px;
-  var(--shadow-md)
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   min-width: auto;
   width: max-content;
 }
@@ -21340,7 +21225,7 @@ body.gallery-selecting .gallery-dl-btn,
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
-  var(--shadow-md)
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
   display: flex; flex-direction: column; gap: 10px;
 }
 .cookbook-edit-title {
@@ -21947,7 +21832,7 @@ body.gallery-selecting .gallery-dl-btn,
   border-radius: 50%;
   background: var(--fg);
   border: 2px solid var(--surface-3);
-  var(--shadow-sm)
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
 }
@@ -21965,7 +21850,7 @@ body.gallery-selecting .gallery-dl-btn,
   border-radius: 50%;
   background: var(--fg);
   border: 2px solid var(--surface-3);
-  var(--shadow-sm)
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
   cursor: pointer;
 }
 .cookbook-slider::-moz-range-progress {
@@ -22028,7 +21913,7 @@ body.gallery-selecting .gallery-dl-btn,
   height: 12px;
   border-radius: 50%;
   background: var(--surface-3);
-  var(--shadow-sm)
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
   transition: transform 0.08s;
 }
 .cookbook-checkbox:checked {
@@ -22558,7 +22443,7 @@ body.gallery-selecting .gallery-dl-btn,
   max-height: 24px;
   line-height: 24px;
   box-sizing: border-box;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg);
   color: var(--fg);
@@ -22665,7 +22550,7 @@ body.gallery-selecting .gallery-dl-btn,
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg);
-  var(--shadow-md)
+  box-shadow: 0 8px 24px color-mix(in srgb, #000 35%, transparent);
 }
 .cookbook-srv-color-menu.hidden {
   display: none;
@@ -22907,7 +22792,7 @@ body.gallery-selecting .gallery-dl-btn,
   font-family: inherit;
   background: var(--bg);
   color: var(--fg);
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 4px;
   box-sizing: border-box;
 }
@@ -23037,7 +22922,7 @@ body.gallery-selecting .gallery-dl-btn,
   background: var(--surface-4), var(--bg));
   border: 1px solid var(--border);
   border-radius: 6px;
-  var(--shadow-md)
+  box-shadow: 0 6px 20px rgba(0,0,0,0.22);
 }
 .hwfit-engine-item {
   width: 100%;
@@ -24791,16 +24676,12 @@ select.task-form-input { text-overflow: ellipsis; }
      the card off-screen on mobile. */
   min-width: 0;
   max-width: 100%;
-  padding: var(--space-1) var(--space-2);
+  padding: 5px 8px;
   font-family: var(--font-ui);
   font-size: var(--text-sm);
   background: var(--bg);
-  /* --border-control, never --border. This element is the control boundary
-     itself, so WCAG 1.4.11 applies: --border measures 1.76:1 on --bg, well
-     under the 3:1 floor. The bare-`select` rule further down the file already
-     says this; class specificity was beating it. */
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   color: var(--fg);
   transition: border-color 0.15s;
   appearance: none;
@@ -25165,7 +25046,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   background: var(--surface-4) !important;
   border: 1px solid var(--border) !important;
   border-radius: 8px !important;
-  var(--shadow-md) !important
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
   backdrop-filter: none !important;
 }
 .sort-dropdown-item {
@@ -25996,7 +25877,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
 .gallery-album-card:hover {
   transform: translateY(-2px);
   border-color: var(--accent-ink);
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 12%, transparent);
 }
 .gallery-album-menu-btn {
   position: absolute;
@@ -26029,7 +25910,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 18%, transparent);
   display: flex; flex-direction: column;
   padding: 4px;
   z-index: 3;
@@ -26606,7 +26487,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   opacity: 0.95;
   z-index: 2;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 70%, transparent),
-              var(--shadow-sm);
+              0 1px 4px color-mix(in srgb, var(--danger) 50%, transparent);
   transition: opacity 0.12s, transform 0.12s, box-shadow 0.12s;
   left: auto !important;
 }
@@ -26615,7 +26496,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   opacity: 1;
   transform: scale(1.15);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 80%, transparent),
-              var(--shadow-sm);
+              0 2px 6px color-mix(in srgb, var(--danger) 60%, transparent);
 }
 
 /* Aspect-ratio placeholder shown while a draft is loading. */
@@ -26669,7 +26550,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   border: 1px solid color-mix(in srgb, var(--accent-ink, var(--red)) 42%, var(--border));
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface-3), var(--bg)) 94%, transparent);
-  var(--shadow-md)
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 26%, transparent);
   backdrop-filter: blur(8px);
 }
 .ge-ai-command-toggle {
@@ -26804,7 +26685,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   border-radius: 10px;
   background: var(--surface-4);
   border: 1px solid var(--border);
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 18%, transparent);
 }
 .ge-loading-overlay .ge-loading-text {
   font-size: var(--text-sm);
@@ -26828,7 +26709,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px 18px 12px;
-  var(--shadow-md)
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--fg) 25%, transparent);
   width: min(720px, 92vw);
   max-height: 86vh;
   overflow-y: auto;
@@ -26902,7 +26783,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   /* Cursor is managed entirely by JS so each tool can show its own
      icon (move arrow, circle overlay, etc.) without CSS fighting it. */
   image-rendering: pixelated;
-  var(--shadow-md)
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
   background: repeating-conic-gradient(#808080 0% 25%, #a0a0a0 0% 50%) 50% / 16px 16px;
 }
 
@@ -26963,7 +26844,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   background: color-mix(in srgb, var(--surface-4) 96%, transparent);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   backdrop-filter: blur(6px);
   user-select: none;
 }
@@ -27208,7 +27089,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 25%, transparent);
 }
 .ge-inpaint-popup-input {
   width: 240px;
@@ -27481,7 +27362,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 3px;
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 25%, transparent);
   z-index: 50;
   display: flex;
   flex-direction: column;
@@ -27687,7 +27568,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 12px 32px rgba(0,0,0,0.45);
   display: flex;
   flex-direction: column;
   font-size: var(--text-xs);
@@ -27777,7 +27658,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
   border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent);
-  var(--shadow-lg)
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
 }
 
 /* FX dropdown menu from the layer-row fx icon. */
@@ -28606,7 +28487,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 18%, transparent);
   z-index: 10005;
   display: flex;
   flex-direction: column;
@@ -28639,7 +28520,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 18%, transparent);
   z-index: 12;
   display: flex;
   flex-direction: column;
@@ -28714,7 +28595,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   background: color-mix(in srgb, var(--surface-4) 95%, transparent);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(10px);
   padding: 12px;
   display: flex;
@@ -28819,7 +28700,7 @@ details.hwfit-serve-advanced > .hwfit-serve-checks:last-of-type {
   padding: 8px 10px;
   background: var(--bg);
   color: var(--fg);
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 6px;
   font: inherit;
   font-size: var(--text-md);
@@ -28918,7 +28799,7 @@ button .spinner-whirlpool {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   border-radius: 6px;
-  var(--shadow-md)
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent-ink) 40%, transparent);
   pointer-events: none;
   white-space: nowrap;
   opacity: 0;
@@ -28947,7 +28828,7 @@ button .spinner-whirlpool {
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--fg) 30%, transparent);
   pointer-events: none;
   display: none;
 }
@@ -28982,7 +28863,7 @@ button .spinner-whirlpool {
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 18%, transparent);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -29237,7 +29118,7 @@ button .spinner-whirlpool {
 }
 .ge-layer-item.dragging {
   background: var(--surface-3);
-  var(--shadow-md)
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--fg) 25%, transparent);
   border-radius: 4px;
 }
 .ge-layer-btn {
@@ -29264,14 +29145,14 @@ button .spinner-whirlpool {
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 6px;
-  var(--shadow-md)
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 .ge-crop-apply input[type="number"] {
   width: 56px;
   padding: 3px 4px;
   background: var(--bg);
   color: var(--fg);
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 4px;
   font: inherit;
   font-size: var(--text-xs);
@@ -29345,7 +29226,7 @@ button .spinner-whirlpool {
     border: 1px solid var(--border);
     border-radius: 8px;
     background: var(--surface-4);
-    var(--shadow-lg)
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.42);
   }
   .ge-inpaint-section.ge-inpaint-popover .ge-inpaint-popover-head {
     display: flex;
@@ -29516,7 +29397,7 @@ button .spinner-whirlpool {
     border-left: none;
     border-top: 1px solid var(--border);
     border-radius: 12px 12px 0 0;
-    var(--shadow-md)
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
     z-index: 50;
     flex-shrink: 0;
     /* Peek height grows with the layer count up to a cap. JS sets the
@@ -29826,7 +29707,7 @@ button .spinner-whirlpool {
     left: 8px;
     background: var(--surface-4);
     z-index: 8;
-    var(--shadow-md)
+    box-shadow: 8px 0 10px -10px color-mix(in srgb, var(--fg) 55%, transparent);
   }
   .ge-topbar .ge-btn,
   .ge-topbar .ge-btn-sm {
@@ -29863,7 +29744,7 @@ button .spinner-whirlpool {
     max-height: min(60dvh, 420px);
     border-radius: 12px 12px 0 0 !important;
     z-index: 10001 !important;
-    var(--shadow-md)
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
   }
   #ge-history-panel .ge-history-head { cursor: default; }
   #ge-shortcuts-btn {
@@ -29888,7 +29769,7 @@ button .spinner-whirlpool {
     background: var(--surface-4);
     border: 1px solid var(--border);
     border-radius: 12px 12px 0 0 !important;
-    var(--shadow-md)
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
     z-index: 10005;
     animation: ge-controls-slide-up 0.2s ease-out;
   }
@@ -29940,7 +29821,7 @@ button .spinner-whirlpool {
     border-top: 1px solid var(--border);
     background: var(--surface-3);
     border-radius: 12px 12px 0 0;
-    var(--shadow-md)
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
     max-height: 60vh;
     overflow-y: auto;
     padding: 18px 16px 24px;
@@ -30046,7 +29927,7 @@ button .spinner-whirlpool {
 .email-field input {
   flex: 1;
   background: transparent;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 5px 8px;
   font-size: var(--text-base);
@@ -30637,7 +30518,7 @@ button .spinner-whirlpool {
     padding-left: 22px;
     /* Soft shadow on the left edge so the overlap reads as the
        cluster "floating over" the chip. */
-    var(--shadow-md)
+    box-shadow: -6px 0 12px -6px rgba(0, 0, 0, 0.25);
   }
 }
 /* Mobile: drop the box-shadow AND the left-edge gradient fade —
@@ -30795,7 +30676,7 @@ button .spinner-whirlpool {
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg) 96%, var(--fg) 4%);
   color: var(--fg);
-  var(--shadow-lg)
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
   font-size: var(--text-sm);
   line-height: 1.35;
   pointer-events: auto;
@@ -31170,7 +31051,7 @@ button .spinner-whirlpool {
   width: 280px;
   background: var(--bg);
   border-left: 1px solid var(--border);
-  var(--shadow-md)
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -31240,7 +31121,7 @@ button .spinner-whirlpool {
   color: var(--fg);
   font-family: var(--font-ui);
   transition: background 0.12s, border-color 0.12s, transform 0.08s;
-  var(--shadow-sm)
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   overflow: hidden;
 }
 .from-sender-row-main {
@@ -31457,7 +31338,7 @@ button .spinner-whirlpool {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  var(--shadow-md)
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25);
   z-index: 20;
   max-height: 240px;
   overflow-y: auto;
@@ -32248,7 +32129,7 @@ body.doc-find-active mark.doc-find-mark.current {
 .emoji-picker {
   width: min(300px, 92vw); max-height: min(300px, 55vh);
   background: var(--surface-4); border: 1px solid var(--border); border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .emoji-picker-search {
@@ -32451,7 +32332,7 @@ body.doc-find-active mark.doc-find-mark.current {
 .email-dropdown {
   position: absolute; right: 0; top: 100%; z-index: 9999;
   min-width: 120px; background: var(--bg); border: 1px solid var(--border);
-  border-radius: 6px; var(--shadow-md) padding: 4px 0;
+  border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); padding: 4px 0;
 }
 .email-loading { padding: 16px; text-align: center; font-size: var(--text-sm); opacity: 0.5; }
 .email-load-more { padding: 8px; text-align: center; }
@@ -32782,7 +32663,7 @@ body.doc-find-active mark.doc-find-mark.current {
 .email-field { display: flex; align-items: center; gap: 8px; position: relative; }
 .email-field label { font-size: var(--text-xs); font-weight: 600; color: var(--fg-muted); min-width: 50px; text-align: right; flex-shrink: 0; }
 .email-field input {
-  flex: 1; width: 100%; background: transparent; border: 1px solid var(--border-control); border-radius: 4px;
+  flex: 1; width: 100%; background: transparent; border: 1px solid var(--border); border-radius: 4px;
   padding: 5px 8px; font-size: var(--text-base); font-family: inherit; color: var(--fg); outline: none;
   min-width: 0;
 }
@@ -32889,7 +32770,7 @@ body.doc-find-active mark.doc-find-mark.current {
 .email-more-menu {
   position: absolute; bottom: 100%; right: 0; margin-bottom: 6px;
   min-width: 160px; background: var(--bg); border: 1px solid var(--border);
-  border-radius: 6px; var(--shadow-md) padding: 4px;
+  border-radius: 6px; box-shadow: 0 -4px 12px rgba(0,0,0,0.2); padding: 4px;
   z-index: 100;
 }
 .email-send-btn {
@@ -33126,7 +33007,7 @@ body.doc-find-active mark.doc-find-mark.current {
   border-radius: 7px;
   background: var(--bg);
   color: var(--fg);
-  var(--shadow-md)
+  box-shadow: 0 12px 30px rgba(0,0,0,0.28);
   overflow: hidden;
 }
 .email-zephyrus-attach-local {
@@ -33385,7 +33266,7 @@ body.doc-find-active mark.doc-find-mark.current {
 .email-autocomplete {
   position: absolute; top: 100%; left: 58px; right: 0; z-index: 1000;
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-  var(--shadow-md) max-height: 240px; overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2); max-height: 240px; overflow-y: auto;
   margin-top: 2px;
 }
 .contact-suggestion {
@@ -33639,7 +33520,7 @@ body.notes-drag-mode .note-card::after {
    it so it reads as the "live" element being moved. */
 body.notes-drag-mode .note-card.note-card-dragging {
   transform: scale(1.06);
-  var(--shadow-lg)
+  box-shadow: 0 16px 40px rgba(0,0,0,0.45);
   opacity: 1;
   filter: none;
   z-index: 10001;
@@ -33835,7 +33716,7 @@ body.notes-drag-mode .note-card-pin svg {
 /* Lifted row + placeholder while dragging a checklist item. Mirrors
    the card-drag look so the two interactions feel consistent. */
 .note-cl-row-dragging {
-  var(--shadow-md)
+  box-shadow: 0 12px 28px rgba(0,0,0,0.4);
   background: var(--bg);
   border-radius: 8px;
   opacity: 0.98;
@@ -34084,7 +33965,7 @@ body.notes-drag-mode .note-card-pin svg {
   overflow: hidden;
   width: min(880px, 92vw);
   height: min(80vh, 820px);
-  var(--shadow-md)
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   box-sizing: border-box;
   font-family: var(--font-ui);
   letter-spacing: -0.015em;
@@ -34096,13 +33977,13 @@ body.notes-drag-mode .note-card-pin svg {
 .notes-pane.modal-right-docked {
   border-left: 1px solid var(--border);
   border-radius: 0;
-  var(--shadow-md)
+  box-shadow: -4px 0 14px rgba(0, 0, 0, 0.18);
   transition: none !important;
 }
 .notes-pane.modal-left-docked {
   border-right: 1px solid var(--border);
   border-radius: 0;
-  var(--shadow-md)
+  box-shadow: 4px 0 14px rgba(0, 0, 0, 0.18);
   transition: none !important;
 }
 @keyframes notes-pane-enter {
@@ -34293,7 +34174,7 @@ body.notes-drag-mode .note-card-pin svg {
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
   padding: 4px;
   min-width: 168px;
   font-size: var(--text-sm);
@@ -34733,7 +34614,7 @@ body.notes-mobile-mode.notes-drag-mode .note-card-pin.active {
 .note-card-ai-chip:hover {
   background: color-mix(in srgb, var(--accent-ink, var(--red)) 22%, transparent);
   transform: translateY(-1px);
-  var(--shadow-sm)
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-ink, var(--red)) 30%, transparent);
 }
 .note-card-ai-chip svg {
   flex-shrink: 0;
@@ -34833,7 +34714,7 @@ body.notes-mobile-mode.notes-drag-mode .note-card-pin.active {
   background: var(--surface-4), var(--bg));
   border: 1px solid var(--border);
   border-radius: 6px;
-  var(--shadow-md)
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   padding: 4px 0;
   min-width: 140px;
   font-size: var(--text-sm);
@@ -35290,7 +35171,7 @@ body.notes-mobile-mode.notes-drag-mode .note-card-pin.active {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 6px 24px rgba(0,0,0,0.25);
   /* Above the fullscreen note overlay (z-index: 10500) — otherwise the
      reminder picker opens hidden behind it on mobile and reads as
      "broken". */
@@ -36154,7 +36035,7 @@ body.notes-mobile-mode.notes-drag-mode .note-card-pin.active {
   opacity: 0.92;
   cursor: grabbing;
   transform: scale(1.03) rotate(-0.6deg);
-  var(--shadow-md), 0 0 0 2px var(--accent-ink, var(--red))
+  box-shadow: 0 14px 32px rgba(0,0,0,0.4), 0 0 0 2px var(--accent-ink, var(--red));
   border-color: var(--accent-ink, var(--red)) !important;
   background: color-mix(in srgb, var(--accent-ink, var(--red)) 6%, var(--surface-3)) !important;
   z-index: 10;
@@ -37202,7 +37083,7 @@ body.notes-mobile-mode.notes-drag-mode .note-card-pin.active {
 .cal-toolbar-nav { display:inline-flex; align-items:center; gap:4px; flex-wrap:wrap; }
 .cal-toolbar-right { display:inline-flex; align-items:center; gap:6px; margin-left:auto; flex-wrap:wrap; margin-top:6px; }
 .cal-title { font-size:var(--text-base); font-weight:600; white-space:nowrap; height:24px; line-height:30px; padding:0 6px; display:inline-block; vertical-align:middle; box-sizing:border-box; }
-button.cal-nav { background:color-mix(in srgb, var(--fg) 6%, transparent); border:1px solid var(--border); color:var(--fg); border-radius: var(--radius-sm); padding:0 8px; height:24px; line-height:22px; cursor:pointer; font-size:var(--text-xs); font-family:var(--font-ui); box-sizing:border-box; vertical-align:middle; }
+button.cal-nav { background:color-mix(in srgb, var(--fg) 6%, transparent); border:1px solid var(--border); color:var(--fg); border-radius:5px; padding:0 8px; height:24px; line-height:22px; cursor:pointer; font-size:var(--text-xs); font-family:var(--font-ui); box-sizing:border-box; vertical-align:middle; }
 button.cal-nav:hover { background:color-mix(in srgb, var(--fg) 12%, transparent); }
 button.cal-today-btn { font-size:var(--text-xs); opacity:0.5; }
 /* Dark glyph on the accent disc — same reasoning as .confirm-btn-primary:
@@ -37850,7 +37731,7 @@ button.cal-add-btn.cal-add-btn-text.cal-add-btn-sm:hover .cal-add-label {
   display: inline-flex;
   align-items: stretch;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
   overflow: hidden;
   vertical-align: middle;
   box-sizing: border-box;
@@ -38016,7 +37897,7 @@ button.cal-view-btn {
   opacity: 0.98;
   z-index: 2;
   pointer-events: auto;
-  var(--shadow-sm)
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 18%, transparent);
 }
 .cal-dragging { opacity:0.3; }
 /* Splitter between the month/week grid and the day-tasks panel — drag
@@ -38333,7 +38214,7 @@ button.cal-view-btn {
    siblings so the drop target reads clearly. */
 .cal-wk-block-ghost {
   z-index: 6 !important;
-  var(--shadow-md) !important
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--fg) 24%, transparent) !important;
   cursor: grabbing;
 }
 .cal-wk-block { cursor: grab; }
@@ -38647,14 +38528,14 @@ button.cal-event-more:hover { opacity:1 !important; }
      back to the theme's neutral border so the card looks like normal. */
   border: 1px solid var(--border);
   border-radius: 14px;
-  var(--shadow-md)
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--fg) 6%, transparent);
   transition: border-color 0.18s, box-shadow 0.18s;
 }
 /* When a colour is picked, lift the card with a soft tinted border + glow
    so the choice is unmistakable. */
 .cal-form-bespoke[style*="--ev-color"] {
   border-color: color-mix(in srgb, var(--ev-color) 55%, var(--border));
-  var(--shadow-md)
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--ev-color) 22%, transparent);
 }
 /* Title underline + clock focus ring + primary button track --ev-color
    when set; default to --accent / --fg otherwise. */
@@ -38826,7 +38707,7 @@ button.cal-event-more:hover { opacity:1 !important; }
   justify-content: center;
   width: 32px;
   flex-shrink: 0;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--accent-ink, var(--red));
   background: color-mix(in srgb, var(--fg) 5%, var(--bg));
@@ -39068,7 +38949,7 @@ body.research-panel-view #research-divider { display:none; }
   font-size: var(--text-xs); padding: 4px 6px;
   background: var(--bg);
   color: var(--fg);
-  border: 1px solid var(--border-control); border-radius: 4px;
+  border: 1px solid var(--border); border-radius: 4px;
 }
 .research-controls-row {
   display:flex; align-items:center; gap:10px; margin-top:10px;
@@ -39172,7 +39053,7 @@ body.research-panel-view #research-divider { display:none; }
   background: var(--surface-4);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   padding: 5px;
   font-size: var(--text-base);
   animation: rrm-pop-in 0.12s ease-out both;
@@ -39363,7 +39244,7 @@ body.research-panel-view #research-divider { display:none; }
   background: #82c882; color: white;
   font-weight: 700; font-size: var(--text-base);
   display: flex; align-items: center; justify-content: center;
-  var(--shadow-sm)
+  box-shadow: 0 2px 6px color-mix(in srgb, #82c882 40%, transparent);
 }
 
 /* Landscape: section banners */
@@ -39699,7 +39580,7 @@ input.cp-swatch-input::selection { background: transparent; }
   border: 1px solid var(--border, #333);
   border-radius: 8px;
   padding: 10px;
-  var(--shadow-md)
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
   font-family: inherit; color: var(--fg, #eee); font-size: var(--text-sm);
   user-select: none;
 }
@@ -39727,7 +39608,7 @@ input.cp-swatch-input::selection { background: transparent; }
   margin: -6px 0 0 -6px;
   border: 2px solid #fff;
   border-radius: 50%;
-  var(--shadow-sm), 0 0 0 1px rgba(0,0,0,0.6)
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 1px 3px rgba(0,0,0,0.5);
   pointer-events: none;
 }
 .cp-hue {
@@ -39745,7 +39626,7 @@ input.cp-swatch-input::selection { background: transparent; }
   margin: -9px 0 0 -5px;
   border: 2px solid #fff;
   border-radius: 3px;
-  var(--shadow-sm), 0 0 0 1px rgba(0,0,0,0.6)
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 1px 3px rgba(0,0,0,0.5);
   pointer-events: none;
 }
 .cp-row {
@@ -39831,7 +39712,7 @@ input.cp-swatch-input::selection { background: transparent; }
 .pdf-export-overlay select.pdf-export-input,
 .pdf-export-overlay input.pdf-export-input {
   padding: 4px 6px;
-  border: 1px solid var(--border-control);
+  border: 1px solid var(--border);
   background: var(--bg);
   color: var(--fg);
   border-radius: 4px;
@@ -39944,24 +39825,21 @@ input.cp-swatch-input::selection { background: transparent; }
 .pdf-export-overlay input[type="checkbox"] {
   width: 14px;
   height: 14px;
-  border: 1.5px solid var(--border-control);
+  border: 1.5px solid var(--border);
   background: var(--bg);
 }
 .pdf-export-overlay input[type="checkbox"]:checked {
   background: var(--fg);
   border-color: var(--fg);
 }
-/* PDF view overlays on a white page render, so the control has to stay dark
-   in both themes — but "theme-independent" was doing too much work and became
-   three literals on a checkbox. These are ladder rungs, which resolve to the
-   same values in the one theme the app ships and can then be re-themed from
-   :root like everything else. */
+/* PDF view overlays on a white page render — keep colors theme-independent
+   so the dot is always visible against the rendered PDF. */
 #doc-pdf-view input[type="checkbox"] {
-  border: 1.5px solid var(--surface-4);
+  border: 1.5px solid #444;
 }
 #doc-pdf-view input[type="checkbox"]:checked {
-  background: var(--bg);
-  border-color: var(--bg);
+  background: #111;
+  border-color: #111;
 }
 
 /* Mobile only: lift the Dependencies "Server" dropdown's selected text up ~2px. */
@@ -40152,7 +40030,7 @@ input.cp-swatch-input::selection { background: transparent; }
   background: var(--surface-4), var(--bg));
   border: 1px solid var(--border, rgba(255,255,255,0.08));
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   font-size: var(--text-base);
   color: var(--fg, #e6e6e6);
   overflow-y: auto;
@@ -40726,21 +40604,7 @@ input.cp-swatch-input::selection { background: transparent; }
 /* --radius-*, --shadow-*, --font-ui/content, motion tokens. */
 /* ============================================ */
 
-/* ── 1. Topographic background + the reading plate ──
- * The field is the app's identity, so it stays. What changed is its JOB.
- * At full strength directly behind body copy it was texture, not identity,
- * and it degraded the one surface a user reads all day. It now works like a
- * survey table:
- *   - the field is strongest where nothing is read (the shoulders of the
- *     viewport, the welcome hero) and recedes toward the reading axis, so
- *     it produces hierarchy instead of fighting it;
- *   - the transcript is a plate laid on that table — solid at the reading
- *     measure, dissolving at both edges, so the terrain is still there in
- *     the margins but never under a paragraph.
- * The scrim is a radial gradient rather than a flat wash for the same
- * reason: a flat wash dims the field uniformly and only makes it greyer,
- * while a gradient centred on the reading column spends the field's
- * contrast budget where it can do work and keeps it out of the prose. */
+/* ── 1. Topographic background on chat canvas ── */
 .chat-container {
   background-color: var(--bg);
   /* No `isolation: isolate` here. It would create a stacking context and trap
@@ -40755,17 +40619,11 @@ input.cp-swatch-input::selection { background: transparent; }
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  /* topo-dark.png is the source artwork, used directly per request.
-     cover scales uniformly (no stretch) and crops excess — it never
-     distorts. center keeps the survey centred on all viewports. */
   background-image: url("/static/icons/topo-dark.png");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  background-color: var(--bg);
-  /* --field-opacity, not a bare number: the strength of the survey is a
-     design decision owned by a token. topo-dark.png is used directly. */
-  opacity: var(--field-opacity);
+  opacity: 0.9;
 }
 .chat-container::after {
   content: "";
@@ -40773,69 +40631,7 @@ input.cp-swatch-input::selection { background: transparent; }
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  /* The sheet edge, and nothing else.
-   *
-   * This layer used to be a radial scrim that ran 86% opaque at the centre
-   * falling to 48% by two thirds of the radius — i.e. it dimmed the interior,
-   * which is exactly where the field was supposed to be doing its work. Stack
-   * it with the plate and the terrain was multiplied down to about a quarter
-   * of its own value in the margins and to under 3% under the prose, which is
-   * why the survey had to be switched off entirely to make the transcript
-   * readable: two global dimmers plus a full-bleed 92% plate left nothing to
-   * see.
-   *
-   * Its only remaining job is to stop the survey being guillotined by the box
-   * it is painted in. The chat column has two edges the eye actually sees —
-   * the rail on the left and the viewport on the top — so those are the only
-   * two this fades, each over a short ramp, and everything past them is at
-   * full strength. A radial vignette was the wrong instrument: it dims by
-   * distance from the centre, which is precisely the opposite of the rule
-   * above (strongest where nothing is read), and it left the top-left corner
-   * at a quarter strength that measured as almost no terrain at all. */
-  background:
-    linear-gradient(90deg,
-      color-mix(in srgb, var(--bg) 72%, transparent) 0%,
-      transparent 7%),
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--bg) 72%, transparent) 0%,
-      transparent 5%);
-}
-/* The plate. Sits on the scroll container itself rather than on a
-   pseudo-element so there is no stacking contest with the message nodes
-   inside it: an element's own background always paints beneath its
-   in-flow children — and, being a background rather than a child, it does not
-   scroll with the transcript either, which a pseudo-element would.
- *
- * `background-clip: content-box` is the whole trick, and it is what makes the
-   plate self-sizing: the clip area is the scroll container's CONTENT box,
-   which is precisely the reading measure — `.msg` is capped at 85% of it and
-   both bubble alignments sit inside it — so the plate is never wider than the
-   column and never needs a magic number. It tracks the layout instead of
- * guessing at it. At 1440 it spans x 460–1248 while the prose spans 468–1240,
- * and the terrain gets a 164px gutter on the left and a 176px one on the
- * right. The plate is a real object with a real edge rather than a dissolve,
-   and a real edge reads as a sheet laid on a table — which a 135px gradient
-   ramp never did.
- *
- * A background-COLOUR with a clip, deliberately not a gradient: the previous
- * version was `background-origin: content-box` plus a solid gradient, and
-   `background-repeat` defaults to repeat, so the 788px gradient tiled across
-   the 1128px border box and covered the gutters in flat 92% black. The field
-   was rendering correctly and being painted over. A clipped colour has no
-   tile to get wrong.
-   `backdrop-filter` is gone on purpose: it applies to the element's whole
-   area, not to the painted background, so it blurred the gutters too — the
-   terrain would only ever have been legible as "there is something there"
-   rather than as contours. */
-.chat-container > #chat-history {
-  background-color: transparent;
-  background-clip: content-box;
-}
-/* The hero state has no prose to protect, so the plate steps aside and the
-   field comes forward — the welcome screen is the one surface where the
-   terrain is the subject rather than the substrate. */
-.chat-container.welcome-active > #chat-history {
-  background-color: transparent;
+  background: rgba(0, 0, 0, 0.3);
 }
 /* Lift only the elements that must sit ABOVE the background layer. A blanket
    `.chat-container > *` rule would also capture `#custom-preset-modal`, which is
@@ -40843,16 +40639,10 @@ input.cp-swatch-input::selection { background: transparent; }
    `position: relative` collapses it into the chat column's normal flow. */
 .chat-container > #chat-history,
 .chat-container > .attach-strip,
-.chat-container > .chat-input-bar {
-  position: relative;
-  z-index: 1;
-}
-/* Welcome sits above the composer so the Nobody toggle never slides
-   behind the input bar — the container is pointer-events:none so only
-   the button itself intercepts clicks. */
+.chat-container > .chat-input-bar,
 .chat-container > #welcome-screen {
   position: relative;
-  z-index: 2;
+  z-index: 1;
 }
 .chat-container > .chat-top-bar {
   position: relative;
@@ -40876,12 +40666,10 @@ input.cp-swatch-input::selection { background: transparent; }
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
   box-shadow: var(--shadow-sm);
-  /* Same measure as the Nobody toggle: identical vertical padding and
-     label size, so both top-bar pills render at one height. */
-  padding: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-2);
   font-family: var(--font-ui);
-  font-size: var(--text-xs);
-  line-height: 1.4;
+  font-size: var(--text-sm);
+  line-height: 1.3;
   color: var(--fg);
   white-space: nowrap;
   overflow: hidden;
@@ -40894,7 +40682,7 @@ input.cp-swatch-input::selection { background: transparent; }
 .chat-top-bar .chat-meta-overlay #current-meta-count,
 .chat-top-bar .chat-meta-overlay #session-cost-display {
   color: var(--fg-muted);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
 }
 .chat-top-bar .export-dropdown-wrap {
   margin: 0;
@@ -40907,28 +40695,6 @@ input.cp-swatch-input::selection { background: transparent; }
 #welcome-screen .welcome-logo {
   width: min(520px, 72vw);
   max-width: 72vw;
-  height: auto;
-  aspect-ratio: 780 / 210;
-  object-fit: contain;
-}
-/* The hero shrink-wraps its content by default — cap it to the viewport
-   so the logo, tagline and sub can never overflow a narrow window,
-   and let the tagline wrap below wide-desktop widths instead of
-   clipping at the screen edge. */
-#welcome-screen {
-  width: max-content;
-  max-width: 94vw;
-}
-.welcome-tagline {
-  max-width: 94vw;
-}
-@media (max-width: 900px) {
-  .welcome-tagline {
-    white-space: normal;
-    letter-spacing: 0.25em;
-    text-indent: 0.25em;
-    line-height: 2;
-  }
 }
 .welcome-tagline {
   font-family: var(--font-ui);
@@ -40939,7 +40705,7 @@ input.cp-swatch-input::selection { background: transparent; }
   line-height: 1.6;
   text-align: center;
   color: var(--fg-muted);
-  margin: var(--space-2) 0 var(--space-6);
+  margin: var(--space-2) 0 var(--space-1);
   white-space: nowrap;
   user-select: none;
   pointer-events: none;
@@ -40974,7 +40740,10 @@ input.cp-swatch-input::selection { background: transparent; }
   margin: 0;
   pointer-events: none;
 }
-/* Tall viewports: nudge the hero a touch lower to match the higher lift. */
+/* Keep hero clear of the raised composer on welcome — but only where there is
+   room. The max-height guards further down (28% / 22% / hidden) exist to stop
+   the hero colliding with the composer on short viewports, and this selector's
+   (1,2,0) specificity would beat all of them. */
 @media (min-height: 751px) {
   .chat-container.welcome-active #welcome-screen {
     top: 36%;
@@ -41124,18 +40893,16 @@ input.cp-swatch-input::selection { background: transparent; }
   background: var(--surface-3);
 }
 
-/* ── 5. Composer: black dialogue, boxed tools ──────────────────────────
- * Per request the chat dialogue is pure black: the composer sits on --bg
- * (the existing black token) with a 1px --border-subtle edge and its
- * --shadow-md lift, instead of the grey --elevated fill. The typing field
- * stays one uniform black surface (no inset well); the tool keys, mode
- * toggle and model pill keep their --border-control edges for affordance
- * but drop their grey wells for --bg. */
+/* ── 5. Composer: black card with no border line, pill picker, boxed tools ──
+ * The edge reads as a luminance step (surface-1 over the canvas), never as
+ * a grey hairline. */
 .chat-container .chat-input-bar {
-  max-width: 800px;
   background: var(--bg);
   border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+  padding: var(--space-2) var(--space-4);
+  max-width: 800px;
 }
 /* Screenshot shows one uniform field, not an inset well. */
 .chat-input-top {
@@ -41171,7 +40938,7 @@ input.cp-swatch-input::selection { background: transparent; }
   max-width: 220px;
   padding: 0 var(--space-2);
   font-size: var(--text-sm);
-  background: var(--bg);
+  background: var(--surface-1);
   border: 1px solid var(--border-control);
   border-radius: var(--radius-full);
   color: var(--fg-muted);
@@ -41188,12 +40955,12 @@ input.cp-swatch-input::selection { background: transparent; }
 .chat-input-left > .overflow-wrapper > .input-icon-btn {
   border: 1px solid var(--border-control);
   border-radius: var(--radius-sm);
-  background: var(--bg);
+  background: var(--surface-1);
   opacity: 0.85;
   box-shadow: var(--shadow-sm);
 }
 .mode-toggle {
-  background: var(--bg);
+  background: var(--surface-1);
   /* Same reason as the composer edge above — a segmented control's boundary is
      the affordance. */
   border: 1px solid var(--border-control);
@@ -41226,14 +40993,6 @@ input.cp-swatch-input::selection { background: transparent; }
   .sidebar {
     width: 240px;
   }
-  /* On a phone the content box IS the viewport, so there is no gutter left to
-     keep terrain in and the plate covers the transcript edge to edge — which
-     is the correct outcome, not a fallback: at 375px a 12% dissolve would be
-     45px wide, which is wide enough to push a message bubble off the plate and
-     back onto live contours, and that is the defect the plate exists to
-     remove. The terrain still reads on a phone in the two places there is
-     room for it: the top-bar band above the transcript, and the gap between
-     the transcript and the composer. */
   #welcome-screen .welcome-logo {
     width: min(360px, 80vw);
   }
@@ -41249,12 +41008,7 @@ input.cp-swatch-input::selection { background: transparent; }
     margin-bottom: var(--space-2);
   }
   .chat-top-bar .chat-meta-overlay {
-    max-width: calc(100vw - 120px);
-  }
-  /* On narrow phones the centered pill and the docked Nobody toggle share
-     one row — the toggle collapses to its eye icon so the two never meet. */
-  .chat-top-bar > .incognito-btn.chat-corner-btn .incognito-label {
-    display: none;
+    max-width: 92vw;
   }
 }
 /* Desktop only — the mobile .chat-top-bar rule above sets its own
@@ -41328,51 +41082,28 @@ input.cp-swatch-input::selection { background: transparent; }
   border: 1px solid var(--border-subtle);
 }
 
-/* ── 9. Response bubbles are pure black ──
- * Per request the chat is a black UI: both speakers sit on --bg (the
- * existing black token) instead of grey ladder steps, and the plate
- * behind the transcript is transparent so no black sheet covers the
- * topo-dark field. A 1px --border-subtle edge keeps each black bubble
- * readable against live contours — depth from the edge, not from a
- * grey fill.
- * test_response_bubbles_follow_black_theme pins both fills and the footer
- * hairline; the hairline is a border-top on a full-width block, not the old
- * width-constrained pseudo-element whose length tracked the content beside
- * it and drew a content-length underline instead of a rule. */
+/* ── 9. Response bubbles follow the black theme ──
+ * AI bubble drops its grey slab for var(--bg) with a micro edge; hover lifts
+ * the edge instead of flashing a grey fill. The user bubble's old fill mixed
+ * from undefined --accent-ink, which computed to transparent (bare text on
+ * the topo background) — it now gets an explicit --surface-1 fill plus edge.
+ * Footer meta gets a hairline + breathing room so metrics and icon buttons
+ * stop crowding the prose. */
 .msg-ai {
   background: var(--bg);
   border: 1px solid var(--border-subtle);
 }
 .msg-ai:hover {
   background: var(--bg);
-  border-color: var(--border-subtle);
+  border-color: var(--border);
 }
 .msg-user {
-  background: var(--bg);
+  background: var(--surface-1);
   border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-sm);
 }
 .msg-footer {
   border-top: 1px solid var(--border-subtle);
-  margin-top: var(--space-2);
   padding-top: var(--space-2);
-  /* .msg is a flex column with align-items: flex-start (flex-end on the user
-     side), so the footer was shrink-to-fit and its border-top drew a rule
-     only as wide as the content beside it — a content-length underline that
-     changed length from message to message, not a divider. Stretching it to
-     the bubble's measure makes it the full-width rule it was always meant to
-     be. align-self rather than width so it stays a sizing decision and does
-     not fight the existing width rules on the footer. */
-  align-self: stretch;
-}
-/* One separator vocabulary in the footer. The row mixed a spaced pipe
-   (` | ` from .metrics-divider) with a middot (` · ` from the image-metrics
-   label), so one line of meta could show both. The middot is the one the
-   type system already uses elsewhere, so the pipe becomes it. */
-.msg-footer .metrics-divider,
-.msg-footer .ctx-divider {
-  color: var(--fg-subtle);
-  opacity: 0.7;
 }
 .msg-footer .msg-actions {
   gap: var(--space-1);
@@ -41402,487 +41133,7 @@ input.cp-swatch-input::selection { background: transparent; }
  * mashed icon. The hamburger stays as the single toggle in every state;
  * the in-sidebar chevron is parked (it only proxied a click to the
  * hamburger anyway). The header box itself stays as top clearance so the
- * fixed button never covers sidebar content.
- * When the sidebar is open the dragon mark is present, so the fixed
- * three-line button steps aside and only returns once the sidebar is
- * hidden (to reopen it). :has is used so the open/closed state — not a
- * body class — owns the visibility. */
+ * fixed button never covers sidebar content. */
 #sidebar-toggle-btn {
   display: none !important;
-}
-body:has(#sidebar:not(.hidden)) .hamburger-btn {
-  display: none;
-}
-/* Legacy mobile menu button (three lines) is retired — the dragon tile
-   above is the only sidebar toggle in every state. */
-button#mobile-menu-btn {
-  display: none;
-}
-/* Nobody toggle docks top-right of the top bar, mirroring the
-   incognito indicator on the left — clear of the composer in every
-   state, and absolute so the centered session pill stays centered. */
-.chat-top-bar > .incognito-btn.chat-corner-btn {
-  position: absolute;
-  right: var(--space-3);
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 3;
-  margin: 0;
-}
-
-/* ============================================ */
-/* Iteration 1 — composition pass                */
-/* Fixes the four defects that made the app read */
-/* as a pile of surfaces rather than one piece   */
-/* of work. Tokens only; no new literals.         */
-/* ============================================ */
-
-/* ── 12. Make the mono/sans split exist at runtime ──
- * --font-ui is now pinned to the proportional sans (see the body rule), so
- * every element that does not declare its own family is chrome. This section
- * opts the CONTENT surfaces back into Fira Code, which is the half of the
- * split that has to be named explicitly: the transcript, code, logs, paths,
- * ids, hex, keycaps and every text field. Everything unnamed stays
- * proportional, which is why the whole app moved in one pass instead of
- * needing a selector per module.
- *
- * The rule inside a turn is the interesting one: a message is a document, so
- * its prose is monospaced — but the controls sitting on that document
- * (copy, regenerate, fork, the thinking-process disclosure) are chrome and
- * go back to the sans, or a transcript full of prose would be punctuated by
- * proportionally-spaced buttons and read as a mistake. */
-.chat-container > #chat-history,
-.msg-ai,
-.msg-user {
-  font-family: var(--font-content);
-}
-.msg-ai button,
-.msg-user button,
-.msg-actions,
-.msg-footer button,
-.thinking-toggle,
-.thinking-process,
-.msg-tools {
-  font-family: var(--font-ui);
-}
-/* Code, keycaps and raw values keep the mono — this is where the uniform
-   advance genuinely earns its place. */
-pre,
-code,
-kbd,
-samp,
-var,
-.hljs,
-.mono,
-.font-mono,
-.diff,
-[class*="diff-"],
-[class*="log-"],
-[class*="-log"],
-.syslog,
-.terminal {
-  font-family: var(--font-content);
-}
-/* Text fields follow the content face, per the token's own contract: the
-   composer is where a user writes code as often as prose, and the mono
-   advance keeps the caret position legible against variable-width text. */
-input,
-textarea,
-select {
-  font-family: var(--font-content);
-}
-/* Panel chrome that is not a descendant of the shell — modals, settings,
-   drawers. Explicit because a modal is a separate surface that must not
-   inherit whatever the chat column happened to resolve. */
-.modal-content,
-.modal-header,
-.modal-footer,
-.settings-nav-item,
-.dropdown,
-.dropdown-item,
-.overflow-menu,
-.model-picker-menu,
-.toast {
-  font-family: var(--font-ui);
-}
-.modal-content pre,
-.modal-content code,
-.modal-content textarea,
-.modal-content input {
-  font-family: var(--font-content);
-}
-
-/* ── 13. Sidebar: an open workspace must be readable as open ──
- * Hover and selected were the same state. `.list-item:hover` painted
- * `color-mix(--fg 7%)`, which lands on top of `--surface-3` — the fill the
- * OPEN workspace used — so a still frame could not tell you which of nine
- * workspaces you were in. That is an information-design failure on the
- * app's primary affordance, not a polish item.
- *
- * Hover is now a quiet lift: `--surface-2`, one rung below the open state,
- * and no accent anywhere. The open workspace is the only thing in the list
- * that carries accent ink, and it carries it as a left rule in the gutter
- * plus a `--surface-3` fill plus `--fg-strong` label ink. Three signals,
- * one of which is a hue, so the state survives both a still frame and a
- * greyscale print. The rule is inset so it costs no layout width. */
-#tools-section .list-item:hover,
-#sessions-section .list-item:hover {
-  background: var(--surface-2);
-}
-#tools-section .list-item.active,
-#tools-section .list-item[aria-current="page"],
-#sessions-section .list-item.active-session {
-  background: var(--surface-3);
-  color: var(--fg-strong);
-  position: relative;
-}
-/* The accent rule is a pseudo-element rather than an inset shadow.
-   test_tail_shadows_are_two_layer_tokens_or_none forbids any shadow in the
-   theme pass that is not a --shadow-* token, and an indicator painted
-   through the shadow property is borrowing the wrong channel for it anyway:
-   this is a mark in the gutter, not a drop, so it gets its own element and
-   costs no layout width. */
-#tools-section .list-item.active::before,
-#tools-section .list-item[aria-current="page"]::before,
-#sessions-section .list-item.active-session::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: var(--space-1);
-  bottom: var(--space-1);
-  width: 2px;
-  border-radius: var(--radius-full);
-  background: var(--accent-ink);
-}
-#tools-section .list-item.active svg,
-#tools-section .list-item[aria-current="page"] svg,
-#sessions-section .list-item.active-session svg {
-  color: var(--accent-ink);
-}
-/* The open row keeps its accent rule when hovered, or hovering would erase
-   the one cue that says which workspace is open. */
-#tools-section .list-item.active:hover,
-#tools-section .list-item[aria-current="page"]:hover,
-#sessions-section .list-item.active-session:hover {
-  background: var(--surface-3);
-}
-/* Focus is a third state, not a fourth: a visible ring on the row itself,
-   so keyboard users get the same affordance pointer users get from hover. */
-.sidebar .list-item:focus-visible {
-  outline: 2px solid var(--accent-ink);
-  outline-offset: -2px;
-}
-
-/* ── 14. The mark ──
- * The sidebar had no identity and no anchor: it opened on a bare hamburger
- * (which is parked, per §11) and then ~45% of its height was void.
- *
- * The mark is the dragon lifted out of the 780×210 login lockup
- * (static/icons/Zephyrus-Mark.png, cropped from Zephyrus-Logo.png so the two
- * can never drift). Scaled lockup first, at 22px, and it was an illegible
- * smudge — the whole dragon-plus-wordmark at 3.7:1 needs ~30px of height
- * before the lettering resolves, and the header has 48px. So the rail takes
- * the mark alone, on a raised tile.
- *
- * The tile is the point, not the padding: it is the only element in the rail
- * that owns a ladder step, so the eye starts there and the flat tool rows
- * below read as a list hanging off a known origin. Depth from the ladder, not
- * from a hairline — there is no border here. */
-.sidebar-brand {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--space-8);
-  height: var(--space-8);
-  flex: 0 0 auto;
-  margin: 0;
-  padding: 0;
-  background: var(--surface-2);
-  border: 0;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  cursor: pointer;
-  color: var(--fg);
-  transition: background var(--dur-fast) var(--ease-out),
-              box-shadow var(--dur-fast) var(--ease-out);
-}
-.sidebar-brand:hover {
-  background: var(--surface-3);
-  box-shadow: var(--shadow-md);
-}
-.sidebar-brand:active {
-  background: var(--surface-1);
-}
-.sidebar-brand:focus-visible {
-  outline: 2px solid var(--accent-ink);
-  outline-offset: var(--space-1);
-}
-.sidebar-brand .sidebar-logo {
-  display: block;
-  height: 20px;
-  width: auto;
-  object-fit: contain;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-
-/* ── 15. One window geometry ──
- * Nine workspaces, five widths, four centre axes, three title-bar heights
- * (Cookbook 17px, Compare 20px, Settings 63px). Nothing was on a grid, so
- * switching workspaces visibly re-laid-out the app. The width, the centring
- * and the title-bar height are now single tokens, and the four genuinely
- * data-dense surfaces opt into the wide measure explicitly. */
-.modal-content,
-.memory-modal-content,
-.tasks-modal-content,
-.preset-modal-content,
-.doclib-modal-content,
-.gallery-modal-content,
-.cal-modal-content,
-#cookbook-modal .modal-content {
-  width: var(--window-w);
-  max-width: var(--window-w);
-}
-/* The dense four. */
-#cookbook-modal .modal-content,
-.gallery-modal-content,
-#compare-modal .modal-content,
-#settings-modal .settings-modal-content {
-  width: var(--window-w-wide);
-  max-width: var(--window-w-wide);
-}
-/* One title-bar height for every window, so the chrome rhythm is a constant
-   of the app rather than a per-module value. The drag affordance stays. */
-.modal-header,
-.settings-modal-header,
-.doclib-modal-header,
-.gallery-modal-header,
-.tasks-modal-header {
-  min-height: var(--window-title-h);
-  align-items: center;
-}
-
-/* ── 16. Overlays dim what is behind them ──
- * Settings, Notes and every workspace window used to sit on the busy canvas
- * with no scrim, so the chat transcript and the topographic field ran at
- * full contrast right up to the panel edge — the panels did not read as
- * overlays at all. The command palette was the only surface that dimmed, and
- * it was the best-composed overlay in the app for exactly that reason. The
- * rule is extracted here so every overlay belongs to the same product as the
- * surface behind it. The blur is what sells it: it drops the terrain out of
- * focus behind the panel, which is the difference between "a window opened"
- * and "a rectangle appeared". */
-.modal,
-.modal-overlay,
-.search-overlay {
-  background: color-mix(in srgb, var(--bg) var(--shell-scrim), transparent);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-/* The panels sit above that dim on the black canvas itself, so a window
-   reads as one black surface with a 1px --border-subtle edge and its
-   --shadow-lg lift — no grey fills anywhere in Settings or the tools. */
-.modal-content,
-.memory-modal-content,
-.tasks-modal-content,
-.preset-modal-content,
-.doclib-modal-content,
-.gallery-modal-content,
-.cal-modal-content,
-#cookbook-modal .modal-content,
-#settings-modal .settings-modal-content {
-  background: var(--bg);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-lg);
-}
-/* Settings interior: layout columns and panels stay black too — only the
-   1px dividers and the active-nav wash separate them, never a grey fill. */
-#settings-modal .settings-layout,
-#settings-modal .settings-panels {
-  background: var(--bg);
-}
-
-/* ── 21. Black pass: Settings + tool surfaces ──
- * Every resting grey fill inside Settings and the tool windows drops to
- * --bg (the black token) with its 1px edge kept, so panels, cards, rows,
- * tab strips, menus and field wells read as one black surface. Transient
- * :hover fills are deliberately untouched — they are press feedback, not
- * background. Semantic fills (status dots, diffs, syntax, media) are out
- * of scope and keep their colours. */
-.memory-used-detail,
-.memory-suggestions-header,
-.memory-sort-menu,
-.memory-item-dropdown,
-.note-corner-menu-dropdown,
-.note-agent-menu,
-.preset-btn,
-.preset-btn.active,
-.preset-sub-option,
-.setup-wizard .setup-preset-btn,
-.admin-btn-sm,
-.admin-add-form input,
-.settings-input,
-.compare-probe-card,
-.compare-vote-btn,
-.gallery-tabs,
-.gallery-album-card,
-.gallery-album-menu-pop,
-.gallery-editor-template-select,
-.gallery-editor-drafts-loading,
-.gallery-detail,
-.gallery-detail-header,
-.gallery-detail-menu,
-.cookbook-card,
-.cookbook-dep-row,
-.cookbook-task-dropdown,
-.cookbook-edit-modal,
-.cookbook-gpu-popup,
-.cookbook-diag-action-trigger,
-.cookbook-diag-btn,
-.notes-quick-add,
-.notes-pane-footer,
-.notes-today-row,
-.task-log-row-body th,
-#custom-preset-modal .modal-body textarea,
-#custom-preset-modal .modal-body input[type="text"] {
-  background: var(--bg);
-}
-
-/* ── 18. Close the sidebar composition ──
- * The rail was a top edge, a list, and then ~270px of nothing before a user
- * bar that floated in it with no separation. That reads as an unfinished
- * panel rather than as deliberate negative space, because there was nothing
- * at the bottom of the rail holding the composition together.
- *
- * The rail now has three parts: the mark tile at the top (§14), the list,
- * and a base plate. The base is the first ladder step above the canvas and
- * is pinned to the bottom, so the empty middle becomes negative space
- * INSIDE a framed column — which is what an empty session list actually is
- * — instead of trailing off into the background. Depth comes from the
- * ladder; the edge above it is a divider, which is the one thing a border
- * is for. */
-.sidebar-user-bar {
-  background: var(--surface-1);
-  border-top: 1px solid var(--border-subtle);
-  padding: var(--space-2) var(--space-3);
-  min-height: 48px;
-}
-.user-bar-left {
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  transition: background var(--dur-fast) var(--ease-out);
-}
-.user-bar-left:hover {
-  background: var(--surface-3);
-}
-.user-bar-avatar {
-  width: var(--space-6);
-  height: var(--space-6);
-  background: var(--surface-3);
-  font-family: var(--font-ui);
-  color: var(--fg);
-  opacity: 1;
-}
-.user-bar-name {
-  font-family: var(--font-ui);
-  font-size: var(--text-base);
-  color: var(--fg);
-  opacity: 1;
-}
-.user-bar-btn {
-  color: var(--fg-muted);
-  opacity: 1;
-  padding: var(--space-1);
-  border-radius: var(--radius-sm);
-  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
-}
-.user-bar-btn:hover {
-  opacity: 1;
-  color: var(--fg);
-  background: var(--surface-3);
-}
-.user-bar-btn:focus-visible {
-  outline: 2px solid var(--accent-ink);
-  outline-offset: -2px;
-}
-
-/* ── 19. Motion gate for everything added above ──
- * The consolidated gate for the shell. Every transition introduced in this
- * iteration resolves here: the duration goes to zero and the end state is
- * kept, so the mark, the nav states, the window geometry, the overlay scrims
- * and the sidebar base are all identical for a reduced-motion user. */
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-brand,
-  .modal,
-  .modal-overlay,
-  .search-overlay,
-  .modal-content,
-  .sidebar .list-item,
-  .chat-container > #chat-history {
-    animation-duration: 0ms !important;
-    transition-duration: 0ms !important;
-  }
-}
-
-/* ── 20. Native selects join the system ──
- * Five workspaces still shipped an unstyled <select> (Gallery's "All
- * sources" / "Newest first", Library, Cookbook's "Standard" / "Local" /
- * "Eng…?", Compare's model picker, Settings' LLM pickers). They were the
- * last light-grey OS-chrome elements in a dark design system and they read
- * as breakage next to everything around them.
- *
- * The app already owns a custom picker (static/js/modelPicker.js) and a
- * `.dropdown` pattern, but those are per-module widgets; rewriting five
- * workspaces' markup to use them is a functional change, not a design one.
- * So this is the in-between move: `appearance: none` and the same tokens
- * every other control in the app uses — a `--surface-1` well, a
- * `--border-control` edge (it is a control boundary, so 1.4.11 applies, not
- * `--border`), `--radius-sm`, and the content-face numerals. It is the
- * existing widget, brought onto the system, not a parallel one.
- *
- * The chevron is two rotated half-squares rather than an inline SVG
- * background, on purpose: an SVG in url() cannot read a token for its
- * stroke, so it would have to hardcode a colour, and a hardcoded colour is
- * exactly what the design system forbids outside :root. Two linear-gradients
- * using var(--fg-muted) give the same caret with no literal anywhere. */
-select {
-  appearance: none;
-  -webkit-appearance: none;
-  background-color: var(--surface-1);
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%),
-    linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
-  background-position:
-    right var(--space-4) center,
-    right var(--space-3) center;
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-  color: var(--fg);
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-6) var(--space-1) var(--space-2);
-  /* A select shows a label, not typed content, so it is chrome even though
-     every text field is on the content face. Keeping it proportional is
-     what makes a row of three filters read as a toolbar. */
-  font-family: var(--font-ui);
-  font-size: var(--text-base);
-  line-height: 1.4;
-  cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease-out),
-              border-color var(--dur-fast) var(--ease-out);
-}
-select:hover {
-  background-color: var(--surface-2);
-  border-color: var(--fg-subtle);
-}
-select:focus-visible {
-  outline: 2px solid var(--accent-ink);
-  outline-offset: -2px;
-}
-/* The dark dropdown list itself. A native listbox paints OS chrome regardless
-   of the control's own background, so its colours have to be set too. */
-select option {
-  background-color: var(--surface-2);
-  color: var(--fg);
-  font-family: var(--font-ui);
 }

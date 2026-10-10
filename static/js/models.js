@@ -578,13 +578,22 @@ export async function refreshModels(force = false) {
       box.appendChild(noModels);
       // No endpoints yet: keep the welcome screen focused on first setup.
       const welcomeSub = document.getElementById('welcome-sub');
-      if (welcomeSub) welcomeSub.innerHTML = 'Type <span class="setup-trigger-link" style="color:var(--accent,var(--red));font-weight:600;cursor:pointer;text-decoration:underline;" title="Click to launch setup">/setup</span> to get started.';
+      if (welcomeSub) {
+        welcomeSub.innerHTML = 'Type <span class="setup-trigger-link" style="color:var(--accent,var(--red));font-weight:600;cursor:pointer;text-decoration:underline;" title="Click to launch setup">/setup</span> to get started.';
+        welcomeSub.classList.remove('is-ready-hint');
+      }
       const welcomeTip = document.getElementById('welcome-tip');
-      if (welcomeTip) welcomeTip.textContent = 'Type /setup, then choose Local models or API.';
+      if (welcomeTip) {
+        welcomeTip.textContent = 'Type /setup, then choose Local models or API.';
+        welcomeTip.classList.remove('is-ready-hint');
+      }
     } else {
       // Configured installs should feel ready, not stuck in onboarding.
       const welcomeSub = document.getElementById('welcome-sub');
-      if (welcomeSub) welcomeSub.textContent = 'Yours for the voyage.';
+      if (welcomeSub) {
+        welcomeSub.textContent = 'Yours for the voyage.';
+        welcomeSub.classList.add('is-ready-hint');
+      }
       const welcomeTip = document.getElementById('welcome-tip');
       if (welcomeTip) {
         const tips = window.innerWidth <= 768
@@ -602,6 +611,7 @@ export async function refreshModels(force = false) {
               'Tip: Right-click a session for rename, delete, and memory options.',
             ];
         welcomeTip.textContent = tips[Math.floor(Math.random() * tips.length)];
+        welcomeTip.classList.add('is-ready-hint');
       }
     }
   } catch (e) {

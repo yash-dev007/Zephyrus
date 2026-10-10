@@ -286,13 +286,23 @@ async function _syncWelcomeModelHint() {
   if (!tip && !sub) return;
   const hasModel = await _hasUsableChatModel();
   if (hasModel) {
-    if (sub && !sub.dataset.researchOrigText) sub.textContent = 'New chat ready.';
-    if (tip) tip.textContent = 'Pick a model if you want, or just type.';
+    if (sub && !sub.dataset.researchOrigText) {
+      sub.textContent = 'New chat ready.';
+      sub.classList.add('is-ready-hint');
+    }
+    if (tip) {
+      tip.textContent = 'Pick a model if you want, or just type.';
+      tip.classList.add('is-ready-hint');
+    }
   } else {
     if (sub && !sub.dataset.researchOrigText) {
       sub.innerHTML = 'Welcome, <span class="setup-trigger-link" style="color:var(--accent,var(--red));font-weight:600;cursor:pointer;text-decoration:underline;" title="Click to launch setup">type /setup</span> to get started.';
+      sub.classList.remove('is-ready-hint');
     }
-    if (tip) tip.textContent = 'Add an AI endpoint from Settings in the sidebar, or paste an endpoint/API key into the chat.';
+    if (tip) {
+      tip.textContent = 'Add an AI endpoint from Settings in the sidebar, or paste an endpoint/API key into the chat.';
+      tip.classList.remove('is-ready-hint');
+    }
   }
 }
 
@@ -3221,6 +3231,19 @@ function initializeEventListeners() {
       // callback — a setTimeout breaks the user-gesture chain.
       const _input = el('message-input');
       if (_input) { try { _input.focus(); } catch (_) {} }
+    });
+  }
+
+  // Logo click → toggle sidebar. The dragon mark (#sidebar-brand-btn) replaces
+  // the old three-line hamburger as the sidebar toggle: clicking it opens /
+  // closes the sidebar on exactly the same code path as the hamburger button.
+  // (New chats start from the "New Chat" row, same as every other affordance.)
+  const sidebarBrandBtn = el('sidebar-brand-btn');
+  if (sidebarBrandBtn) {
+    sidebarBrandBtn.addEventListener('click', (e) => {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      const hamburgerBtn = document.getElementById('hamburger-btn');
+      if (hamburgerBtn) hamburgerBtn.click();
     });
   }
 

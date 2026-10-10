@@ -69,20 +69,55 @@ def test_native_select_options_use_theme_tokens():
     assert "background-color: var(--select-option-active-bg);" in css
 
 
+# Monochrome ramp, luminance-matched to the values it replaced. Each grey is
+# the neutral with the same WCAG relative luminance as the old cool-tinted
+# token, so every measured contrast figure in the design specs still holds —
+# --fg 13.89:1 on --bg (was 13.93), --fg-subtle 4.61:1 on --elevated (was
+# 4.67), --border-control 3.07:1 on --elevated (was 3.10, WCAG 1.4.11 floor
+# 3.0). Only the hue moved: the old ramp sat at 204-210 deg / 5-27% sat, which
+# read as blue-grey against pure black. Pinned here so it cannot drift back.
+FG = "#d2d2d2"
+FG_MUTED = "#a3a3a3"
+FG_SUBTLE = "#939393"
+FG_STRONG = "#f1f1f1"
+BORDER = "#373737"
+BORDER_CONTROL = "#757575"
+ACCENT = "#f1f1f1"
+
+
 def test_ice_arctic_palette_is_the_only_root_definition():
     css = _style_text()
 
     root_block = _root_block(css)
 
-    # Ice / Arctic is baked into :root as the single static definition, so the
+    # The palette is baked into :root as the single static definition, so the
     # selects it feeds stay dark with no light override to opt out of.
     assert "--bg: #000000;" in root_block
-    assert "--fg: #c9d4dc;" in root_block
+    assert f"--fg: {FG};" in root_block
     assert "--panel: #141c23;" in root_block
     assert "--select-bg: var(--bg);" in root_block
     assert "--select-fg: var(--fg);" in root_block
     assert ":root.light" not in css
     assert ":root.light select" not in css
+
+
+def test_neutral_ramp_carries_no_blue_hue():
+    """The greys must be neutral, not cool-tinted.
+
+    The ramp this replaced ran 204-210 deg at 5-27% saturation, which on a
+    pure-black canvas reads as blue rather than grey — the reason the ref
+    monochrome look could not be reached by editing `--accent` alone.
+    """
+    import colorsys
+
+    css = _style_text()
+    root_block = _root_block(css)
+
+    for token in (FG, FG_MUTED, FG_SUBTLE, FG_STRONG, BORDER, BORDER_CONTROL, ACCENT):
+        assert token in root_block, f"{token} missing from :root"
+        r, g, b = (int(token[i : i + 2], 16) / 255 for i in (1, 3, 5))
+        hue, sat, _ = colorsys.rgb_to_hsv(r, g, b)
+        assert sat < 0.001, f"{token} is tinted: saturation {sat:.4f}"
 
 
 def test_status_tokens_never_collide_with_the_accent():
@@ -96,7 +131,7 @@ def test_status_tokens_never_collide_with_the_accent():
 
     root_block = _root_block(css)
 
-    assert "--accent: #7cc4f5;" in root_block
+    assert f"--accent: {ACCENT};" in root_block
     assert "--danger: #ff5f56;" in root_block
     assert "--success: #3ddc84;" in root_block
     assert "--warn: #fbbf24;" in root_block
@@ -117,11 +152,11 @@ def test_login_palette_matches_app_root():
     for token in (
         "--bg: #000000",
         "--panel: #141c23",
-        "--border: #2f3841",
-        "--fg: #c9d4dc",
-        "--fg-muted: #9aa5ad",
-        "--fg-subtle: #8b959c",
-        "--accent: #7cc4f5",
+        f"--border: {BORDER}",
+        f"--fg: {FG}",
+        f"--fg-muted: {FG_MUTED}",
+        f"--fg-subtle: {FG_SUBTLE}",
+        f"--accent: {ACCENT}",
         "--danger: #ff5f56",
     ):
         assert token in css_root, f"{token} missing from style.css :root"

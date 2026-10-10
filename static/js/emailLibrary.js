@@ -6193,7 +6193,7 @@ async function _openEmailWindow(em, folder) {
   modal.id = winId;
   modal.style.cssText = 'pointer-events:none;background:transparent;';
   modal.innerHTML = `
-    <div class="modal-content email-window-content" style="width:min(640px, 92vw);display:flex;flex-direction:column;background:var(--bg);">
+    <div class="modal-content email-window-content" style="width:var(--window-w);display:flex;flex-direction:column;background:var(--bg);">
       <div class="modal-header">
         <h4 style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
