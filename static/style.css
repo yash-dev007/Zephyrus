@@ -3717,13 +3717,24 @@ body.bg-pattern-perlin-flow {
     }
     .overflow-menu {
       position: fixed;
-      background: var(--surface-4);
+      /* Pure-black base per explicit user request (black-dialogue theme),
+         deliberately overriding the --surface-4 popover mapping. Separated
+         from the canvas by border + shadow, not by ladder step. */
+      background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 4px;
       min-width: 170px;
-      var(--shadow-md)
-      z-index: 1000;
+      /* Never wider than the viewport (375px safe) — mirrors the slash
+         popup cap so long labels can't push it off-screen. */
+      max-width: calc(100vw - var(--space-6));
+      box-sizing: border-box;
+      box-shadow: var(--shadow-md);
+      /* Above the composer (z-index 1) and its container-type trap — the
+         menu is portaled to <body> on open, so this applies viewport-wide
+         and the Workspace/Prompt list can never slide behind the chat box.
+         Stays below the 10000 modal/tour tier. */
+      z-index: 9500;
       /* Container spring-in: the rounded panel scales/grows out of the
          chevron's position before the menu items domino in on top. */
       transform-origin: bottom left;
@@ -40149,10 +40160,20 @@ input.cp-swatch-input::selection { background: transparent; }
 .slash-autocomplete-popup {
   position: fixed;
   z-index: 9000;
-  background: var(--surface-4), var(--bg));
+  /* Opaque --bg: the previous `var(--surface-4), var(--bg))` was invalid
+     (extra paren + comma), so the declaration was dropped and the map
+     showed through. Pure black per the composer-dialogue theme. */
+  background: var(--bg);
   border: 1px solid var(--border, rgba(255,255,255,0.08));
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: var(--shadow-md);
+  /* Keep the left-aligned popup inside the viewport on narrow screens —
+     JS caps width at 520px, this caps it at the viewport. The height cap
+     mirrors the JS one so the dialog never runs off-screen even before
+     (or without) the inline style is applied; JS refines it per side. */
+  max-width: calc(100vw - var(--space-6));
+  max-height: min(40vh, 320px);
+  box-sizing: border-box;
   font-size: var(--text-base);
   color: var(--fg, #e6e6e6);
   overflow-y: auto;
@@ -41754,15 +41775,15 @@ select {
  * panel rather than as deliberate negative space, because there was nothing
  * at the bottom of the rail holding the composition together.
  *
- * The rail now has three parts: the mark tile at the top (§14), the list,
- * and a base plate. The base is the first ladder step above the canvas and
- * is pinned to the bottom, so the empty middle becomes negative space
- * INSIDE a framed column — which is what an empty session list actually is
- * — instead of trailing off into the background. Depth comes from the
- * ladder; the edge above it is a divider, which is the one thing a border
- * is for. */
+  * The rail now has three parts: the mark tile at the top (§14), the list,
+  * and a base plate pinned to the bottom, so the empty middle becomes
+  * negative space INSIDE a framed column — which is what an empty session
+  * list actually is — instead of trailing off into the background. The base
+  * is pure black (var(--bg)) per explicit user request rather than the
+  * first ladder step, so the edge above it is a divider, which is the one
+  * thing a border is for. */
 .sidebar-user-bar {
-  background: var(--surface-1);
+  background: var(--bg);
   border-top: 1px solid var(--border-subtle);
   padding: var(--space-2) var(--space-3);
   min-height: 48px;

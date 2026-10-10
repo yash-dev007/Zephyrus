@@ -5,7 +5,10 @@
 import { COMMANDS, LEGACY_ALIASES } from './slashCommands.js';
 
 const POPUP_ID = 'slash-autocomplete';
-const MAX_VISIBLE = 14;
+// Short enough to fit above the composer on a 700px-tall viewport without
+// scrolling the page: 8 rows + headers ≈ 300px, and _position caps by real
+// room anyway.
+const MAX_VISIBLE = 8;
 
 // Flatten the registry into a searchable list of leaf entries. Each entry is
 // either a top-level command or a "cmd sub" pair (so subcommands get their
@@ -140,15 +143,24 @@ function _ensurePopup(textarea) {
 
 function _position(popup, textarea) {
   const r = textarea.getBoundingClientRect();
-  const maxH = Math.min(window.innerHeight * 0.5, 360);
-  popup.style.maxHeight = maxH + 'px';
-  // Anchor above the textarea, left-aligned with it
-  popup.style.left = Math.round(r.left) + 'px';
-  popup.style.width = Math.max(280, Math.round(Math.min(r.width, 520))) + 'px';
-  // Place above when there's enough room, otherwise below.
+  const vh = window.innerHeight || document.documentElement.clientHeight;
+  const vw = window.innerWidth || document.documentElement.clientWidth;
+  // Prefer above — the composer sits at the bottom — but only when at least
+  // a few rows fit; otherwise drop below. Either way the height is capped
+  // by the REAL room on that side (minus edge clearance + anchor gap), so
+  // the dialog can never run off-screen on short viewports.
   const aboveSpace = r.top;
-  if (aboveSpace > maxH + 20) {
-    popup.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+  const belowSpace = vh - r.bottom;
+  const placeAbove = aboveSpace >= 200 || aboveSpace > belowSpace;
+  const avail = (placeAbove ? aboveSpace : belowSpace) - 18;
+  const maxH = Math.max(160, Math.min(vh * 0.4, 320, avail));
+  popup.style.maxHeight = maxH + 'px';
+  // Width follows the composer but stays inside the viewport (375px safe).
+  const w = Math.min(Math.max(280, Math.round(Math.min(r.width, 520))), vw - 24);
+  popup.style.width = w + 'px';
+  popup.style.left = Math.max(12, Math.min(Math.round(r.left), vw - w - 12)) + 'px';
+  if (placeAbove) {
+    popup.style.bottom = (vh - r.top + 6) + 'px';
     popup.style.top = '';
   } else {
     popup.style.top = (r.bottom + 6) + 'px';

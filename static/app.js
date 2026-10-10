@@ -1993,24 +1993,30 @@ function initializeEventListeners() {
     const ownerWrap = menu.parentElement;
     const pickerWrap = el('model-picker-wrap');
     let _vvReposition = null;
-    // Pin the menu's bottom 8px above the chevron (viewport-relative, since it's
-    // portaled to <body>). Only cap height + show a scrollbar when the list is
-    // genuinely taller than the room above the button.
+    // Pin the menu directly above the ^ / search / terminal trio: left edge
+    // flush with the chevron (first button), bottom 8px above the button
+    // row's top (viewport-relative, since it's portaled to <body>). The
+    // panel is wider than the trio, so left-flush reads as sitting above
+    // all three buttons. Anchoring by `bottom` instead of computing `top`
+    // from a measured height keeps it glued to the buttons whatever the
+    // menu height is. Only cap height + show a scrollbar when the list is
+    // genuinely taller than the room above the buttons.
     function positionMenu() {
       const r = plusBtn.getBoundingClientRect();
-      menu.style.left = r.left + 'px';
+      const vw = window.innerWidth || document.documentElement.clientWidth;
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      const w = menu.offsetWidth || 220;
+      menu.style.left = Math.max(12, Math.min(Math.round(r.left), vw - w - 12)) + 'px';
       menu.style.right = 'auto';
-      menu.style.bottom = 'auto';
+      menu.style.top = 'auto';
+      menu.style.bottom = (vh - r.top + 8) + 'px';
       menu.style.maxHeight = '';      // reset so we can measure the natural height
       menu.style.overflowY = '';
-      const avail = r.top - 16;        // room above the chevron
-      const natural = menu.scrollHeight;
-      const h = Math.min(natural, avail);
-      if (natural > avail) {           // only cap + scroll when it doesn't fit
-        menu.style.maxHeight = avail + 'px';
+      const avail = r.top - 16;        // room above the buttons
+      if (menu.scrollHeight > avail) { // only cap + scroll when it doesn't fit
+        menu.style.maxHeight = Math.max(160, avail) + 'px';
         menu.style.overflowY = 'auto';
       }
-      menu.style.top = (r.top - 8 - h) + 'px';
     }
     // Tapping the chevron must NOT steal focus from the message box, or the
     // mobile keyboard collapses. preventDefault on pointerdown keeps the
