@@ -381,6 +381,114 @@ export function createWhirlpool(size = 24) {
 }
 
 /**
+ * Chip-trace loader for block-level loading states (library grids, panels,
+ * page-level waits). Adapted from Uiverse.io by Vosoone: circuit traces
+ * pulse inward toward the Zephyrus mark, with an optional status line fed
+ * by the caller's message. Animation is pure CSS (see .zeph-chip-loader),
+ * so there is no rAF loop to clean up — callers can just replace the
+ * element with results.
+ */
+const CHIP_TRACES = [
+  'M100 100 H200 V210 H326',
+  'M80 180 H180 V230 H326',
+  'M60 260 H150 V250 H326',
+  'M100 350 H200 V270 H326',
+  'M700 90 H560 V210 H474',
+  'M740 160 H580 V230 H474',
+  'M720 250 H590 V250 H474',
+  'M680 340 H570 V270 H474',
+];
+const CHIP_DOTS = [
+  [100, 100], [80, 180], [60, 260], [100, 350],
+  [700, 90], [740, 160], [720, 250], [680, 340],
+];
+
+class ChipLoader {
+  constructor(message = '') {
+    this.message = message;
+    this.isRunning = false;
+    this.element = null;
+    this._statusEl = null;
+  }
+
+  createElement() {
+    const wrap = document.createElement('div');
+    wrap.className = 'zeph-chip-loader';
+    wrap.setAttribute('role', 'status');
+    wrap.setAttribute('aria-label', this.message || 'Loading');
+    const traces = CHIP_TRACES.map(d =>
+      `<path d="${d}" class="zeph-chip-trace-bg"></path>` +
+      `<path d="${d}" class="zeph-chip-trace-flow"></path>`
+    ).join('');
+    const dots = CHIP_DOTS.map(([cx, cy]) =>
+      `<circle cx="${cx}" cy="${cy}" r="5" class="zeph-chip-dot"></circle>`
+    ).join('');
+    wrap.innerHTML =
+      `<svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">` +
+      `<g>${traces}</g>` +
+      `<image href="/static/icons/Zephyrus-Mark.png" x="350" y="185" width="100" height="110"></image>` +
+      `<g>${dots}</g>` +
+      `</svg>` +
+      `<div class="zeph-chip-status"></div>`;
+    this._statusEl = wrap.querySelector('.zeph-chip-status');
+    this._statusEl.textContent = this.message;
+    this.element = wrap;
+    return wrap;
+  }
+
+  start() {
+    this.isRunning = true;
+    if (this.element) {
+      this.element.style.animationPlayState = 'running';
+      this.element.querySelectorAll('*').forEach((el) => { el.style.animationPlayState = 'running'; });
+    }
+  }
+
+  stop() {
+    this.isRunning = false;
+    if (this.element) {
+      this.element.style.animationPlayState = 'paused';
+      this.element.querySelectorAll('*').forEach((el) => { el.style.animationPlayState = 'paused'; });
+    }
+  }
+
+  updateMessage(newMessage) {
+    this.message = newMessage;
+    if (this._statusEl) this._statusEl.textContent = newMessage;
+  }
+
+  updateLabel(newMessage) {
+    this.updateMessage(newMessage);
+  }
+
+  destroy() {
+    this.stop();
+    if (this.element && this.element.parentNode) {
+      this.element.parentNode.removeChild(this.element);
+    }
+    this.element = null;
+    this._statusEl = null;
+  }
+}
+
+/**
+ * Create a chip-trace loader. Returns { element, start(), stop(),
+ * destroy(), updateMessage() } mirroring the Spinner interface.
+ */
+export function createChipLoader(message = '') {
+  const loader = new ChipLoader(message);
+  const element = loader.createElement();
+  loader.start();
+  return {
+    element,
+    stop: () => loader.stop(),
+    destroy: () => loader.destroy(),
+    updateMessage: (m) => loader.updateMessage(m),
+    updateLabel: (m) => loader.updateLabel(m),
+  };
+}
+
+/**
  * A consistent inline loading row for list/library empty-states: a label plus
  * the whirlpool spinner. Returns a detached element; the spinner self-stops
  * once the element leaves the DOM (see _drawWhirlpool), so callers can just
@@ -400,7 +508,7 @@ export function createLoadingRow(text = 'Loading…', size = 16) {
   return row;
 }
 
-export { Spinner };
+export { Spinner, ChipLoader };
 
-const spinnerModule = { create, createWhirlpool, createLoadingRow, Spinner };
+const spinnerModule = { create, createWhirlpool, createLoadingRow, createChipLoader, Spinner, ChipLoader };
 export default spinnerModule;

@@ -27,7 +27,7 @@ End-users cloning the repo will land on `dev` by default. To run the curated/sta
 Docker is the recommended path for normal testing:
 
 ```bash
-git clone https://github.com/pewdiepie-archdaemon/zephyrus.git
+git clone https://github.com/yash-dev007/zephyrus.git
 cd zephyrus
 cp .env.example .env
 docker compose up -d --build

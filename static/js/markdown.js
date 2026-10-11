@@ -584,6 +584,10 @@ export function mdToHtml(src, opts) {
     return linkHtml(text, url);
   });
 
+  // GFM angle autolinks <https://...> — strip the brackets, otherwise the
+  // bare-URL pass below leaves visible &lt; &gt; around the link.
+  s = s.replace(/<(https?:\/\/[^<>\s]+)>/g, (match, url) => linkHtml(url, url));
+
   // Autolink bare URLs (http/https). Skips URLs already inside <a> tags
   // (placed by markdown link replacement above) and URLs in backticks.
   s = s.replace(
@@ -616,9 +620,10 @@ export function mdToHtml(src, opts) {
     return placeholder;
   });
 
-  // ALSO preserve <a>/<img> tags the same way (they're now in the HTML from
-  // markdown conversion)
-  s = s.replace(/<(?:a\s+[^>]*>.*?<\/a|img\s+[^>]*?)>/gi, (match) => {
+  // ALSO preserve <a>/<img>/<br> tags the same way (they're now in the HTML
+  // from markdown conversion, plus <br> the model emits for line breaks inside
+  // table cells — without this the escape pass below renders them literally).
+  s = s.replace(/<(?:a\s+[^>]*>.*?<\/a|img\s+[^>]*?|br\s*\/?)>/gi, (match) => {
     const placeholder = `___ALLOWED_HTML_${allowedHtmlBlocks.length}___`;
     allowedHtmlBlocks.push(sanitizeAllowedHtml(match));
     return placeholder;
@@ -675,9 +680,12 @@ export function mdToHtml(src, opts) {
     });
   }
 
-  // Handle pipe tables
+  // Handle pipe tables. Link (<a>) and inline-code placeholders contain no
+  // pipes so they are safe to split — bailing on them (the old behaviour)
+  // left every table with a URL as raw markdown. Only fenced-code/mermaid/math
+  // placeholders bail, since those must never be parsed as tables.
   s = s.replace(/(?:^|\n)([^\n]*\|[^\n]*\|[^\n]*)(?:\n([^\n]*\|[^\n]*\|[^\n]*))*/g, (table) => {
-    if (table.includes('___CODE_BLOCK_') || table.includes('___ALLOWED_HTML_')) return table;
+    if (table.includes('___CODE_BLOCK_') || table.includes('___MERMAID_BLOCK_') || table.includes('___MATH_BLOCK_')) return table;
 
     const rows = table.trim().split('\n');
     if (rows.length < 2) return table;

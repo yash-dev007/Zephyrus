@@ -295,7 +295,7 @@ def build_headers(api_key: Optional[str], base: str) -> Dict[str, str]:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     if provider == "openrouter":
-        headers.setdefault("HTTP-Referer", "https://github.com/pewdiepie-archdaemon/zephyrus")
+        headers.setdefault("HTTP-Referer", "https://github.com/yash-dev007/zephyrus")
         headers.setdefault("X-OpenRouter-Title", "Zephyrus")
     if _is_kimi_code_url(base):
         headers.setdefault("User-Agent", KIMI_CODE_USER_AGENT)

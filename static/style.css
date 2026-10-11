@@ -493,43 +493,13 @@ html {
 :root.density-compact .list-item { padding: 4px 8px; }
 :root.density-compact .list-item span { font-size: 0.92rem; }  /* ~12px @ 13px root */
 :root.density-compact .sidebar .section { padding: 0; }
-:root.density-spacious { font-size: 16px; }
-:root.density-spacious .msg { padding: 14px 18px; margin-bottom: 12px; }
-:root.density-spacious .list-item { padding: 8px 12px; }
-:root.density-spacious .list-item span { font-size: 0.94rem; }  /* 15px @ 16px root */
-:root.density-spacious .sidebar .section { padding: 0; }
-
-/* ── UI text-size scale (accessibility) ──
-   Density only changes the root font-size, which can't move the many
-   hard-coded px sizes. `zoom` scales the whole UI uniformly (px text
-   included) while keeping layout intact, unlike `transform: scale`. */
-:root.ui-scale-125 { zoom: 1.25; }
-/* `zoom` makes the 100dvh shell render taller than the real viewport, which
-   pushes the bottom-pinned sidebar account/settings row below the fold (and
-   body's overflow:hidden then clips it). Shrink the shell by the same factor
-   so it fits the viewport exactly. */
-:root.ui-scale-125 body { height: calc(100dvh / 1.25); }
-/* Modals/panels under the 1.25x scale: zoom renders a centred, viewport-sized
-   panel ~1.25x taller, pushing its draggable header + close button off-screen
-   (a catch-22 — you can't reach the control to turn the size back down). Divide
-   each max-height by the same factor to keep the original on-screen footprint.
-   Desktop only — the mobile `!important` full-sheet rules win on small screens
-   and stay top-anchored, so their headers are already visible. */
-:root.ui-scale-125 .modal-content          { max-height: calc(85dvh / 1.25); }
-:root.ui-scale-125 .cal-modal-content      { max-height: calc(88dvh / 1.25); }
-:root.ui-scale-125 .settings-modal-content { max-height: calc(85dvh / 1.25); }
-/* Cookbook is the one modal that set its height inline (94vh), which beat the
-   .modal-content compensation above and overflowed the viewport at 1.25x
-   (header + close button pushed off-screen). Own its height here so the same
-   zoom compensation applies. */
+/* Cookbook is the one modal that set its height inline (94vh). Own its
+   height here so it stays exactly 94vh. */
 #cookbook-modal .modal-content             { height: 94vh; max-height: 94vh; }
-:root.ui-scale-125 #cookbook-modal .modal-content { height: calc(94dvh / 1.25); max-height: calc(94dvh / 1.25); }
 /* PDF export modal also set its height inline (86vh) at v1.0; that inline cap
-   beat the .modal-content compensation above and shifted ~1vh at Default when
-   removed. Own its height here so Default is byte-for-byte 86vh and the same
-   1.25x compensation applies. */
+   shifted ~1vh when removed. Own its height here so it stays byte-for-byte
+   86vh. */
 .pdf-export-overlay .modal-content { max-height: 86vh; }
-:root.ui-scale-125 .pdf-export-overlay .modal-content { max-height: calc(86dvh / 1.25); }
 
 /* ── Background Patterns ── */
 
@@ -2380,7 +2350,7 @@ body.bg-pattern-perlin-flow {
       transition: margin var(--dur-slow) var(--ease-out), max-width var(--dur-slow) var(--ease-out);
     }
     .chat-container.welcome-active .chat-input-bar {
-      margin-bottom:22vh;
+      margin-bottom:26vh;
       margin-left:auto;
       margin-right:auto;
       max-width: 800px;
@@ -2389,9 +2359,9 @@ body.bg-pattern-perlin-flow {
     /* Hero sits just above the raised composer: fixed top % keeps the
        mark and tagline on screen on every height (bottom-anchoring
        proved fragile against the -50% centering shift), while the
-       composer's 22vh lift leaves one clear gap to the tagline. */
+       composer's 26vh lift leaves one clear gap to the tagline. */
     .chat-container.welcome-active #welcome-screen {
-      top: 34%;
+      top: 40%;
       bottom: auto;
     }
     /* On shorter viewports the stack still collides — collapse the tip with
@@ -9230,12 +9200,6 @@ button.hamburger {
 
 /* Hide thinking sections globally via settings toggle */
 body.hide-thinking .thinking-section { display: none !important; }
-
-/* Widen chat area via settings toggle */
-body.fullwidth-chat .chat-history {
-  padding-left: 0 !important;
-  padding-right: 12px !important;
-}
 
 /* Thinking process styles — colors follow theme accent */
 .msg .body .stream-content {
@@ -17897,7 +17861,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   font-style: italic;
 }
 /* Unified loading row across every Library tab (Chats / Documents / Research /
-   Archive): one opacity, one size, with the whirlpool spinner next to it. */
+   Archive): one opacity, one size, hosting the chip-trace loader scene. */
 .lib-loading-row {
   display: flex;
   align-items: center;
@@ -17906,6 +17870,60 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   padding: 28px 16px;
   font-size: var(--text-sm);
   color: var(--fg-subtle);
+}
+/* ── Chip-trace loader (block-level loading states) ──
+   Adapted from Uiverse.io by Vosoone: circuit traces pulse inward toward
+   the Zephyrus mark. Monochrome theme mapping — near-white pulse on a
+   dim track, no blue — so it sits natively on the black canvas. */
+.zeph-chip-loader {
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+}
+.zeph-chip-loader svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.zeph-chip-trace-bg {
+  stroke: var(--border);
+  stroke-width: 1.8;
+  fill: none;
+}
+.zeph-chip-trace-flow {
+  stroke: var(--fg);
+  color: var(--fg);
+  stroke-width: 1.8;
+  fill: none;
+  stroke-dasharray: 40 400;
+  stroke-dashoffset: 438;
+  filter: drop-shadow(0 0 6px currentColor);
+  animation: zeph-chip-flow 3s cubic-bezier(0.5, 0, 0.9, 1) infinite;
+}
+.zeph-chip-dot {
+  fill: var(--fg);
+}
+.zeph-chip-status {
+  text-align: center;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+  font-family: var(--font-ui);
+  margin-top: var(--space-2);
+  min-height: 1.4em;
+}
+.zeph-chip-status:empty {
+  display: none;
+}
+@keyframes zeph-chip-flow {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .zeph-chip-trace-flow {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
 }
 .doclib-load-more {
   display: block;
@@ -40866,11 +40884,15 @@ input.cp-swatch-input::selection { background: transparent; }
 .chat-container > .attach-strip,
 .chat-container > .chat-input-bar {
   position: relative;
-  z-index: 1;
+  z-index: 3;
 }
-/* Welcome sits above the composer so the Nobody toggle never slides
-   behind the input bar — the container is pointer-events:none so only
-   the button itself intercepts clicks. */
+/* The composer sits above the welcome hero: the model-picker menu
+   (z-index:250) is trapped inside the input bar's stacking context
+   (container-type: inline-size), so it could never paint above a
+   higher-z welcome — the logo rendered over the open menu. The Nobody
+   toggle lives near the top bar, far from the composer, so nothing
+   clickable is buried by this order. The container stays
+   pointer-events:none so only the button itself intercepts clicks. */
 .chat-container > #welcome-screen {
   position: relative;
   z-index: 2;
@@ -40998,7 +41020,7 @@ input.cp-swatch-input::selection { background: transparent; }
 /* Tall viewports: nudge the hero a touch lower to match the higher lift. */
 @media (min-height: 751px) {
   .chat-container.welcome-active #welcome-screen {
-    top: 36%;
+    top: 42%;
   }
 }
 

@@ -1832,9 +1832,11 @@ const _APPEARANCE_FONT_MAP = {
   serif: "Georgia, 'Times New Roman', serif",
   opendyslexic: "'OpenDyslexic', sans-serif",
 };
-const _APPEARANCE_DEFAULTS = { font: 'mono', density: 'comfortable', uiScale: '100' };
-const _APPEARANCE_DENSITIES = ['compact', 'comfortable', 'spacious'];
-const _APPEARANCE_UI_SCALES = ['100', '125'];
+const _APPEARANCE_DEFAULTS = { font: 'mono', density: 'compact', uiScale: '100' };
+// Density and text size are fixed (compact / Default) — the Appearance
+// options were removed, so these are constants, not user choices.
+const _APPEARANCE_DENSITY = 'compact';
+const _APPEARANCE_UI_SCALE = '100';
 
 // Discovered custom font families: { "Family Name": [ {file, url, format} ] }
 let _appearanceCustomFonts = {};
@@ -1854,9 +1856,8 @@ function _injectCustomFontFace(family, variants) {
   _appearanceInjectedFonts.add(family);
 }
 
-function _applyAppearanceFontDensity(font, density) {
+function _applyAppearanceFontDensity(font) {
   const f = font || _APPEARANCE_DEFAULTS.font;
-  const d = density || _APPEARANCE_DEFAULTS.density;
   let family = _APPEARANCE_FONT_MAP[f];
   if (!family && _appearanceCustomFonts[f]) {
     _injectCustomFontFace(f, _appearanceCustomFonts[f]);
@@ -1864,27 +1865,27 @@ function _applyAppearanceFontDensity(font, density) {
   }
   if (!family) family = _APPEARANCE_FONT_MAP[_APPEARANCE_DEFAULTS.font];
   document.documentElement.style.setProperty('--font-family', family);
-  document.documentElement.classList.remove('density-compact', 'density-spacious');
-  if (d !== 'comfortable') document.documentElement.classList.add('density-' + d);
+  // Density is fixed to compact — always on, stale spacious never applied.
+  document.documentElement.classList.remove('density-spacious');
+  document.documentElement.classList.add('density-compact');
 }
 
-function _applyAppearanceUiScale(scale) {
-  const s = scale || _APPEARANCE_DEFAULTS.uiScale;
-  // Legacy 110/140 classes are removed too, so a value stored by an older
-  // build can't leave a stale zoom applied after switching back to Default.
+function _applyAppearanceUiScale() {
+  // Text size is fixed to Default (100) — strip any zoom class stored by an
+  // older build and never add one.
   document.documentElement.classList.remove('ui-scale-110', 'ui-scale-125', 'ui-scale-140');
-  if (s === '125') document.documentElement.classList.add('ui-scale-125');
 }
 
 function _applyAppearance() {
-  _applyAppearanceFontDensity(_appearanceState.font, _appearanceState.density);
-  _applyAppearanceUiScale(_appearanceState.uiScale);
+  _applyAppearanceFontDensity(_appearanceState.font);
+  _applyAppearanceUiScale();
 }
 
-// One-time. Font and density used to live inside the single `zephyrus-theme`
-// blob, which is gone with the theme system. Copy whatever the user had picked
-// into the new per-setting keys before dropping the blob, so nobody silently
-// loses their choice on upgrade.
+// One-time. Font used to live inside the single `zephyrus-theme` blob,
+// which is gone with the theme system. Copy whatever the user had picked
+// into the new per-setting key before dropping the blob, so nobody silently
+// loses their choice on upgrade. (Density is fixed to compact now, so the
+// legacy density value is intentionally discarded, not migrated.)
 function _migrateLegacyThemePrefs() {
   try {
     const raw = localStorage.getItem('zephyrus-theme');
@@ -1895,9 +1896,6 @@ function _migrateLegacyThemePrefs() {
         if (legacy.font && localStorage.getItem(KEYS.FONT) === null) {
           localStorage.setItem(KEYS.FONT, legacy.font);
         }
-        if (legacy.density && localStorage.getItem(KEYS.DENSITY) === null) {
-          localStorage.setItem(KEYS.DENSITY, legacy.density);
-        }
       }
     }
   } catch (e) {
@@ -1907,10 +1905,14 @@ function _migrateLegacyThemePrefs() {
 }
 
 function _readLocalAppearancePrefs() {
+  // Density / text size are fixed: apply the fixed outcome (compact / 100)
+  // in-memory only. Stored density/scale values (comfortable/spacious/125
+  // from older builds) are never overwritten here, so a future large-text
+  // path can still reuse them.
   return {
     font: Storage.get(KEYS.FONT, _APPEARANCE_DEFAULTS.font),
-    density: Storage.get(KEYS.DENSITY, _APPEARANCE_DEFAULTS.density),
-    uiScale: Storage.get(KEYS.UI_SCALE, _APPEARANCE_DEFAULTS.uiScale),
+    density: _APPEARANCE_DENSITY,
+    uiScale: _APPEARANCE_UI_SCALE,
   };
 }
 
@@ -1926,9 +1928,10 @@ async function _loadAppearancePrefsFromServer() {
 }
 
 function _persistAppearance() {
+  // Density / text size are fixed: persist the font only. Stored
+  // density/scale values (local keys and the server blob) are never
+  // overwritten here, so spacious/125 choices survive a font change.
   Storage.set(KEYS.FONT, _appearanceState.font);
-  Storage.set(KEYS.DENSITY, _appearanceState.density);
-  Storage.set(KEYS.UI_SCALE, _appearanceState.uiScale);
   try {
     fetch('/api/prefs/' + _APPEARANCE_PREFS_KEY, {
       method: 'PUT',
@@ -1936,8 +1939,6 @@ function _persistAppearance() {
       credentials: 'same-origin',
       body: JSON.stringify({ value: {
         font: _appearanceState.font,
-        density: _appearanceState.density,
-        uiScale: _appearanceState.uiScale,
       } }),
     }).catch(e => console.warn('Appearance prefs sync failed:', e));
   } catch (e) {
@@ -1947,11 +1948,7 @@ function _persistAppearance() {
 
 function _syncAppearanceSelects() {
   const fontSelect = el('appearance-font-select');
-  const densitySelect = el('appearance-density-select');
-  const scaleSelect = el('appearance-text-size-select');
   if (fontSelect) fontSelect.value = _appearanceState.font;
-  if (densitySelect) densitySelect.value = _appearanceState.density;
-  if (scaleSelect) scaleSelect.value = _appearanceState.uiScale;
 }
 
 function _populateCustomFontOptions(fontSelect) {
@@ -1978,8 +1975,6 @@ function _populateCustomFontOptions(fontSelect) {
 
 async function initTextLayout() {
   const fontSelect = el('appearance-font-select');
-  const densitySelect = el('appearance-density-select');
-  const scaleSelect = el('appearance-text-size-select');
 
   // The state half has to run at load, not just when the Settings modal
   // opens: the pre-paint head script in index.html reads only localStorage, so
@@ -1996,42 +1991,38 @@ async function initTextLayout() {
     const local = _readLocalAppearancePrefs();
     const server = await _loadAppearancePrefsFromServer();
     const merged = Object.assign({}, local, server || {});
+    // Only a stored font value naming no known family is repaired; a
+    // missing font just falls back to the default with no write-back.
+    const needsFontMigrate = merged.font != null && !_APPEARANCE_FONT_MAP[merged.font] && !_appearanceCustomFonts[merged.font];
     if (!_APPEARANCE_FONT_MAP[merged.font] && !_appearanceCustomFonts[merged.font]) {
       merged.font = _APPEARANCE_DEFAULTS.font;
     }
-    if (_APPEARANCE_DENSITIES.indexOf(merged.density) === -1) {
-      merged.density = _APPEARANCE_DEFAULTS.density;
-    }
-    if (_APPEARANCE_UI_SCALES.indexOf(String(merged.uiScale)) === -1) {
-      merged.uiScale = _APPEARANCE_DEFAULTS.uiScale;
-    }
-    _appearanceState = { font: merged.font, density: merged.density, uiScale: String(merged.uiScale) };
+    // Density / text size are fixed (compact / Default) — applied in-memory
+    // only. A server blob from an older build may still carry other values;
+    // those stored values are intentionally left untouched (never normalized
+    // locally or on the server) so spacious/125 choices survive for a future
+    // large-text path.
+    _appearanceState = { font: merged.font, density: _APPEARANCE_DENSITY, uiScale: _APPEARANCE_UI_SCALE };
 
     _applyAppearance();
+    // Persist only when the font itself needed repair — density/scale drift
+    // alone never triggers a server write-back.
+    if (needsFontMigrate) _persistAppearance();
   }
 
-  // The wiring half needs the selects, so it waits for the modal markup. It
+  // The wiring half needs the select, so it waits for the modal markup. It
   // runs once per initTextLayout call and the boot call plus initAll() both
-  // reach here, so the bindings are marked to avoid a double persist.
-  if (!fontSelect || !densitySelect || !scaleSelect) return;
+  // reach here, so the binding is marked to avoid a double persist.
+  if (!fontSelect) return;
   _syncAppearanceSelects();
 
-  const update = (key, value) => {
-    _appearanceState[key] = value;
-    _applyAppearance();
-    _persistAppearance();
-  };
   if (fontSelect.dataset.bound !== '1') {
     fontSelect.dataset.bound = '1';
-    fontSelect.addEventListener('change', () => update('font', fontSelect.value));
-  }
-  if (densitySelect.dataset.bound !== '1') {
-    densitySelect.dataset.bound = '1';
-    densitySelect.addEventListener('change', () => update('density', densitySelect.value));
-  }
-  if (scaleSelect.dataset.bound !== '1') {
-    scaleSelect.dataset.bound = '1';
-    scaleSelect.addEventListener('change', () => update('uiScale', scaleSelect.value));
+    fontSelect.addEventListener('change', () => {
+      _appearanceState.font = fontSelect.value;
+      _applyAppearance();
+      _persistAppearance();
+    });
   }
 
   const bgToggle = el('appearance-bg-effect-toggle');
@@ -2044,17 +2035,6 @@ async function initTextLayout() {
       try { localStorage.setItem(KEYS.BG_EFFECT, bgToggle.checked ? '1' : '0'); } catch (e) {}
       if (bgToggle.checked) bgEffect.startBackgroundEffect();
       else bgEffect.stopBackgroundEffect();
-    });
-  }
-
-  const resetBtn = el('appearance-text-layout-reset');
-  if (resetBtn && resetBtn.dataset.bound !== '1') {
-    resetBtn.dataset.bound = '1';
-    resetBtn.addEventListener('click', () => {
-      _appearanceState = Object.assign({}, _APPEARANCE_DEFAULTS);
-      _applyAppearance();
-      _syncAppearanceSelects();
-      _persistAppearance();
     });
   }
 

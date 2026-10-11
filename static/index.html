@@ -29,17 +29,9 @@
         var fm = {mono:"'Fira Code', monospace",sans:"system-ui, -apple-system, 'Segoe UI', sans-serif",serif:"Georgia, 'Times New Roman', serif",opendyslexic:"'OpenDyslexic', sans-serif"};
         s.setProperty('--font-family', fm[_font] || fm.mono);
       }
-      // Apply density class on html
-      var _density = localStorage.getItem('zephyrus-density');
-      if (_density && _density !== 'comfortable') {
-        document.documentElement.classList.add('density-' + _density);
-      }
-      // Apply UI text-size scale early (global accessibility pref, independent
-      // of the active theme) so there's no flash on load.
-      try {
-        var _us = localStorage.getItem('zephyrus-ui-scale');
-        if (_us && _us !== '100') document.documentElement.classList.add('ui-scale-' + _us);
-      } catch(e){}
+      // Density is fixed to compact and text size to Default (100) — the
+      // Appearance options were removed, so always paint the fixed outcome.
+      document.documentElement.classList.add('density-compact');
     } catch(e){}
   })();
   </script>
@@ -98,18 +90,37 @@
 <body>
   <!-- Loading overlay — hides all flashing until app is ready -->
   <div id="app-loader" style="position:fixed;inset:0;z-index:99999;background:var(--bg,#000);display:flex;align-items:center;justify-content:center;transition:opacity .3s">
-    <div id="loader-dots" aria-hidden="true" style="display:flex;align-items:center;gap:6px"><span></span><span></span><span></span></div>
+    <div id="boot-chip" role="status" aria-label="Loading Zephyrus" style="width:min(440px,80vw)">
+      <svg viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg">
+        <g>
+          <path d="M100 100 H200 V210 H326" class="t-bg"></path><path d="M100 100 H200 V210 H326" class="t-flow"></path>
+          <path d="M80 180 H180 V230 H326" class="t-bg"></path><path d="M80 180 H180 V230 H326" class="t-flow"></path>
+          <path d="M60 260 H150 V250 H326" class="t-bg"></path><path d="M60 260 H150 V250 H326" class="t-flow"></path>
+          <path d="M100 350 H200 V270 H326" class="t-bg"></path><path d="M100 350 H200 V270 H326" class="t-flow"></path>
+          <path d="M700 90 H560 V210 H474" class="t-bg"></path><path d="M700 90 H560 V210 H474" class="t-flow"></path>
+          <path d="M740 160 H580 V230 H474" class="t-bg"></path><path d="M740 160 H580 V230 H474" class="t-flow"></path>
+          <path d="M720 250 H590 V250 H474" class="t-bg"></path><path d="M720 250 H590 V250 H474" class="t-flow"></path>
+          <path d="M680 340 H570 V270 H474" class="t-bg"></path><path d="M680 340 H570 V270 H474" class="t-flow"></path>
+        </g>
+        <image href="/static/icons/Zephyrus-Mark.png" x="350" y="185" width="100" height="110"></image>
+        <g>
+          <circle cx="100" cy="100" r="5"></circle><circle cx="80" cy="180" r="5"></circle><circle cx="60" cy="260" r="5"></circle><circle cx="100" cy="350" r="5"></circle>
+          <circle cx="700" cy="90" r="5"></circle><circle cx="740" cy="160" r="5"></circle><circle cx="720" cy="250" r="5"></circle><circle cx="680" cy="340" r="5"></circle>
+        </g>
+      </svg>
+    </div>
   </div>
   <style>
-    #loader-dots span { width:6px; height:6px; border-radius:50%; background:var(--fg-muted,#a3a3a3); opacity:.2; animation:loader-dot-pulse 1.2s ease-in-out infinite; }
-    #loader-dots span:nth-child(2) { animation-delay:.15s; }
-    #loader-dots span:nth-child(3) { animation-delay:.3s; }
-    @keyframes loader-dot-pulse { 0%,100% { opacity:.2; transform:scale(.85); } 50% { opacity:1; transform:scale(1); } }
-    @media (prefers-reduced-motion: reduce) { #loader-dots span { animation:none; opacity:.6; } }
+    #boot-chip svg { display:block; width:100%; height:auto; }
+    #boot-chip .t-bg { stroke:var(--border,#373737); stroke-width:1.8; fill:none; }
+    #boot-chip .t-flow { stroke:var(--fg,#d2d2d2); color:var(--fg,#d2d2d2); stroke-width:1.8; fill:none; stroke-dasharray:40 400; stroke-dashoffset:438; filter:drop-shadow(0 0 6px currentColor); animation:boot-chip-flow 3s cubic-bezier(0.5,0,0.9,1) infinite; }
+    #boot-chip circle { fill:var(--fg-muted,#a3a3a3); }
+    @keyframes boot-chip-flow { to { stroke-dashoffset:0; } }
+    @media (prefers-reduced-motion: reduce) { #boot-chip .t-flow { animation:none; stroke-dashoffset:0; } }
   </style>
   <script nonce="{{CSP_NONCE}}">
   (function(){
-    setTimeout(function(){var l=document.getElementById('app-loader');if(l){l.style.opacity='0';setTimeout(function(){l.remove()},300)}},5000);
+    setTimeout(function(){if(window._zephyrusReady)return;var l=document.getElementById('app-loader');if(l){l.style.opacity='0';setTimeout(function(){l.remove()},300)}},15000);
   })();
   </script>
   <!-- Memory Management Modal -->
@@ -1458,11 +1469,6 @@
                 <input type="checkbox" checked data-ui-key="chat-meta"><span class="vis-switch"></span>
               </label>
               <label class="vis-row">
-                <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16"/><path d="M4 10h8"/></svg></span>
-                <span class="vis-label">Full-width chat <span class="vis-hint">Use the full window width (desktop)</span></span>
-                <input type="checkbox" data-ui-key="chat-fullwidth"><span class="vis-switch"></span>
-              </label>
-              <label class="vis-row">
                 <span class="vis-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v2m0 14v2m-7-9H3m18 0h-2m-1.5-6.5L16 7m-8-1.5L6.5 7m11 11l-1.5-1.5M8 18l-1.5 1.5"/><circle cx="12" cy="12" r="4"/></svg></span>
                 <span class="vis-label">Welcome Message <span class="vis-hint">Logo &amp; tips on empty chat</span></span>
                 <input type="checkbox" checked data-ui-key="welcome-text"><span class="vis-switch"></span>
@@ -1535,7 +1541,7 @@
             </div>
           </div>
           <div class="admin-card">
-            <h2 style="display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>Text &amp; Layout<span style="flex:1"></span><button type="button" class="vis-reset-btn" id="appearance-text-layout-reset" title="Reset this section to defaults" aria-label="Reset Text &amp; Layout to defaults" style="background:none;border:none;padding:2px 4px;cursor:pointer;color:inherit;opacity:0.55;display:inline-flex;align-items:center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button></h2>
+            <h2 style="display:flex;align-items:center;gap:8px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;opacity:0.6"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>Text &amp; Layout</h2>
             <div class="settings-col">
               <div class="settings-row">
                 <label class="settings-label" for="appearance-font-select">Font</label>
@@ -1544,21 +1550,6 @@
                   <option value="sans">Sans-serif</option>
                   <option value="serif">Serif</option>
                   <option value="opendyslexic">OpenDyslexic (dyslexia-friendly)</option>
-                </select>
-              </div>
-              <div class="settings-row">
-                <label class="settings-label" for="appearance-density-select">Density</label>
-                <select id="appearance-density-select" class="settings-select">
-                  <option value="compact">Compact</option>
-                  <option value="comfortable">Comfortable</option>
-                  <option value="spacious">Spacious</option>
-                </select>
-              </div>
-              <div class="settings-row">
-                <label class="settings-label" for="appearance-text-size-select">Text size</label>
-                <select id="appearance-text-size-select" class="settings-select">
-                  <option value="100">Default</option>
-                  <option value="125">Larger</option>
                 </select>
               </div>
               <div class="settings-row">

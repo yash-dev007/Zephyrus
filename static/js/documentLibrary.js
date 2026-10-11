@@ -1795,7 +1795,7 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
           content,
           header,
           fsClass: FS_CLASS,
-          skipSelector: '.modal-close',
+          skipSelector: '.close-btn, .modal-close',
           onEnterFullscreen: enterFullscreen,
           onExitFullscreen: exitFullscreen,
           enableFullscreen: false,

@@ -16,6 +16,11 @@ let currentSessionId = null;
 let _sessionNavToken = 0;
 let _skipAutoSelect = false;
 let _suppressNextSessionLoading = false;
+// In-flight loadSessions() run. A concurrent caller awaits it and then
+// returns without re-running — the owning run already fetched, rendered,
+// and selected. Deadlock-safe: nothing inside the loadSessions await graph
+// awaits loadSessions (the one nested call is fire-and-forget).
+let _loadSessionsPromise = null;
 const HISTORY_DISPLAY_CHAR_LIMIT = 160000;
 const HISTORY_DISPLAY_TAIL_CHARS = 20000;
 const HISTORY_PAGE_LIMIT_MOBILE = 8;
@@ -1605,6 +1610,13 @@ function _animateSessionRowsRemoving(ids, selector) {
 }
 
 export async function loadSessions() {
+  if (_loadSessionsPromise) {
+    try { await _loadSessionsPromise; } catch (_) {}
+    return;
+  }
+  let _resolveOwn = null;
+  const _ownRun = new Promise((resolve) => { _resolveOwn = resolve; });
+  _loadSessionsPromise = _ownRun;
   try {
     // Delete incognito sessions left over from a previous page load
     await _cleanupIncognitoSessions();
@@ -1695,9 +1707,12 @@ export async function loadSessions() {
           const dcRes = await fetch(`${API_BASE}/api/default-chat`);
           const dc = await dcRes.json();
           if (dc.endpoint_url && dc.model) {
-            // Check if there's already an empty session with this model we can reuse
+            // Check if there's already an empty session with this model we can reuse.
+            // last_message_at is NULL until the first message persists
+            // (DB default None; set only on message persist), so the extra
+            // predicate only excludes sessions that had messages deleted.
             const emptyDefault = activeSessions.find(s =>
-              s.model === dc.model && s.message_count === 0
+              s.model === dc.model && s.message_count === 0 && !s.last_message_at
             );
             if (emptyDefault) {
               targetId = emptyDefault.id;
@@ -1755,6 +1770,9 @@ export async function loadSessions() {
   } catch (error) {
     console.error('Error in loadSessions:', error);
     uiModule.showError('Failed to load sessions: ' + error.message);
+  } finally {
+    if (_loadSessionsPromise === _ownRun) _loadSessionsPromise = null;
+    if (_resolveOwn) _resolveOwn();
   }
 }
 

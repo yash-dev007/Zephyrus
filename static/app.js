@@ -2603,7 +2603,7 @@ function initializeEventListeners() {
   };
 
   // Keys hidden by default on first run (no localStorage yet)
-  const UI_VIS_DEFAULT_OFF = new Set(['models-section', 'rag-toggle-btn', 'text-emojis', 'chat-fullwidth']);
+  const UI_VIS_DEFAULT_OFF = new Set(['models-section', 'rag-toggle-btn', 'text-emojis']);
 
   // Keys that need admin to toggle off (reserved for future use)
   const UI_VIS_ADMIN_ONLY = new Set([]);
@@ -2636,8 +2636,6 @@ function initializeEventListeners() {
     applyTextEmojis(state['text-emojis'] === true);
     // Hide thinking sections toggle (show-thinking: checked=show, unchecked=hide)
     document.body.classList.toggle('hide-thinking', state['show-thinking'] === false);
-    // Fullwidth chat toggle (chat-fullwidth: checked=fullwidth, unchecked=big-padding
-    document.body.classList.toggle('fullwidth-chat', state['chat-fullwidth'] === true);
   }
 
   // Rearrange toggles in session/model sort dropdowns
@@ -4164,18 +4162,26 @@ function startZephyrusApp() {
       scrollHistory: uiModule.scrollHistoryInstant
     });
 
-    // Load sessions first (critical path) — remove loader when done
+    // Load sessions first (critical path) — remove loader when done, but
+    // keep the boot splash up for a 5s minimum so the loader scene plays
+    // out instead of flashing past on fast loads. Routing fires immediately
+    // (app is ready); only the visual dismissal waits out the minimum.
     sessionModule.loadSessions()
       .catch(e => console.warn('loadSessions error:', e))
       .finally(() => {
-        const loader = document.getElementById('app-loader');
-        if (loader) { loader.style.opacity = '0'; setTimeout(() => loader.remove(), 300); }
         // Fire any URL route opener now that sessions + module wiring are
         // ready. Deferred from up top of init for exactly this reason.
         if (window._zephyrusRouteOpener) {
           try { window._zephyrusRouteOpener(); } catch (_) {}
           window._zephyrusRouteOpener = null;
         }
+        const elapsed = Date.now() - (window._zephyrusLoadTime || Date.now());
+        const wait = Math.max(0, 5000 - elapsed);
+        setTimeout(() => {
+          const loader = document.getElementById('app-loader');
+          if (loader) { loader.style.opacity = '0'; setTimeout(() => loader.remove(), 300); }
+          window._zephyrusReady = true;
+        }, wait);
       });
   } else {
     console.error('Session module not loaded!');
