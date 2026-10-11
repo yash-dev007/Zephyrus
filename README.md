@@ -2,7 +2,7 @@
 
 # Zephyrus
 
-Local-first AI workspace: chat with any OpenAI-compatible model, plus memory, personal-document RAG, deep research, email, calendar, tasks, notes, gallery, voice, and local model serving — all self-hosted behind one FastAPI app.
+Local-first AI harness: a robust orchestration layer and workspace for OpenAI-compatible models. Combines tool-calling agent loops, persistent memory, RAG, MCP bridges, and local model serving inside a unified, self-hosted FastAPI backend.
 
 No root README existed before; start here, then go deeper with [`docs/setup.md`](docs/setup.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md), and [`ROADMAP.md`](ROADMAP.md).
 
