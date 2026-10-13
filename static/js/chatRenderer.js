@@ -9,6 +9,7 @@ import { providerLogo, providerLabel } from './providers.js';
 import settingsModule from './settings.js';
 import spinnerModule from './spinner.js';
 import { bindMenuDismiss } from './escMenuStack.js';
+import { topPortalZ } from './toolWindowZOrder.js';
 import { matchModelKey } from './model/matchKey.js';
 
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
@@ -46,20 +47,29 @@ function _safeHref(url) {
   return '#';
 }
 
-export function safeToolScreenshotSrc(raw) {
-  const src = String(raw || '').trim();
-  if (/^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(src)) {
-    return src;
+// Byte cap for AI-supplied data-URL image payloads: bounds the DOM, layout,
+// and decode cost of inline screenshots. 12M chars of base64 decode to ~9MB.
+var _DATA_URL_MAX_CHARS = 12 * 1024 * 1024;
+
+/** Validate an inline data:image URL: strip whitespace, enforce the byte cap,
+ *  allow raster stills only (png/jpg/gif/webp — never svg/html). */
+function _safeDataImageUrl(raw) {
+  var clean = String(raw || '').replace(/\s+/g, '');
+  if (!clean || clean.length > _DATA_URL_MAX_CHARS) return '';
+  if (/^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=]+$/i.test(clean)) {
+    return clean;
   }
   return '';
 }
 
+export function safeToolScreenshotSrc(raw) {
+  return _safeDataImageUrl(raw);
+}
+
 export function safeDisplayImageSrc(raw) {
-  const src = String(raw || '').trim();
+  var src = String(raw || '').trim();
   if (!src) return '';
-  if (/^data:image\/(?:png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(src)) {
-    return src;
-  }
+  if (src.toLowerCase().startsWith('data:')) return _safeDataImageUrl(src);
   try {
     const parsed = new URL(src, window.location.origin);
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
@@ -1018,6 +1028,54 @@ export function buildRagSourcesBox(sources) {
 }
 
 /**
+ * Canonical tool-thread node HTML \u2014 single source for the live stream
+ * (chat.js tool_output) and history restore (addMessage below): Output
+ * <details>, screenshot <details>, and file-write diff <details> with
+ * diff-stat rows. All model-controlled strings are esc()'d; screenshots
+ * pass safeToolScreenshotSrc (data:image/png|jpg|gif|webp only).
+ * @param {{tool, command, output, exit_code, diff, screenshot}} ev
+ * @returns {string} inner HTML for an .agent-thread-node element
+ */
+export function buildToolNodeInnerHtml(ev) {
+  var esc = uiModule.esc;
+  ev = ev || {};
+  var ok = (ev.exit_code === 0 || ev.exit_code == null);
+  var outHtml = '';
+  if (ev.output && ev.output.trim()) {
+    outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(ev.output)}</pre></details>`;
+  }
+  var screenshotSrc = safeToolScreenshotSrc(ev.screenshot);
+  if (screenshotSrc) {
+    outHtml += `<details class="agent-tool-output"><summary>Screenshot</summary><img src="${esc(screenshotSrc)}" style="max-width:100%;border-radius:6px;margin-top:6px;border:1px solid var(--border)" /></details>`;
+  }
+  // File-write/edit diff: collapsed summary (filename + +adds/-dels) plus
+  // per-row spans (row colour encodes add/del; the +/-/space marker is
+  // dropped so it never doubles up with markdown "- " bullets).
+  var diffHtml = '';
+  if (ev.diff && ev.diff.text) {
+    var d = ev.diff;
+    var stat = [
+      d.new_file ? '<span class="diff-stat-new">new</span>' : '',
+      d.added ? `<span class="diff-stat-add">+${d.added}</span>` : '',
+      d.removed ? `<span class="diff-stat-del">\u2212${d.removed}</span>` : '',
+    ].filter(Boolean).join(' ');
+    var rows = d.text.split('\n').map(line => {
+      var cls = 'diff-ctx', text = line;
+      if (line.startsWith('+++') || line.startsWith('---')) cls = 'diff-meta';
+      else if (line.startsWith('@@')) cls = 'diff-hunk';
+      else if (line.startsWith('+')) { cls = 'diff-add'; text = line.slice(1); }
+      else if (line.startsWith('-')) { cls = 'diff-del'; text = line.slice(1); }
+      else if (line.startsWith(' ')) { text = line.slice(1); }
+      return `<span class="${cls}">${esc(text) || '&nbsp;'}</span>`;
+    }).join('');  // spans are display:block - a literal \n would double-space the diff
+    diffHtml = `<details class="agent-tool-output agent-tool-diff"><summary><span class="diff-file">${esc(d.file || 'diff')}</span> <span class="diff-summary-stats">${stat}</span></summary><pre class="diff-pre">${rows}</pre></details>`;
+  }
+  // Hide the raw JSON command when a diff says it better.
+  var cmdHtml = (ev.command && !(ev.diff && ev.diff.text)) ? `<pre class="agent-thread-cmd">${esc(ev.command)}</pre>` : '';
+  return `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${ok ? '\u2713' : '\u2717'}</span><span class="agent-thread-tool">${esc(ev.tool)}</span><span class="agent-thread-status">${ok ? 'done' : 'failed'}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${cmdHtml}${outHtml}${diffHtml}</div>`;
+}
+
+/**
  * Build a collapsible "Raw collected findings" section, styled like the sources box.
  * @param {Array<{url, title, summary}>} findings
  * @param {boolean} [expanded=false]
@@ -1337,7 +1395,7 @@ export function buildImageBubble(imageUrl, prompt, model, size, quality, imageId
   dlBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
     try {
-      const resp = await fetch(imageUrl);
+      const resp = await fetch(safeImageUrl);
       const blob = await resp.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -1508,6 +1566,14 @@ function _trackAction(id) {
   localStorage.setItem(_ACTION_RECENTS_KEY, JSON.stringify(recent));
 }
 
+// Body-portaled menus must sit above every open tool window and dock chip.
+// The codebase-wide convention (notes, tasks, gallery, …) is topPortalZ();
+// the CSS fallback (z-index:100) loses that contest, leaving the menu
+// behind covering UI where its items can't be clicked.
+function _raiseToPortal(menu) {
+  try { menu.style.zIndex = String(topPortalZ()); } catch { /* keep CSS fallback */ }
+}
+
 /**
  * Create a footer row for an AI message with timestamp and action buttons.
  */
@@ -1619,6 +1685,7 @@ export function createMsgFooter(msgElement) {
       });
       menu._trigger = moreBtn;
       document.body.appendChild(menu);
+      _raiseToPortal(menu);
       // Position fixed relative to the ··· button
       const btnRect = moreBtn.getBoundingClientRect();
       menu.style.top = (btnRect.top - menu.offsetHeight - 4) + 'px';
@@ -1682,6 +1749,7 @@ export function createMsgFooter(msgElement) {
       });
       detail.style.visibility = 'hidden';
       document.body.appendChild(detail);
+      _raiseToPortal(detail);
       const pillRect = pill.getBoundingClientRect();
       const detailRect = detail.getBoundingClientRect();
       const spaceAbove = pillRect.top;
@@ -1808,6 +1876,7 @@ export function createUserMsgFooter(msgElement) {
       });
       menu._trigger = moreBtn;
       document.body.appendChild(menu);
+      _raiseToPortal(menu);
       const btnRect = moreBtn.getBoundingClientRect();
       menu.style.top = (btnRect.top - menu.offsetHeight - 4) + 'px';
       menu.style.left = btnRect.left + 'px';
@@ -2260,6 +2329,30 @@ export function renderAskUserCard(payload, options) {
 }
 
 /**
+ * Bound long-session DOM cost without touching the streaming renderer: when
+ * the history holds many completed tool nodes, collapse the oldest ones
+ * (remove .open so .agent-thread-content hides via CSS). Nodes are never
+ * removed, running nodes are never touched, and the delegated header-click
+ * toggle still re-expands anything collapsed here. Cheap guard first so the
+ * common case costs one property read.
+ */
+export function capChatHistoryDom(box) {
+  try {
+    box = box || document.getElementById('chat-history');
+    if (!box || box.childElementCount < 200) return;
+    var nodes = box.querySelectorAll('.agent-thread-node');
+    if (nodes.length <= 48) return;
+    var seen = 0;
+    for (var i = nodes.length - 1; i >= 0; i--) {
+      var n = nodes[i];
+      if (n.classList.contains('running')) continue;
+      seen++;
+      if (seen > 8 && n.classList.contains('open')) n.classList.remove('open');
+    }
+  } catch (_) { /* best-effort */ }
+}
+
+/**
  * Add a message to the chat history.
  */
 export function addMessage(role, content, modelName, metadata) {
@@ -2273,7 +2366,6 @@ export function addMessage(role, content, modelName, metadata) {
     // appended, even when the user did not click one of its buttons.
     if (role === 'user') removeAskUserCards(box);
 
-    var esc = uiModule.esc;
     const textRaw = Array.isArray(content) ? markdownModule.renderContent(content) : content;
 
     // --- Agent multi-bubble reconstruction from saved metadata ---
@@ -2359,41 +2451,10 @@ export function addMessage(role, content, modelName, metadata) {
           for (const ev of roundTools) {
             if (ev.ask_user) pendingAskUser = ev.ask_user;
             const ok = (ev.exit_code === 0 || ev.exit_code == null);
-            let outHtml = '';
-            if (ev.output && ev.output.trim()) {
-              outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(ev.output)}</pre></details>`;
-            }
-            const screenshotSrc = safeToolScreenshotSrc(ev.screenshot);
-            if (screenshotSrc) {
-              outHtml += `<details class="agent-tool-output"><summary>Screenshot</summary><img src="${esc(screenshotSrc)}" style="max-width:100%;border-radius:6px;margin-top:6px;border:1px solid var(--border)" /></details>`;
-            }
-            // File-write/edit diff (persisted in the tool event) \u2014 re-render it
-            // so it survives reload, matching the live stream.
-            let evDiffHtml = '';
-            if (ev.diff && ev.diff.text) {
-              const d = ev.diff;
-              const stat = [
-                d.new_file ? '<span class="diff-stat-new">new</span>' : '',
-                d.added ? `<span class="diff-stat-add">+${d.added}</span>` : '',
-                d.removed ? `<span class="diff-stat-del">\u2212${d.removed}</span>` : '',
-              ].filter(Boolean).join(' ');
-              const rows = d.text.split('\n').map(line => {
-                let cls = 'diff-ctx', text = line;
-                if (line.startsWith('+++') || line.startsWith('---')) cls = 'diff-meta';
-                else if (line.startsWith('@@')) cls = 'diff-hunk';
-                // Drop the leading diff marker (+/-/space) — colour encodes add/del.
-                else if (line.startsWith('+')) { cls = 'diff-add'; text = line.slice(1); }
-                else if (line.startsWith('-')) { cls = 'diff-del'; text = line.slice(1); }
-                else if (line.startsWith(' ')) { text = line.slice(1); }
-                return `<span class="${cls}">${esc(text) || '&nbsp;'}</span>`;
-              }).join('');  // spans are display:block \u2014 a literal \n would double-space
-              evDiffHtml = `<details class="agent-tool-output agent-tool-diff"><summary><span class="diff-file">${esc(d.file || 'diff')}</span> <span class="diff-summary-stats">${stat}</span></summary><pre class="diff-pre">${rows}</pre></details>`;
-            }
             const node = document.createElement('div');
             node.className = 'agent-thread-node' + (ok ? '' : ' error');
-            // Hide the raw JSON command when a diff says it better (same as live).
-            const evCmdHtml = (ev.command && !(ev.diff && ev.diff.text)) ? `<pre class="agent-thread-cmd">${esc(ev.command)}</pre>` : '';
-            node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${ok ? '\u2713' : '\u2717'}</span><span class="agent-thread-tool">${esc(ev.tool)}</span><span class="agent-thread-status">${ok ? 'done' : 'failed'}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${evCmdHtml}${outHtml}${evDiffHtml}</div>`;
+            // Canonical tool/diff renderer (also used by the live stream).
+            node.innerHTML = buildToolNodeInnerHtml(ev);
             // Click handling is delegated globally \u2014 see chat.js init.
             threadWrap.appendChild(node);
           }
@@ -2737,6 +2798,8 @@ export function addMessage(role, content, modelName, metadata) {
     if (role === 'assistant' && markdownModule.renderMermaid) {
       markdownModule.renderMermaid(wrap);
     }
+    // Bound long-session DOM cost: collapse old completed tool threads.
+    capChatHistoryDom(box);
     return wrap;
   } catch (error) {
     console.error('Error in addMessage:', error);
@@ -2766,6 +2829,9 @@ const chatRenderer = {
   removeAskUserCards,
   renderAskUserCard,
   buildSourcesBox,
+  buildRagSourcesBox,
+  buildToolNodeInnerHtml,
+  capChatHistoryDom,
   buildFindingsBox,
   appendReportButton,
   buildImageBubble,

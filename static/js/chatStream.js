@@ -8,6 +8,21 @@ import markdownModule from './markdown.js';
 import sessionModule from './sessions.js';
 import documentModule from './document.js';
 
+// AI-supplied highlight targets: never pass model-controlled strings to
+// querySelector (selector injection). Only a strict `#id` (legacy
+// `selector` field) or a bare id (`target_id`) resolving via getElementById
+// is honored; anything else is ignored. Label text stays textContent-only
+// at the call site.
+function _resolveHighlightTarget(uiData) {
+  var id = uiData.target_id || uiData.targetId || '';
+  if (!id && typeof uiData.selector === 'string') {
+    var m = /^\s*#([A-Za-z][A-Za-z0-9_-]{0,64})\s*$/.exec(uiData.selector);
+    if (m) id = m[1];
+  }
+  if (!/^[A-Za-z][A-Za-z0-9_-]{0,64}$/.test(String(id || ''))) return null;
+  return document.getElementById(id);
+}
+
 /**
  * Handle a ui_control SSE event — AI-driven UI manipulation.
  * Extracted from the duplicated ui_control + tool_output.ui_event handlers.
@@ -65,7 +80,7 @@ export function handleUIControl(uiData) {
     } else if (uiEvent === 'highlight' || uiData.ui_event === 'highlight') {
       document.querySelectorAll('.zephyrus-highlight').forEach(function(e) { e.classList.remove('zephyrus-highlight'); });
       document.querySelectorAll('.zephyrus-hl-label').forEach(function(e) { e.remove(); });
-      var target = document.querySelector(uiData.selector);
+      var target = _resolveHighlightTarget(uiData);
       if (target) {
         target.classList.add('zephyrus-highlight');
         target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -202,6 +217,7 @@ export function notifyStreamComplete(sessionId, query) {
 export function insertStreamDoneToast(sessionId, query) {
   var box = document.getElementById('chat-history');
   if (!box) return;
+  var esc = uiModule.esc;
   var sessions = sessionModule ? sessionModule.getSessions() : [];
   var sess = sessions.find(function(s) { return s.id === sessionId; });
   var name = sess ? sess.name : 'another session';
@@ -210,8 +226,8 @@ export function insertStreamDoneToast(sessionId, query) {
   div.className = 'msg msg-system stream-done-toast';
   div.innerHTML = '<div class="body">'
     + '<span class="stream-done-indicator">●</span>'
-    + '<span>Response ready in <strong>' + (name || 'session').replace(/</g, '&lt;') + '</strong>'
-    + (preview ? ' &mdash; ' + preview.replace(/</g, '&lt;') : '')
+    + '<span>Response ready in <strong>' + esc(name || 'session') + '</strong>'
+    + (preview ? ' &mdash; ' + esc(preview) : '')
     + '</span>'
     + '</div>';
   div.addEventListener('click', function() {

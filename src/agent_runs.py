@@ -49,8 +49,8 @@ def _publish(run: _Run, ev: str) -> None:
     for q in list(run.subscribers):
         try:
             q.put_nowait((seq, ev))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[agent-run] subscriber fan-out skipped: %s", e)
 
 
 def _schedule_evict(session_id: str) -> None:
@@ -114,8 +114,8 @@ async def _drain(session_id: str, agen: AsyncGenerator[str, None],
         # the partial response to the session).
         try:
             await agen.aclose()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[agent-run] %s generator close failed during stop", session_id, exc_info=e)
     except Exception as e:
         logger.error("[agent-run] %s failed: %s", session_id, e, exc_info=True)
         run.status = "error"
@@ -130,8 +130,8 @@ async def _drain(session_id: str, agen: AsyncGenerator[str, None],
         for q in list(run.subscribers):
             try:
                 q.put_nowait((None, None))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[agent-run] end-sentinel fan-out skipped: %s", e)
         # Run is terminal — arm the grace timer so it (and its buffer) is
         # eventually freed even if nobody ever reconnects. subscribe() cancels
         # this on connect and re-arms on disconnect.

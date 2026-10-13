@@ -52,6 +52,51 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     } catch (_) {}
   }
   let _pendingContinue = null; // Stores the stopped AI element to merge with new response
+
+  // ── Unified tool-node ticker ────────────────────────────────────
+  // One 500ms interval per running tool node drives BOTH the wave-frame
+  // animation and the elapsed-time label (previously two intervals per
+  // node at 100ms + 50ms). Stopped via _clearToolNodeTickers(); swept
+  // across all running nodes by _clearAllToolTickers() on the abort,
+  // detach, stop, and stream-error paths. The tick self-clears if its
+  // node leaves the DOM (history reload), so orphaned nodes can't spin.
+  const _TOOL_TICK_MS = 500;
+  const _TOOL_WAVE_FRAMES = ['▁▂▃', '▂▃▄', '▃▄▅', '▄▅▆', '▅▆▇', '▆▅▄', '▅▄▃', '▄▃▂'];
+  function _startToolNodeTicker(node) {
+    _clearToolNodeTickers(node);
+    node._toolTick = 0;
+    node._startTime = Date.now();
+    node._toolTicker = setInterval(() => {
+      if (!node.isConnected) { _clearToolNodeTickers(node); return; }
+      node._toolTick = (node._toolTick || 0) + 1;
+      const waveEl = node.querySelector('.agent-thread-wave');
+      if (waveEl) waveEl.textContent = _TOOL_WAVE_FRAMES[node._toolTick % _TOOL_WAVE_FRAMES.length];
+      const hdr = node.querySelector('.agent-thread-header');
+      if (!hdr) return;
+      let el = hdr.querySelector('.agent-thread-elapsed');
+      if (!el) {
+        el = document.createElement('span');
+        el.className = 'agent-thread-elapsed';
+        const icon = hdr.querySelector('.agent-thread-icon');
+        if (icon && icon.nextSibling) hdr.insertBefore(el, icon.nextSibling);
+        else hdr.appendChild(el);
+      }
+      const s = (Date.now() - (node._startTime || Date.now())) / 1000;
+      el.textContent = s < 60 ? `${s.toFixed(1)}s` : `${Math.floor(s / 60)}m ${(s % 60).toFixed(1).padStart(4, '0')}s`;
+    }, _TOOL_TICK_MS);
+  }
+  function _clearToolNodeTickers(node) {
+    if (!node) return;
+    if (node._toolTicker) { clearInterval(node._toolTicker); node._toolTicker = null; }
+    // Legacy fields (pre-unification nodes) — same sweep.
+    if (node._waveInterval) { clearInterval(node._waveInterval); node._waveInterval = null; }
+    if (node._elapsedTicker) { clearInterval(node._elapsedTicker); node._elapsedTicker = null; }
+  }
+  function _clearAllToolTickers(root) {
+    try {
+      (root || document).querySelectorAll('.agent-thread-node.running').forEach(_clearToolNodeTickers);
+    } catch (_) { /* best-effort */ }
+  }
   function _createChatSendPerf() {
     const started = (performance && performance.now) ? performance.now() : Date.now();
     let last = started;
@@ -102,23 +147,18 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
   let _autoContinuePending = false; // marks the next submit as an auto-continue (don't reset the counter)
   const _AUTO_NUDGE_CAP = 3;
 
-  // shortModel and modelColor are now in chatRenderer.js
-  var _shortModel = chatRenderer.shortModel;
-  var _modelRouteLabel = chatRenderer.modelRouteLabel;
-  var _sameModelName = chatRenderer.sameModelName;
-  var _applyModelColor = chatRenderer.applyModelColor;
   function _setRoleModelLabel(roleEl, requestedModel, actualModel, opts) {
     if (!roleEl) return;
     opts = opts || {};
     const tsSpan = roleEl.querySelector('.role-timestamp');
     const req = requestedModel || actualModel || '';
     const actual = actualModel || requestedModel || '';
-    let label = _modelRouteLabel(req, actual);
+    let label = chatRenderer.modelRouteLabel(req, actual);
     if (opts.suffix) label += ' (' + opts.suffix + ')';
     if (opts.characterName) label = opts.characterName;
     roleEl.textContent = label + ' ';
-    _applyModelColor(roleEl, actual || req);
-    if (req && actual && !_sameModelName(req, actual)) {
+    chatRenderer.applyModelColor(roleEl, actual || req);
+    if (req && actual && !chatRenderer.sameModelName(req, actual)) {
       roleEl.title = req + ' -> ' + actual + (opts.reason ? ': ' + opts.reason : '');
     } else if (!opts.reason) {
       roleEl.removeAttribute('title');
@@ -207,30 +247,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       chatBox.insertBefore(thread, msg);
       msg._docWritingThread = thread;
 
-      const waveEl = node.querySelector('.agent-thread-wave');
-      if (waveEl) {
-        const waveFrames = ['▁▂▃', '▂▃▄', '▃▄▅', '▄▅▆', '▅▆▇', '▆▅▄', '▅▄▃', '▄▃▂'];
-        let waveIdx = 0;
-        node._waveInterval = setInterval(() => {
-          waveIdx = (waveIdx + 1) % waveFrames.length;
-          waveEl.textContent = waveFrames[waveIdx];
-        }, 100);
-      }
-      node._startTime = Date.now();
-      node._elapsedTicker = setInterval(() => {
-        const hdr = node.querySelector('.agent-thread-header');
-        if (!hdr) return;
-        let el = hdr.querySelector('.agent-thread-elapsed');
-        if (!el) {
-          el = document.createElement('span');
-          el.className = 'agent-thread-elapsed';
-          const icon = hdr.querySelector('.agent-thread-icon');
-          if (icon && icon.nextSibling) hdr.insertBefore(el, icon.nextSibling);
-          else hdr.appendChild(el);
-        }
-        const s = (Date.now() - node._startTime) / 1000;
-        el.textContent = s < 60 ? `${s.toFixed(2)}s` : `${Math.floor(s / 60)}m ${(s % 60).toFixed(2).padStart(5, '0')}s`;
-      }, 50);
+      _startToolNodeTicker(node);
     }
     msg.style.display = 'none';
   }
@@ -241,8 +258,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     thread.classList.remove('streaming');
     const node = thread.querySelector('.agent-thread-node');
     if (!node) return;
-    if (node._waveInterval) { clearInterval(node._waveInterval); node._waveInterval = null; }
-    if (node._elapsedTicker) { clearInterval(node._elapsedTicker); node._elapsedTicker = null; }
+    _clearToolNodeTickers(node);
     node.classList.remove('running');
     if (!ok) node.classList.add('error');
     const icon = node.querySelector('.agent-thread-icon');
@@ -441,10 +457,6 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
   let _queuedRequestSeq = 0;
   let _queuedBubbleHost = null;
 
-  function _escapeQueueText(s) {
-    return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-
   function _ensureQueuedBubbleHost() {
     const chatBox = document.getElementById('chat-history');
     if (!chatBox) return null;
@@ -467,7 +479,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     wrap.className = 'msg msg-user msg-user-queued';
     wrap.dataset.queueId = item.id;
     wrap.title = 'Queued - click to send now and stop the current response';
-    wrap.innerHTML = `<div class="role">You <span class="queued-pill"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>Queued</span></div><div class="body">${_escapeQueueText(item.message)}</div>`;
+    wrap.innerHTML = `<div class="role">You <span class="queued-pill"><svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>Queued</span></div><div class="body">${uiModule.esc(item.message)}</div>`;
     wrap.addEventListener('click', (ev) => {
       if (ev.target && ev.target.closest && ev.target.closest('button, a, textarea, input')) return;
       _promoteQueuedRequest(item.id);
@@ -619,8 +631,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
       // Clean up any running agent thread nodes (stop wave animation, remove "running" state)
       document.querySelectorAll('.agent-thread-node.running').forEach(node => {
-        if (node._waveInterval) { clearInterval(node._waveInterval); node._waveInterval = null; }
-        if (node._elapsedTicker) { clearInterval(node._elapsedTicker); node._elapsedTicker = null; }
+        _clearToolNodeTickers(node);
         node.classList.remove('running');
         const wave = node.querySelector('.agent-thread-wave');
         if (wave) wave.textContent = '';
@@ -881,6 +892,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     const streamSessionId = sessionModule.getCurrentSessionId();
     _streamSessionId = streamSessionId;
     const streamQuery = msg;
+      const _isBgNow = () => sessionModule.getCurrentSessionId() !== streamSessionId;
     _lastReaderActivity = Date.now();
 
     // Acquire Web Lock to hint browser not to discard this tab while streaming
@@ -1292,14 +1304,14 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         loadingText = 'Processing request...';
       }
 
-      var roleLabel = _modelRouteLabel(modelName, modelName);
+      var roleLabel = chatRenderer.modelRouteLabel(modelName, modelName);
       var _charNameInit = presetsModule.getCharacterName ? presetsModule.getCharacterName() : '';
       if (_charNameInit) roleLabel = _charNameInit;
       const roleTs = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
       holder.innerHTML = `<div class="role">${uiModule.esc(roleLabel)} <span class="role-timestamp">${roleTs}</span></div><div class="body"></div>`;
       holder._requestedModel = modelName;
       holder._actualModel = modelName;
-      _applyModelColor(holder.querySelector('.role'), modelName);
+      chatRenderer.applyModelColor(holder.querySelector('.role'), modelName);
       holder.style.position = 'relative';
       
       // Create spinner
@@ -1461,8 +1473,8 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         const metaS = sessionModule.getSessions().find(s => s.id === streamSessionId);
         const requested = holder?._requestedModel || metaS?.model || modelName;
         const actual = holder?._actualModel || requested;
-        newRole.textContent = _modelRouteLabel(requested, actual) || '';
-        _applyModelColor(newRole, actual);
+        newRole.textContent = chatRenderer.modelRouteLabel(requested, actual) || '';
+        chatRenderer.applyModelColor(newRole, actual);
         newWrap.appendChild(newRole);
         const newBody = document.createElement('div');
         newBody.className = 'body';
@@ -1698,143 +1710,784 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         clearFirstTokenWaitTimers();
       };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        _lastReaderActivity = Date.now();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          // Log SSE event types (e.g. "event: error") for debugging
-          if (line.startsWith('event: ')) {
-            const evtType = line.slice(7).trim();
-            if (evtType === 'error') _nextIsError = true;
-            continue;
-          }
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data && data !== '[DONE]') markFirstVisibleOutput();
-
-            // (thinking spinner removal is handled in agent_step / tool_start / content handlers)
-
-            // Background detection: are we on a different session?
-            const _isBg = (sessionModule.getCurrentSessionId() !== streamSessionId);
-
-            // On first transition to background, store state in map
-            if (_isBg && !_backgroundStreams.has(streamSessionId)) {
-              _backgroundStreams.set(streamSessionId, {
-                status: 'running',
-                accumulated: accumulated,
-                sourcesHtml: _sourcesHtml,
-                findingsData: null,
-                abortCtrl: currentAbort,
-                query: streamQuery,
-                metrics: null,
-              });
-              if (sessionModule && sessionModule.markStreaming) {
-                sessionModule.markStreaming(streamSessionId);
-              }
-            }
-
-            if (data === '[DONE]') {
-              _streamSawDone = true;
-              // Always update background map if entry exists (even if user switched back)
-              var bgDone = _backgroundStreams.get(streamSessionId);
-              if (bgDone && !_isBg) {
-                _backgroundStreams.delete(streamSessionId);
-              } else if (bgDone) {
-                bgDone.status = 'completed';
-                bgDone.accumulated = accumulated;
-                if (_isBg) {
-                  try {
-                    _notifyStreamComplete(streamSessionId, streamQuery);
-                    _insertStreamDoneToast(streamSessionId, streamQuery);
-                  } catch (toastErr) {
-                    console.warn('[bg-stream] Toast/notification error:', toastErr);
-                  }
-                }
-                // CRITICAL: always mark stream complete for the sidebar dot
-                try {
-                  if (sessionModule && sessionModule.markStreamComplete) {
-                    sessionModule.markStreamComplete(streamSessionId);
-                  }
-                } catch (dotErr) {
-                  console.warn('[bg-stream] markStreamComplete error:', dotErr);
-                }
-                // Don't do foreground final render — the checkBackgroundStream poll
-                // will detect 'completed' and reload history cleanly
-                break;
-              }
-              // Force-close thinking if still open (model never output boundary)
-              if (isThinking) {
-                isThinking = false;
-                cancelAnimationFrame(_thinkTimerRAF);
-                var _elapsedDone = thinkingStartTime ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : null;
-                if (_elapsedDone) {
-                  accumulated = accumulated.replace(/<think>/i, '<think time="' + _elapsedDone + '">');
-                  roundText = roundText.replace(/<think>/i, '<think time="' + _elapsedDone + '">');
-                }
-                if (_liveThinkHeader) _liveThinkHeader.textContent = 'View thinking process';
-                if (_liveThinkSpinnerSlot) _liveThinkSpinnerSlot.remove();
-                if (_liveThinkTimerEl && _elapsedDone) {
-                  _liveThinkTimerEl.textContent = _formatThinkStats(_elapsedDone, _liveThinkTokenCount);
-                  _liveThinkTimerEl.style.marginLeft = 'auto';
-                  _liveThinkTimerEl.style.marginRight = '5px';
-                  var _hdrDone = _liveThinkTimerEl.closest('.thinking-header');
-                  // Keep the chevron furthest right with the timer to its left
-                  // (match the live + final-render layout) — insert before the
-                  // toggle rather than appending (which would land after it).
-                  if (_hdrDone) {
-                    if (_liveThinkToggle && _liveThinkToggle.parentElement === _hdrDone)
-                      _hdrDone.insertBefore(_liveThinkTimerEl, _liveThinkToggle);
-                    else _hdrDone.appendChild(_liveThinkTimerEl);
-                  }
-                }
-                // Assign stable IDs
-                var _thinkIdDone = 'think-' + Date.now();
-                var _liveHdrDone = _liveThinkSection && _liveThinkSection.querySelector('.thinking-header');
-                if (_liveHdrDone) _liveHdrDone.dataset.thinkingId = _thinkIdDone;
-                if (_liveThinkContent) _liveThinkContent.id = _thinkIdDone;
-                if (_liveThinkToggle) _liveThinkToggle.id = _thinkIdDone + '-toggle';
-                // Create live-reply container so final render preserves thinking bar
-                var _streamElDone = _liveThinkSection ? _liveThinkSection.parentElement : roundHolder.querySelector('.stream-content');
-                if (!_streamElDone) _streamElDone = roundHolder.querySelector('.body');
-                if (_streamElDone && !_streamElDone.querySelector('.live-reply-content')) {
-                  var _replyElDone = document.createElement('div');
-                  _replyElDone.className = 'live-reply-content';
-                  _streamElDone.appendChild(_replyElDone);
-                }
-              }
-              // Normal foreground completion — metrics will be displayed in the final render block below
-              break;
-            }
-            try {
-              const json = JSON.parse(data);
-              // Handle SSE error events (e.g. HTTP 404 from provider)
-              if (_nextIsError || json.status >= 400) {
-                _nextIsError = false;
-                const errMsg = json.text || json.error?.message || `Error ${json.status || 'unknown'}`;
-                console.error('Stream error:', errMsg);
-                if (spinner && spinner.element) spinner.destroy();
-                typewriterInto(roundHolder.querySelector('.body'), errMsg);
-                break;
-              }
-              if (json.delta || json.type === 'agent_prep' || json.type === 'tool_start' || json.type === 'tool_output' || json.type === 'tool_progress' || json.type === 'agent_step' || json.type === 'loop_breaker_triggered' || json.type === 'intent_nudge_exhausted' || json.type === 'doc_stream_open' || json.type === 'doc_stream_delta' || json.type === 'research_progress') {
-                clearResponseTimeout();
-                clearProcessingProbe();
-                clearFirstTokenWaitTimers();
-              }
-              if (json.type === 'agent_prep') {
-                if (!_isBg) {
+      // ── SSE dispatcher table ──────────────────────────────────────
+      // Formerly a ~35-branch else-if chain on json.type. Each handler
+      // closes over handleChatSubmit scope; `return` continues the SSE
+      // line loop (replaces the old `continue`). No behavior change.
+      // Shared live-thinking timer state: declared here because the
+      // [DONE] handler and tool_start also touch it (was var-hoisted).
+      let _thinkTimerStart = 0, _thinkTimerRAF = 0;
+      const SSE_HANDLERS = {
+        agent_prep(json) {
+                if (!_isBgNow()) {
                   _cancelThinkingTimer();
                   _replaceThinkingSpinner('Preparing agent');
                 }
-                continue;
-              }
-              if (json.delta) {
+                return;
+        },
+        research_progress(json) {
+                if (_isBgNow()) return; // Skip DOM updates in background
+                _researchingStreamIds.add(streamSessionId);
+                // Highlight research button while running
+                var _rToggle = document.getElementById('research-toggle-btn');
+                if (_rToggle) _rToggle.classList.add('research-running');
+                // Request notification permission on first research event
+                if ('Notification' in window && Notification.permission === 'default') {
+                  Notification.requestPermission();
+                }
+                // Mark session as researching in sidebar
+                var _rSid = sessionModule && sessionModule.getCurrentSessionId();
+                if (_rSid && sessionModule.markResearching) sessionModule.markResearching(_rSid);
+                const rp = json.data;
+                // Start research timer + synapse on first progress event
+                if (!_researchTimerEl && spinner && spinner.element) {
+                  _researchStartTime = rp.started_at ? rp.started_at * 1000 : Date.now();
+                  _researchAvgDuration = rp.avg_duration || null;
+                  _researchTimerEl = document.createElement('div');
+                  _researchTimerEl.className = 'research-timer';
+                  // Styles in .research-timer CSS class
+                  spinner.element.parentNode.insertBefore(_researchTimerEl, spinner.element.nextSibling);
+                  _researchTimerInterval = setInterval(() => {
+                    if (!_researchTimerEl) return;
+                    var elapsed = Math.floor((Date.now() - _researchStartTime) / 1000);
+                    var mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+                    var ss = String(elapsed % 60).padStart(2, '0');
+                    var txt = mm + ':' + ss;
+                    if (_researchAvgDuration) {
+                      var avgM = String(Math.floor(_researchAvgDuration / 60)).padStart(2, '0');
+                      var avgS = String(Math.round(_researchAvgDuration % 60)).padStart(2, '0');
+                      txt += ' / avg ' + avgM + ':' + avgS;
+                    }
+                    _researchTimerEl.textContent = txt;
+                  }, 1000);
+                  // Synapse visualization — insert right above the timer so
+                  // it sits between the spinner message and the timer line.
+                  try {
+                    _researchSynapse = createResearchSynapse(spinner.element.parentNode, {
+                      query: holder._researchQuery || rp.query || '',
+                      startedAt: _researchStartTime,
+                    });
+                    // Move it to live between spinner and timer
+                    if (_researchSynapse.element && _researchTimerEl) {
+                      spinner.element.parentNode.insertBefore(_researchSynapse.element, _researchTimerEl);
+                    }
+                  } catch (e) { console.warn('synapse init failed', e); }
+                }
+                if (_researchSynapse) {
+                  _researchSynapse.setPhase(rp.phase, rp);
+                  if (typeof rp.round === 'number') _researchSynapse.setRound(rp.round);
+                  if (typeof rp.total_sources === 'number') _researchSynapse.setSourceCount(rp.total_sources);
+                  if (rp.phase === 'error') _researchSynapse.complete();
+                }
+                if (spinner && spinner.element) {
+                  if (rp.phase === 'probing') {
+                    spinner.updateMessage(`Verifying model: ${rp.model || '?'}`);
+                  } else if (rp.phase === 'planning') {
+                    spinner.updateMessage('Analyzing question & planning research strategy');
+                  } else if (rp.phase === 'searching') {
+                    const q = rp.queries ? `${rp.queries} queries` : '';
+                    const s = rp.total_sources ? ` · ${rp.total_sources} sources` : '';
+                    spinner.updateMessage(`Round ${rp.round || '?'}: Searching${q ? ' (' + q + ')' : ''}${s}`);
+                  } else if (rp.phase === 'reading') {
+                    spinner.updateMessage(rp.title ? `Reading: ${rp.title}` : `Round ${rp.round || '?'}: Reading ${rp.new_sources || ''} pages · ${rp.total_sources || 0} sources total`);
+                  } else if (rp.phase === 'analyzing') {
+                    spinner.updateMessage(`Round ${rp.round || '?'}: Analyzing ${rp.total_findings || 0} findings`);
+                  } else if (rp.phase === 'writing') {
+                    spinner.updateMessage(`Writing report · ${rp.total_sources || 0} sources`);
+                  } else if (rp.phase === 'error') {
+                    spinner.updateMessage(rp.message || 'Search error');
+                  }
+                }
+        },
+        research_sources(json) {
+                if (_isBgNow()) {
+                  // Store sources HTML in background map
+                  if (json.data && json.data.length > 0) {
+                    _sourcesHtml = _buildSourcesBox(json.data, 'research');
+                    var bgE = _backgroundStreams.get(streamSessionId);
+                    if (bgE) bgE.sourcesHtml = _sourcesHtml;
+                  }
+                  // Clear researching indicator for this background session
+                  if (sessionModule && sessionModule.clearResearching) sessionModule.clearResearching(streamSessionId);
+                  return;
+                }
+                // Research done — clean up timer, show sources box, then spinner for LLM response
+                _clearResearchTimer();
+                holder._researchSources = json.data;
+                var _rSid2 = sessionModule && sessionModule.getCurrentSessionId();
+                if (_rSid2 && sessionModule.clearResearching) sessionModule.clearResearching(_rSid2);
+                if (json.data && json.data.length > 0) {
+                  _sourcesData = json.data; _sourcesType = 'research';
+                  _sourcesHtml = _buildSourcesBox(json.data, 'research');
+                }
+                if (document.hidden) {
+                  _notifyResearchComplete(_rSid2 || '', holder._researchQuery || '');
+                }
+        },
+        research_findings(json) {
+                if (_isBgNow()) {
+                  var bgEf = _backgroundStreams.get(streamSessionId);
+                  if (bgEf) bgEf.findingsData = json.data;
+                  return;
+                }
+                if (json.data && json.data.length > 0) {
+                  _findingsData = json.data;
+                }
+        },
+        research_done(json) {
+                // Research complete — reload session to show the persisted report
+                _clearResearchTimer();
+                if (sessionModule && sessionModule.clearResearching) {
+                  sessionModule.clearResearching(streamSessionId);
+                }
+                _researchingStreamIds.delete(streamSessionId);
+                // Small delay then reload session history which includes the full report
+                setTimeout(async () => {
+                  // Don't yank the user back to this chat if they've navigated
+                  // away (e.g. started a new chat) while research finished —
+                  // just refresh the sidebar so the report shows when they return.
+                  if (sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId() === streamSessionId) {
+                    await sessionModule.selectSession(streamSessionId);
+                  } else {
+                    await sessionModule.loadSessions();
+                  }
+                }, 500);
+                return;
+        },
+        web_sources(json) {
+                if (_isBgNow()) {
+                  if (json.data && json.data.length > 0) {
+                    _sourcesHtml = _buildSourcesBox(json.data, 'web');
+                    var bgE2 = _backgroundStreams.get(streamSessionId);
+                    if (bgE2) bgE2.sourcesHtml = _sourcesHtml;
+                  }
+                  return;
+                }
+                // Web search done — store sources for final render (don't render mid-stream)
+                holder._webSources = json.data;
+                if (json.data && json.data.length > 0) {
+                  _sourcesData = json.data; _sourcesType = 'web';
+                  _sourcesHtml = _buildSourcesBox(json.data, 'web');
+                }
+        },
+        workspace_rejected(json) {
+                // Server refused to bind the posted workspace (deleted folder,
+                // file path, sensitive dir, filesystem root). Clear the stored
+                // value so the pill stops claiming a confinement that is not in
+                // effect, and tell the user.
+                const _wsPath = (json.data && json.data.path) || '';
+                import('./workspace.js').then((m) => {
+                  const ws = m.default || m;
+                  if (ws && ws.setWorkspace) ws.setWorkspace('');
+                });
+                uiModule.showToast(
+                  `Workspace ${_wsPath || '(unknown)'} is no longer usable; running without confinement`,
+                  6000
+                );
+                return;
+        },
+        model_fallback(json) {
+                // Model went offline — switched to fallback
+                var _fbData = json.data || {};
+                uiModule.showToast(
+                  `Model ${_fbData.old_model || '?'} offline — switched to ${_fbData.new_model || '?'}`,
+                  5000
+                );
+                // Update the model picker to reflect the new model
+                if (sessionModule && sessionModule.updateModelPicker) {
+                  sessionModule.updateModelPicker();
+                }
+                return;
+        },
+        model_info(json) {
+                // Update role label with model name as soon as we know it
+                if (!_isBgNow() && holder) {
+                  const roleEl = holder.querySelector('.role');
+                  if (roleEl) {
+                    holder._requestedModel = json.requested_model || json.model || holder._requestedModel;
+                    holder._actualModel = json.model || holder._actualModel || holder._requestedModel;
+                    if (json.suffix) holder._roleSuffix = json.suffix;
+                    // Prepend character name if sent by server or set locally
+                    var _charName = json.character_name || (presetsModule.getCharacterName ? presetsModule.getCharacterName() : '');
+                    if (_charName) holder._characterName = _charName;
+                    _setRoleModelLabel(roleEl, holder._requestedModel, holder._actualModel, {
+                      suffix: holder._roleSuffix,
+                      characterName: holder._characterName,
+                    });
+                  }
+                }
+        },
+        fallback(json) {
+                // The selected model failed and another provider answered. Make
+                // it visible so a misconfigured provider is never silently
+                // masked under the selected model's name.
+                if (!_isBgNow()) {
+                  var _selM = chatRenderer.shortModel(json.selected_model || '');
+                  var _ansM = chatRenderer.shortModel(json.answered_by || '');
+                  uiModule.showToast('⚠ ' + _selM + ' failed — answered by ' + _ansM, 6000);
+                  if (holder) {
+                    var _rEl = holder.querySelector('.role');
+                    if (_rEl) {
+                      var _tsS = _rEl.querySelector('.role-timestamp');
+                      _rEl.textContent = _ansM + ' (fallback) ';
+                      _rEl.title = (json.selected_model || '') + ' failed' +
+                        (json.reason ? ': ' + json.reason : '') + ' — answered by ' + (json.answered_by || '');
+                      chatRenderer.applyModelColor(_rEl, json.answered_by);
+                      if (_tsS) _rEl.appendChild(_tsS);
+                      holder._requestedModel = json.selected_model || holder._requestedModel || modelName;
+                      const _hasResolvedActual = holder._actualModel && !chatRenderer.sameModelName(holder._actualModel, holder._requestedModel);
+                      holder._actualModel = _hasResolvedActual ? holder._actualModel : (json.answered_by || holder._actualModel || holder._requestedModel);
+                      _setRoleModelLabel(_rEl, holder._requestedModel, holder._actualModel, {
+                        suffix: holder._roleSuffix,
+                        characterName: holder._characterName,
+                        reason: json.reason,
+                      });
+                    }
+                  }
+                }
+        },
+        rounds_exhausted(json) {
+                // The agent hit the per-turn step limit while still working.
+                // Offer a Continue button instead of stalling silently.
+                // NOTE: append to the chat-history container (bottom), NOT the
+                // message body — the body innerHTML is re-rendered at stream
+                // finalize, which would wipe a note placed inside it.
+                const _chatBox = document.getElementById('chat-history');
+                if (!_isBgNow() && _chatBox) {
+                  // Drop any prior box so repeated cap-hits each get a fresh
+                  // Continue at the bottom (multiple continues in a row).
+                  const _old = _chatBox.querySelector('.rounds-exhausted');
+                  if (_old) _old.remove();
+                  const note = document.createElement('div');
+                  note.className = 'stopped-indicator rounds-exhausted';
+                  const label = document.createElement('span');
+                  label.className = 'rounds-exhausted-label';
+                  label.textContent = `Reached the ${json.rounds || ''}-step limit — not finished.`;
+                  note.appendChild(label);
+                  const contBtn = document.createElement('button');
+                  contBtn.className = 'continue-btn';
+                  contBtn.title = 'Continue the task';
+                  contBtn.textContent = 'Continue ▸';
+                  const _holder = currentHolder;
+                  contBtn.addEventListener('click', () => {
+                    note.remove();
+                    _hideUserBubble = true;
+                    _pendingContinue = _holder;
+                    const msgInput = uiModule.el('message');
+                    if (msgInput) {
+                      msgInput.value = 'You hit the step limit before finishing — the task is not complete. Continue from exactly where you left off and keep going until it is done. Do NOT repeat work already done.';
+                      const sb = document.querySelector('.send-btn');
+                      if (sb) sb.click();
+                    }
+                  });
+                  note.appendChild(contBtn);
+                  _chatBox.appendChild(note);
+                  try { note.scrollIntoView({ block: 'end', behavior: 'smooth' }); } catch (_) { uiModule.scrollHistory && uiModule.scrollHistory(); }
+                }
+        },
+        model_actual(json) {
+                if (!_isBgNow() && holder) {
+                  holder._requestedModel = json.requested_model || holder._requestedModel || modelName;
+                  holder._actualModel = json.model || holder._actualModel || holder._requestedModel;
+                  _setRoleModelLabel(holder.querySelector('.role'), holder._requestedModel, holder._actualModel, {
+                    suffix: holder._roleSuffix,
+                    characterName: holder._characterName,
+                  });
+                }
+        },
+        attachments(json) {
+                if (_isBgNow()) return;
+                // Update user bubble — replace file chips with image previews
+                const _ub = document.querySelector('#chat-history .msg-user:last-of-type');
+                if (_ub) {
+                  const _aw = _ub.querySelector('.attach-cards');
+                  if (_aw) {
+                    for (const _att of json.data) {
+                      const _isImg = (_att.mime || '').startsWith('image/') || /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i.test(_att.name || '');
+                      if (_isImg && _att.id) {
+                        // Skip if we already have a preview for this file id —
+                        // on a regenerate the original user bubble keeps its
+                        // photo and the backend re-emits the attachment event
+                        // for the same id; without this guard we'd append a
+                        // duplicate (which visually pushes the real photo off).
+                        const _existingPreview = _aw.querySelector('[data-file-id="' + _att.id + '"]');
+                        if (_existingPreview) {
+                          if (_att.vision_model && !_existingPreview.querySelector('.attach-vision-model')) {
+                            const _vl = document.createElement('div');
+                            _vl.className = 'attach-vision-model';
+                            _vl.textContent = 'Vision: ' + String(_att.vision_model).split('/').pop();
+                            const _name = _existingPreview.querySelector('.attach-image-name');
+                            if (_name) _existingPreview.insertBefore(_vl, _name);
+                            else _existingPreview.appendChild(_vl);
+                          }
+                          continue;
+                        }
+                        const _card = _aw.querySelector('.attach-card[data-name="' + (_att.name || '').replace(/"/g, '\\"') + '"]');
+                        const _iw = document.createElement('div');
+                        _iw.className = 'attach-image-preview';
+                        _iw.dataset.fileId = _att.id;
+                        _iw.style.cursor = 'pointer';
+                        _iw.onclick = () => window.open(API_BASE + '/api/upload/' + _att.id, '_blank');
+                        const _im = document.createElement('img');
+                        _im.src = API_BASE + '/api/upload/' + _att.id;
+                        _im.alt = _att.name || 'Image';
+                        _im.style.cssText = 'max-width:300px;max-height:200px;border-radius:6px;display:block;';
+                        _iw.appendChild(_im);
+                        if (_att.vision_model) {
+                          const _vl = document.createElement('div');
+                          _vl.className = 'attach-vision-model';
+                          _vl.textContent = 'Vision: ' + String(_att.vision_model).split('/').pop();
+                          _iw.appendChild(_vl);
+                        }
+                        if (_att.name) {
+                          const _nm = document.createElement('div');
+                          _nm.className = 'attach-image-name';
+                          _nm.textContent = _att.name;
+                          _iw.appendChild(_nm);
+                        }
+                        if (_card) _card.replaceWith(_iw); else _aw.appendChild(_iw);
+                      } else {
+                        const _card = _aw.querySelector('.attach-card[data-name="' + (_att.name || '').replace(/"/g, '\\"') + '"]');
+                        if (_card && _att.id) {
+                          _card.dataset.fileId = _att.id;
+                          _card.style.cursor = 'pointer';
+                          _card.onclick = () => window.open(API_BASE + '/api/upload/' + _att.id, '_blank');
+                        }
+                      }
+                    }
+                  }
+                  // Caption / OCR text is no longer rendered as an inline
+                  // collapsible on the user bubble — the user can view/edit
+                  // it via the "Caption" button on the photo thumbnail.
+                }
+        },
+        rag_sources(json) {
+                if (_isBgNow()) return;
+                holder._ragSources = json.data;
+        },
+        memories_used(json) {
+                if (_isBgNow()) return;
+                holder._memoriesUsed = json.data;
+        },
+        compacted(json) {
+                if (!_isBgNow()) {
+                  uiModule.showToast('Context compacted — older messages summarized');
+                }
+        },
+        context_trimmed(json) {
+                if (!_isBgNow()) {
+                  const d = json.data || {};
+                  const before = Number(d.messages_before || 0);
+                  const after = Number(d.messages_after || 0);
+                  const detail = before && after && before > after ? ` (${after}/${before} messages sent)` : '';
+                  uiModule.showToast(`Context trimmed for this model${detail}`);
+                }
+        },
+        metrics(json) {
+                metrics = json.data;
+                if (!_isBgNow() && holder && metrics) {
+                  holder._requestedModel = metrics.requested_model || holder._requestedModel || modelName;
+                  holder._actualModel = metrics.model || holder._actualModel || holder._requestedModel;
+                }
+                if (_isBgNow()) {
+                  var bgM = _backgroundStreams.get(streamSessionId);
+                  if (bgM) bgM.metrics = json.data;
+                  return;
+                }
+                if (metrics) {
+                  const metricsTarget = _metricsTargetForTurn();
+                  if (metricsTarget) displayMetrics(metricsTarget, metrics);
+                }
+
+        },
+        message_saved(json) {
+                // Wire the persisted DB id onto the just-streamed bubble so it
+                // can be edited/deleted immediately, without reloading the chat.
+                if (_isBgNow()) return;
+                if (currentHolder && json.id) currentHolder.dataset.dbId = json.id;
+
+        },
+        tool_start(json) {
+                if (_isBgNow()) return;
+                _cancelThinkingTimer();
+                _removeThinkingSpinner();
+                // Force-close thinking if still open — tools are real content, not thinking
+                if (isThinking) {
+                  isThinking = false;
+                  cancelAnimationFrame(_thinkTimerRAF);
+                  var _elapsed2 = thinkingStartTime ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : null;
+                  if (_liveThinkHeader) _liveThinkHeader.textContent = 'View thinking process';
+                  if (_liveThinkTimerEl) _liveThinkTimerEl.textContent = _elapsed2 ? _formatThinkStats(_elapsed2, _liveThinkTokenCount) : '';
+                  if (_liveThinkSpinnerSlot) _liveThinkSpinnerSlot.remove();
+                  // Assign stable IDs
+                  var _thinkId2 = 'think-' + Date.now();
+                  var _liveHdr2 = _liveThinkSection && _liveThinkSection.querySelector('.thinking-header');
+                  if (_liveHdr2) _liveHdr2.dataset.thinkingId = _thinkId2;
+                  if (_liveThinkContent) _liveThinkContent.id = _thinkId2;
+                  if (_liveThinkToggle) _liveThinkToggle.id = _thinkId2 + '-toggle';
+                }
+                _renderStream();
+                // --- Finalize current text bubble (only once per round) ---
+                if (!roundFinalized) {
+                  roundFinalized = true;
+                  if (spinner && spinner.element) spinner.destroy();
+                  const dt = markdownModule.normalizeThinkingMarkup(_streamDisplayText(roundText));
+                  if (dt.trim()) {
+                    var _roundBody = roundHolder.querySelector('.body');
+                    var _roundContentEl = _ensureStreamLayout(_roundBody);
+                    _roundContentEl.style.minHeight = '';  // clear streaming inflate
+                    _roundContentEl.innerHTML = markdownModule.processWithThinking(markdownModule.squashOutsideCode(dt));
+                    if (window.hljs) roundHolder.querySelectorAll('pre code').forEach((b) => window.hljs.highlightElement(b));
+                  } else {
+                    roundHolder.style.display = 'none';
+                  }
+                }
+
+                // Track tool name for contextual spinner labels
+                _lastToolName = json.tool || '';
+
+                // --- Thread timeline: group tools in a thread container ---
+                const cmd = json.command || '';
+                const chatBox = document.getElementById('chat-history');
+                // Find existing thread to append to — check last few children
+                // (agent_step may insert an empty msg-ai between tool rounds)
+                let threadWrap = null;
+                for (let ci = chatBox.children.length - 1; ci >= Math.max(0, chatBox.children.length - 5); ci--) {
+                  const child = chatBox.children[ci];
+                  if (child.classList.contains('agent-thread')) {
+                    threadWrap = child;
+                    break;
+                  }
+                  // Skip hidden (empty) bubbles and thinking spinners
+                  if (child.style.display === 'none' || child.classList.contains('agent-thinking-dots')) continue;
+                  // Stop if we hit a visible message bubble (has real content between tools)
+                  if (child.classList.contains('msg')) break;
+                }
+                if (threadWrap) {
+                  // Continuing an existing thread — remove has-bottom (agent_step may have set it
+                  // expecting text, but we got more tools instead)
+                  threadWrap.classList.remove('has-bottom');
+                } else {
+                  threadWrap = document.createElement('div');
+                  threadWrap.className = 'agent-thread';
+                  // Extend line up to connect to chat bubble above (if there is one)
+                  const _prevSib = chatBox.lastElementChild;
+                  const _hasBubbleAbove = _prevSib && (_prevSib.classList.contains('msg') && _prevSib.style.display !== 'none');
+                  const _hasThreadAbove = _prevSib && _prevSib.classList.contains('agent-thread');
+                  if (_hasBubbleAbove || _hasThreadAbove || (roundText.trim() && roundHolder && roundHolder.style.display !== 'none')) {
+                    threadWrap.classList.add('has-top');
+                  }
+                  chatBox.appendChild(threadWrap);
+                }
+                threadWrap.classList.add('streaming');
+                lastToolThread = threadWrap;
+                const toolLabel = _toolLabels[json.tool.toLowerCase()] || json.tool;
+                const toolIcon = _toolIcons[json.tool.toLowerCase()] || '\u25B6';
+                const node = document.createElement('div')
+                node.className = 'agent-thread-node running';
+                const cmdHtml = cmd ? `<pre class="agent-thread-cmd">${esc(cmd)}</pre>` : '';
+                node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${toolIcon}</span><span class="agent-thread-tool">${esc(toolLabel)}</span><span class="agent-thread-wave">▁▂▃</span></div><div class="agent-thread-content">${cmdHtml}</div>`;
+                // Expand/collapse via delegated click handler (init at module bottom).
+                threadWrap.appendChild(node);
+                currentToolBubble = node;
+                // Single 500ms ticker drives wave + elapsed (see helpers).
+                _startToolNodeTicker(node);
+                uiModule.scrollHistory();
+
+        },
+        tool_progress(json) {
+                // Long-running subprocess (bash, python) is still in
+                // flight — refresh the running tool card with the
+                // elapsed-time + tail of its stdout/stderr so the
+                // user doesn't stare at a blind "Running…" spinner.
+                if (_isBgNow()) return;
+                if (!currentToolBubble) return;
+                // The single node ticker (started in tool_start) owns the
+                // elapsed display; here we just surface the live output tail.
+                const tailStr = (json.tail || '').trim();
+                if (tailStr) {
+                  let tailEl = currentToolBubble.querySelector('.agent-thread-tail');
+                  if (!tailEl) {
+                    tailEl = document.createElement('pre');
+                    tailEl.className = 'agent-thread-tail';
+                    tailEl.style.cssText = 'margin:4px 0 0;padding:6px 8px;font-size:11px;background:rgba(0,0,0,0.18);border-radius:4px;max-height:140px;overflow:auto;white-space:pre-wrap;opacity:0.85;';
+                    const content = currentToolBubble.querySelector('.agent-thread-content');
+                    if (content) content.appendChild(tailEl);
+                  }
+                  tailEl.textContent = tailStr;
+                  tailEl.scrollTop = tailEl.scrollHeight;
+                }
+                uiModule.scrollHistory();
+
+        },
+        tool_output(json) {
+                if (_isBgNow()) return;
+                // --- Update the current thread node ---
+                if (currentToolBubble) {
+                  // Stop the single 500ms node ticker.
+                  _clearToolNodeTickers(currentToolBubble);
+                  const ok = (json.exit_code === 0 || json.exit_code == null);
+                  // Preserve the user's .open choice across the innerHTML
+                  // rewrite \u2014 otherwise expanding a running tool collapses
+                  // it as soon as the result lands, forcing the user to
+                  // click again. Click handling is delegated (see init at
+                  // bottom of file) so no per-node listener needed.
+                  const _wasOpen = currentToolBubble.classList.contains('open');
+                  currentToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error') + (_wasOpen ? ' open' : '');
+                  // Canonical tool/diff renderer (also used by history restore).
+                  // Includes Output, screenshot, and diff <details>.
+                  currentToolBubble.innerHTML = chatRenderer.buildToolNodeInnerHtml(json);
+                  // Reset so thinking spinner between tools says "Thinking" not the old tool's label
+                  _lastToolName = '';
+                  uiModule.scrollHistory();
+                }
+                // --- Render generated images inline ---
+                if (json.image_url) {
+                  const chatBox = document.getElementById('chat-history');
+                  chatBox.appendChild(_buildImageBubble(json.image_url, json.image_prompt, json.image_model, json.image_size, json.image_quality, json.image_id));
+                  uiModule.scrollHistory();
+                  // Notify gallery to refresh if open
+                  window.dispatchEvent(new CustomEvent('gallery-refresh'));
+                }
+                // --- Reload sessions after manage_session tool (delete, rename, etc.) ---
+                // Debounce so bulk deletes don't fire loadSessions per call
+                if (json.tool === 'manage_session' && sessionModule) {
+                  if (window._manageSessionTimer) clearTimeout(window._manageSessionTimer);
+                  window._manageSessionTimer = setTimeout(() => sessionModule.loadSessions(), 1000);
+                }
+                // --- Live-refresh the calendar after manage_calendar (add/edit/delete) ---
+                // so a new event shows without the user hard-refreshing. Debounced
+                // so a batch of event creates only triggers one refetch.
+                if (json.tool === 'manage_calendar') {
+                  if (window._manageCalTimer) clearTimeout(window._manageCalTimer);
+                  window._manageCalTimer = setTimeout(
+                    () => window.dispatchEvent(new CustomEvent('calendar-refresh')), 600);
+                }
+                // --- Live-refresh Memories after manage_memory changes ---
+                if (json.tool === 'manage_memory') {
+                  if (window._manageMemoryTimer) clearTimeout(window._manageMemoryTimer);
+                  window._manageMemoryTimer = setTimeout(
+                    () => window.dispatchEvent(new CustomEvent('memory-refresh')), 600);
+                }
+                // --- Apply UI control actions embedded in tool_output ---
+                if (json.ui_event) {
+                  chatStream.handleUIControl(json);
+                }
+                // Native document tool calls can arrive as a completed
+                // tool_output without the text-fence streaming path. Open the
+                // document editor from the real doc metadata carried on the
+                // tool result so "create a document" never leaves only a chat
+                // link behind if the later doc_update event is missed.
+                if (
+                  documentModule
+                  && json.doc_id
+                  && ['create_document', 'update_document', 'edit_document'].includes(json.tool)
+                ) {
+                  documentModule.handleDocUpdate({
+                    type: 'doc_update',
+                    doc_id: json.doc_id,
+                    title: json.document_title || '',
+                    language: json.document_language || '',
+                    version: json.document_version || 1,
+                    content: json.document_content || '',
+                  });
+                }
+
+                // Schedule a thinking spinner between tool rounds (short delay so
+                // agent_step in the same SSE chunk can cancel it before it shows)
+                _scheduleThinkingSpinner();
+                uiModule.scrollHistory();
+
+        },
+        doc_stream_open(json) {
+                if (_isBgNow()) {
+                  // Store for replay when user returns to this session
+                  var bgDocOpen = _backgroundStreams.get(streamSessionId);
+                  if (bgDocOpen) {
+                    bgDocOpen._docTitle = json.title || '';
+                    bgDocOpen._docLang = json.language || '';
+                    bgDocOpen._docContent = '';
+                  }
+                  return;
+                }
+                if (documentModule) {
+                  documentModule.streamDocOpen(json.title || '', json.language || '');
+                }
+
+        },
+        doc_stream_delta(json) {
+                if (_isBgNow()) {
+                  var bgDocDelta = _backgroundStreams.get(streamSessionId);
+                  if (bgDocDelta) bgDocDelta._docContent = json.content || '';
+                  return;
+                }
+                if (documentModule) {
+                  documentModule.streamDocDelta(json.content || '');
+                }
+
+        },
+        doc_update(json) {
+                // doc_update means the server already saved the doc to DB.
+                if (_isBgNow()) return;
+                if (documentModule) {
+                  documentModule.handleDocUpdate(json);
+                }
+
+        },
+        doc_suggestions(json) {
+                if (_isBgNow()) return;
+                if (documentModule && documentModule.handleDocSuggestions) {
+                  documentModule.handleDocSuggestions(json);
+                }
+
+        },
+        ui_control(json) {
+                if (_isBgNow()) return;
+                chatStream.handleUIControl(json.data || {});
+
+        },
+        ask_user(json) {
+                if (_isBgNow()) return;
+                // The agent posed a multiple-choice question; the turn has ended.
+                // Use the shared history renderer so the live and restored
+                // versions have identical behavior.
+                _cancelThinkingTimer();
+                _removeThinkingSpinner();
+                chatRenderer.renderAskUserCard(json.data || {});
+
+        },
+        plan_update(json) {
+                if (_isBgNow()) return;
+                // Agent wrote back to the plan (ticked a step / revised). Update
+                // the stored plan + live-refresh the docked plan window.
+                const _pu = (json.data && json.data.plan) ? json.data.plan : '';
+                if (_pu) _setStoredPlan(_pu);
+
+        },
+        agent_step(json) {
+                if (_isBgNow()) return;
+                _cancelThinkingTimer();
+                _removeThinkingSpinner();
+                _renderStream();
+                // Mark thread as connected to bubble below
+                const _activeThread = document.querySelector('.agent-thread.streaming');
+                if (_activeThread) {
+                  _activeThread.classList.add('has-bottom');
+                }
+                // --- New round: create fresh AI bubble with spinner ---
+                currentToolBubble = null;
+                roundFinalized = false;
+                isThinking = false;
+                _docFenceOpened = false;
+                _docFenceContentStart = -1;
+                const box = document.getElementById('chat-history');
+                const newWrap = document.createElement('div');
+                newWrap.className = 'msg msg-ai msg-continuation streaming';
+                // Add model name label
+                const newRole = document.createElement('div');
+                newRole.className = 'role';
+                const metaS = sessionModule.getSessions().find(s => s.id === streamSessionId);
+                const _roundRequested = holder?._requestedModel || metaS?.model;
+                const _roundActual = holder?._actualModel || _roundRequested;
+                newRole.textContent = chatRenderer.modelRouteLabel(_roundRequested, _roundActual) || '';
+                chatRenderer.applyModelColor(newRole, _roundActual);
+                newWrap.appendChild(newRole);
+                const newBody = document.createElement('div');
+                newBody.className = 'body';
+                newWrap.appendChild(newBody);
+                box.appendChild(newWrap);
+                roundHolder = newWrap;
+                roundText = '';
+                // Destroy any previous spinner before creating new one
+                if (spinner && spinner.element) spinner.destroy();
+                // Show spinner while waiting for text (skip for research — has its own progress)
+                if (!_researchingStreamIds.has(streamSessionId)) {
+                  spinner = spinnerModule.create('Generating response', 'right', 'wave');
+                  newBody.appendChild(spinner.createElement());
+                  spinner.start();
+                }
+                if (streamingTTS) window.aiTTSManager._streamSentencesSent = 0;
+                uiModule.scrollHistory();
+        },
+        budget_exceeded(json) {
+                if (_isBgNow()) return;
+                _cancelThinkingTimer();
+                _removeThinkingSpinner();
+                const budgetDiv = document.createElement('div');
+                budgetDiv.style.cssText = 'font-size:11px;opacity:0.6;font-style:italic;padding:4px 8px;margin:4px 0;';
+                budgetDiv.textContent = `Tool budget reached (${json.used}/${json.limit} calls). Agent stopped.`;
+                const chatBox = document.getElementById('chat-history');
+                chatBox.appendChild(budgetDiv);
+
+        },
+        loop_breaker_triggered(json) {
+                if (_isBgNow()) return;
+                _cancelThinkingTimer();
+                _removeThinkingSpinner();
+                const guardDiv = document.createElement('div');
+                guardDiv.className = 'stopped-indicator';
+                const guardLabel = document.createElement('span');
+                guardLabel.textContent = `[Agent guard: ${json.message || json.reason || 'internal stop'}]`;
+                guardDiv.appendChild(guardLabel);
+                const targetBody = roundHolder && roundHolder.querySelector('.body');
+                if (targetBody) targetBody.appendChild(guardDiv);
+                else {
+                  const chatBox = document.getElementById('chat-history');
+                  if (chatBox) chatBox.appendChild(guardDiv);
+                }
+
+        },
+        teacher_takeover(json) {
+                if (_isBgNow()) return;
+                _cancelThinkingTimer();
+                _removeThinkingSpinner();
+                // Finalize any in-flight bubble so the takeover banner
+                // separates student attempt from teacher attempt.
+                if (spinner && spinner.element) { try { spinner.destroy(); } catch(_){} spinner = null; }
+                const chatBox = document.getElementById('chat-history');
+                const banner = document.createElement('div');
+                banner.className = 'teacher-takeover-banner';
+                banner.style.cssText = 'margin:10px 0;padding:8px 12px;border-left:3px solid #c08a3e;background:rgba(192,138,62,0.08);font-size:12px;color:var(--fg);border-radius:4px;';
+                const teacherName = json.teacher_model || 'teacher';
+                const why = json.student_failure ? ` &mdash; <span style="opacity:0.7">${esc(json.student_failure)}</span>` : '';
+                banner.innerHTML = `<strong>Teacher takeover:</strong> escalating to <code>${esc(teacherName)}</code>${why}`;
+                chatBox.appendChild(banner);
+                // Reset round bubble state so the teacher's first text starts a new bubble
+                roundHolder = null;
+                roundText = '';
+                roundFinalized = false;
+                currentToolBubble = null;
+                uiModule.scrollHistory();
+
+        },
+        skill_saved(json) {
+                if (_isBgNow()) return;
+                const chatBox = document.getElementById('chat-history');
+                const note = document.createElement('div');
+                note.className = 'skill-saved-note';
+                note.style.cssText = 'margin:6px 0;padding:6px 10px;border-left:3px solid #4a8a4a;background:rgba(74,138,74,0.07);font-size:12px;color:var(--fg);border-radius:4px;';
+                note.innerHTML = `<strong>Skill learned:</strong> <code>${esc(json.name || '')}</code>${json.category ? ` <span style="opacity:0.6">[${esc(json.category)}]</span>` : ''}`;
+                chatBox.appendChild(note);
+                uiModule.scrollHistory();
+
+        },
+        escalation_failed(json) {
+                if (_isBgNow()) return;
+                const chatBox = document.getElementById('chat-history');
+                const note = document.createElement('div');
+                note.className = 'escalation-failed-note';
+                note.style.cssText = 'margin:6px 0;padding:6px 10px;border-left:3px solid #8a4a4a;background:rgba(138,74,74,0.07);font-size:12px;color:var(--fg);border-radius:4px;';
+                const label = json.type === 'escalation_failed' ? 'Teacher could not solve it' : 'Skill not saved';
+                note.innerHTML = `<strong>${label}:</strong> <span style="opacity:0.75">${esc(json.reason || '')}</span>`;
+                chatBox.appendChild(note);
+                uiModule.scrollHistory();
+
+        },
+      };
+      SSE_HANDLERS.intent_nudge_exhausted = SSE_HANDLERS.loop_breaker_triggered;
+      SSE_HANDLERS.skill_save_failed = SSE_HANDLERS.escalation_failed;
+      // Text-delta handler (was `if (json.delta)` in the old chain).
+      function _handleSseDelta(json) {
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 // Text arrived after tools — connect thread line to this bubble
@@ -1856,15 +2509,15 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 	                accumulated += _delta;
 	                currentAccumulated = accumulated; // Update global tracker
 	                // First token arrived — switch stop button from processing to streaming
-	                if (wasEmpty && submitBtn && !_isBg) {
+	                if (wasEmpty && submitBtn && !_isBgNow()) {
 	                  submitBtn.dataset.phase = 'receiving';
                 }
 
                 // Update background map if running in background
-                if (_isBg) {
+                if (_isBgNow()) {
                   var bgEntry = _backgroundStreams.get(streamSessionId);
 	                  if (bgEntry) bgEntry.accumulated = accumulated;
-	                  continue; // Skip all DOM writes
+	                  return; // Skip all DOM writes
 	                }
 	                _ensureVisibleRoundForDelta();
 	                roundText += _delta;
@@ -1983,8 +2636,8 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                   _liveThinkTimerEl = thinkContent.querySelector('.live-think-timer');
                   _liveThinkToggle = thinkContent.querySelector('.live-think-toggle');
                   // Live timer
-                  var _thinkTimerStart = Date.now();
-                  var _thinkTimerRAF = 0;
+                  _thinkTimerStart = Date.now();
+                  _thinkTimerRAF = 0;
                   function _tickThinkTimer() {
                     if (!_liveThinkTimerEl || !_liveThinkTimerEl.isConnected) return;
                     var s = ((Date.now() - _thinkTimerStart) / 1000).toFixed(1);
@@ -2026,7 +2679,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                     }
                   }
                   if (_followThinking) uiModule.scrollHistory();
-                  continue;
+                  return;
                 } else if (!hasUnclosedThink && isThinking) {
                   isThinking = false;
                   var _thinkTextLen = _liveThinkInner ? _liveThinkInner.textContent.trim().length : 0;
@@ -2048,7 +2701,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                     if (spinner && spinner.element) spinner.destroy();
                     _renderStream();
                     _scheduleThinkingSpinner();
-                    continue;
+                    return;
                   }
 
                   // Thinking ended — smooth transition: update header, pause, then collapse
@@ -2084,6 +2737,12 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                   if (_liveThinkContent) _liveThinkContent.id = _thinkId;
                   if (_liveThinkToggle) _liveThinkToggle.id = _thinkId + '-toggle';
 
+                  // Collapse the thinking box now that the reply is starting:
+                  // thinking streams visibly live, but rests collapsed by
+                  // default — the user re-opens it via the arrow toggle.
+                  if (_liveThinkContent) _liveThinkContent.classList.remove('expanded');
+                  if (_liveThinkToggle) _liveThinkToggle.classList.remove('expanded');
+
                   // Append a container for the reply text that follows thinking
                   var _streamEl = _liveThinkSection ? _liveThinkSection.parentElement : roundHolder.querySelector('.stream-content');
                   if (!_streamEl) _streamEl = roundHolder.querySelector('.body');
@@ -2103,818 +2762,150 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                   // Feed streaming TTS with accumulated text
                   if (streamingTTS) window.aiTTSManager.streamingUpdate(roundText);
                 }
-              } else if (json.type === 'research_progress') {
-                if (_isBg) continue; // Skip DOM updates in background
-                _researchingStreamIds.add(streamSessionId);
-                // Highlight research button while running
-                var _rToggle = document.getElementById('research-toggle-btn');
-                if (_rToggle) _rToggle.classList.add('research-running');
-                // Request notification permission on first research event
-                if ('Notification' in window && Notification.permission === 'default') {
-                  Notification.requestPermission();
-                }
-                // Mark session as researching in sidebar
-                var _rSid = sessionModule && sessionModule.getCurrentSessionId();
-                if (_rSid && sessionModule.markResearching) sessionModule.markResearching(_rSid);
-                const rp = json.data;
-                // Start research timer + synapse on first progress event
-                if (!_researchTimerEl && spinner && spinner.element) {
-                  _researchStartTime = rp.started_at ? rp.started_at * 1000 : Date.now();
-                  _researchAvgDuration = rp.avg_duration || null;
-                  _researchTimerEl = document.createElement('div');
-                  _researchTimerEl.className = 'research-timer';
-                  // Styles in .research-timer CSS class
-                  spinner.element.parentNode.insertBefore(_researchTimerEl, spinner.element.nextSibling);
-                  _researchTimerInterval = setInterval(() => {
-                    if (!_researchTimerEl) return;
-                    var elapsed = Math.floor((Date.now() - _researchStartTime) / 1000);
-                    var mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
-                    var ss = String(elapsed % 60).padStart(2, '0');
-                    var txt = mm + ':' + ss;
-                    if (_researchAvgDuration) {
-                      var avgM = String(Math.floor(_researchAvgDuration / 60)).padStart(2, '0');
-                      var avgS = String(Math.round(_researchAvgDuration % 60)).padStart(2, '0');
-                      txt += ' / avg ' + avgM + ':' + avgS;
-                    }
-                    _researchTimerEl.textContent = txt;
-                  }, 1000);
-                  // Synapse visualization — insert right above the timer so
-                  // it sits between the spinner message and the timer line.
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+        _lastReaderActivity = Date.now();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          // Log SSE event types (e.g. "event: error") for debugging
+          if (line.startsWith('event: ')) {
+            const evtType = line.slice(7).trim();
+            if (evtType === 'error') _nextIsError = true;
+            continue;
+          }
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data && data !== '[DONE]') markFirstVisibleOutput();
+
+            // (thinking spinner removal is handled in agent_step / tool_start / content handlers)
+
+            // Background detection: are we on a different session?
+            const _isBg = (sessionModule.getCurrentSessionId() !== streamSessionId);
+
+            // On first transition to background, store state in map
+            if (_isBg && !_backgroundStreams.has(streamSessionId)) {
+              _backgroundStreams.set(streamSessionId, {
+                status: 'running',
+                accumulated: accumulated,
+                sourcesHtml: _sourcesHtml,
+                findingsData: null,
+                abortCtrl: currentAbort,
+                query: streamQuery,
+                metrics: null,
+              });
+              if (sessionModule && sessionModule.markStreaming) {
+                sessionModule.markStreaming(streamSessionId);
+              }
+            }
+
+            if (data === '[DONE]') {
+              _streamSawDone = true;
+              // Always update background map if entry exists (even if user switched back)
+              var bgDone = _backgroundStreams.get(streamSessionId);
+              if (bgDone && !_isBg) {
+                _backgroundStreams.delete(streamSessionId);
+              } else if (bgDone) {
+                bgDone.status = 'completed';
+                bgDone.accumulated = accumulated;
+                if (_isBg) {
                   try {
-                    _researchSynapse = createResearchSynapse(spinner.element.parentNode, {
-                      query: holder._researchQuery || rp.query || '',
-                      startedAt: _researchStartTime,
-                    });
-                    // Move it to live between spinner and timer
-                    if (_researchSynapse.element && _researchTimerEl) {
-                      spinner.element.parentNode.insertBefore(_researchSynapse.element, _researchTimerEl);
-                    }
-                  } catch (e) { console.warn('synapse init failed', e); }
-                }
-                if (_researchSynapse) {
-                  _researchSynapse.setPhase(rp.phase, rp);
-                  if (typeof rp.round === 'number') _researchSynapse.setRound(rp.round);
-                  if (typeof rp.total_sources === 'number') _researchSynapse.setSourceCount(rp.total_sources);
-                  if (rp.phase === 'error') _researchSynapse.complete();
-                }
-                if (spinner && spinner.element) {
-                  if (rp.phase === 'probing') {
-                    spinner.updateMessage(`Verifying model: ${rp.model || '?'}`);
-                  } else if (rp.phase === 'planning') {
-                    spinner.updateMessage('Analyzing question & planning research strategy');
-                  } else if (rp.phase === 'searching') {
-                    const q = rp.queries ? `${rp.queries} queries` : '';
-                    const s = rp.total_sources ? ` · ${rp.total_sources} sources` : '';
-                    spinner.updateMessage(`Round ${rp.round || '?'}: Searching${q ? ' (' + q + ')' : ''}${s}`);
-                  } else if (rp.phase === 'reading') {
-                    spinner.updateMessage(rp.title ? `Reading: ${rp.title}` : `Round ${rp.round || '?'}: Reading ${rp.new_sources || ''} pages · ${rp.total_sources || 0} sources total`);
-                  } else if (rp.phase === 'analyzing') {
-                    spinner.updateMessage(`Round ${rp.round || '?'}: Analyzing ${rp.total_findings || 0} findings`);
-                  } else if (rp.phase === 'writing') {
-                    spinner.updateMessage(`Writing report · ${rp.total_sources || 0} sources`);
-                  } else if (rp.phase === 'error') {
-                    spinner.updateMessage(rp.message || 'Search error');
+                    _notifyStreamComplete(streamSessionId, streamQuery);
+                    _insertStreamDoneToast(streamSessionId, streamQuery);
+                  } catch (toastErr) {
+                    console.warn('[bg-stream] Toast/notification error:', toastErr);
                   }
                 }
-              } else if (json.type === 'research_sources') {
-                if (_isBg) {
-                  // Store sources HTML in background map
-                  if (json.data && json.data.length > 0) {
-                    _sourcesHtml = _buildSourcesBox(json.data, 'research');
-                    var bgE = _backgroundStreams.get(streamSessionId);
-                    if (bgE) bgE.sourcesHtml = _sourcesHtml;
+                // CRITICAL: always mark stream complete for the sidebar dot
+                try {
+                  if (sessionModule && sessionModule.markStreamComplete) {
+                    sessionModule.markStreamComplete(streamSessionId);
                   }
-                  // Clear researching indicator for this background session
-                  if (sessionModule && sessionModule.clearResearching) sessionModule.clearResearching(streamSessionId);
-                  continue;
+                } catch (dotErr) {
+                  console.warn('[bg-stream] markStreamComplete error:', dotErr);
                 }
-                // Research done — clean up timer, show sources box, then spinner for LLM response
-                _clearResearchTimer();
-                holder._researchSources = json.data;
-                var _rSid2 = sessionModule && sessionModule.getCurrentSessionId();
-                if (_rSid2 && sessionModule.clearResearching) sessionModule.clearResearching(_rSid2);
-                if (json.data && json.data.length > 0) {
-                  _sourcesData = json.data; _sourcesType = 'research';
-                  _sourcesHtml = _buildSourcesBox(json.data, 'research');
-                }
-                if (document.hidden) {
-                  _notifyResearchComplete(_rSid2 || '', holder._researchQuery || '');
-                }
-              } else if (json.type === 'research_findings') {
-                if (_isBg) {
-                  var bgEf = _backgroundStreams.get(streamSessionId);
-                  if (bgEf) bgEf.findingsData = json.data;
-                  continue;
-                }
-                if (json.data && json.data.length > 0) {
-                  _findingsData = json.data;
-                }
-              } else if (json.type === 'research_done') {
-                // Research complete — reload session to show the persisted report
-                _clearResearchTimer();
-                if (sessionModule && sessionModule.clearResearching) {
-                  sessionModule.clearResearching(streamSessionId);
-                }
-                _researchingStreamIds.delete(streamSessionId);
-                // Small delay then reload session history which includes the full report
-                setTimeout(async () => {
-                  // Don't yank the user back to this chat if they've navigated
-                  // away (e.g. started a new chat) while research finished —
-                  // just refresh the sidebar so the report shows when they return.
-                  if (sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId() === streamSessionId) {
-                    await sessionModule.selectSession(streamSessionId);
-                  } else {
-                    await sessionModule.loadSessions();
-                  }
-                }, 500);
-                continue;
-              } else if (json.type === 'web_sources') {
-                if (_isBg) {
-                  if (json.data && json.data.length > 0) {
-                    _sourcesHtml = _buildSourcesBox(json.data, 'web');
-                    var bgE2 = _backgroundStreams.get(streamSessionId);
-                    if (bgE2) bgE2.sourcesHtml = _sourcesHtml;
-                  }
-                  continue;
-                }
-                // Web search done — store sources for final render (don't render mid-stream)
-                holder._webSources = json.data;
-                if (json.data && json.data.length > 0) {
-                  _sourcesData = json.data; _sourcesType = 'web';
-                  _sourcesHtml = _buildSourcesBox(json.data, 'web');
-                }
-              } else if (json.type === 'workspace_rejected') {
-                // Server refused to bind the posted workspace (deleted folder,
-                // file path, sensitive dir, filesystem root). Clear the stored
-                // value so the pill stops claiming a confinement that is not in
-                // effect, and tell the user.
-                const _wsPath = (json.data && json.data.path) || '';
-                import('./workspace.js').then((m) => {
-                  const ws = m.default || m;
-                  if (ws && ws.setWorkspace) ws.setWorkspace('');
-                });
-                uiModule.showToast(
-                  `Workspace ${_wsPath || '(unknown)'} is no longer usable; running without confinement`,
-                  6000
-                );
-                continue;
-              } else if (json.type === 'model_fallback') {
-                // Model went offline — switched to fallback
-                var _fbData = json.data || {};
-                uiModule.showToast(
-                  `Model ${_fbData.old_model || '?'} offline — switched to ${_fbData.new_model || '?'}`,
-                  5000
-                );
-                // Update the model picker to reflect the new model
-                if (sessionModule && sessionModule.updateModelPicker) {
-                  sessionModule.updateModelPicker();
-                }
-                continue;
-              } else if (json.type === 'model_info') {
-                // Update role label with model name as soon as we know it
-                if (!_isBg && holder) {
-                  const roleEl = holder.querySelector('.role');
-                  if (roleEl) {
-                    holder._requestedModel = json.requested_model || json.model || holder._requestedModel;
-                    holder._actualModel = json.model || holder._actualModel || holder._requestedModel;
-                    if (json.suffix) holder._roleSuffix = json.suffix;
-                    // Prepend character name if sent by server or set locally
-                    var _charName = json.character_name || (presetsModule.getCharacterName ? presetsModule.getCharacterName() : '');
-                    if (_charName) holder._characterName = _charName;
-                    _setRoleModelLabel(roleEl, holder._requestedModel, holder._actualModel, {
-                      suffix: holder._roleSuffix,
-                      characterName: holder._characterName,
-                    });
-                  }
-                }
-              } else if (json.type === 'fallback') {
-                // The selected model failed and another provider answered. Make
-                // it visible so a misconfigured provider is never silently
-                // masked under the selected model's name.
-                if (!_isBg) {
-                  var _selM = _shortModel(json.selected_model || '');
-                  var _ansM = _shortModel(json.answered_by || '');
-                  uiModule.showToast('⚠ ' + _selM + ' failed — answered by ' + _ansM, 6000);
-                  if (holder) {
-                    var _rEl = holder.querySelector('.role');
-                    if (_rEl) {
-                      var _tsS = _rEl.querySelector('.role-timestamp');
-                      _rEl.textContent = _ansM + ' (fallback) ';
-                      _rEl.title = (json.selected_model || '') + ' failed' +
-                        (json.reason ? ': ' + json.reason : '') + ' — answered by ' + (json.answered_by || '');
-                      _applyModelColor(_rEl, json.answered_by);
-                      if (_tsS) _rEl.appendChild(_tsS);
-                      holder._requestedModel = json.selected_model || holder._requestedModel || modelName;
-                      const _hasResolvedActual = holder._actualModel && !_sameModelName(holder._actualModel, holder._requestedModel);
-                      holder._actualModel = _hasResolvedActual ? holder._actualModel : (json.answered_by || holder._actualModel || holder._requestedModel);
-                      _setRoleModelLabel(_rEl, holder._requestedModel, holder._actualModel, {
-                        suffix: holder._roleSuffix,
-                        characterName: holder._characterName,
-                        reason: json.reason,
-                      });
-                    }
-                  }
-                }
-              } else if (json.type === 'rounds_exhausted') {
-                // The agent hit the per-turn step limit while still working.
-                // Offer a Continue button instead of stalling silently.
-                // NOTE: append to the chat-history container (bottom), NOT the
-                // message body — the body innerHTML is re-rendered at stream
-                // finalize, which would wipe a note placed inside it.
-                const _chatBox = document.getElementById('chat-history');
-                if (!_isBg && _chatBox) {
-                  // Drop any prior box so repeated cap-hits each get a fresh
-                  // Continue at the bottom (multiple continues in a row).
-                  const _old = _chatBox.querySelector('.rounds-exhausted');
-                  if (_old) _old.remove();
-                  const note = document.createElement('div');
-                  note.className = 'stopped-indicator rounds-exhausted';
-                  const label = document.createElement('span');
-                  label.className = 'rounds-exhausted-label';
-                  label.textContent = `Reached the ${json.rounds || ''}-step limit — not finished.`;
-                  note.appendChild(label);
-                  const contBtn = document.createElement('button');
-                  contBtn.className = 'continue-btn';
-                  contBtn.title = 'Continue the task';
-                  contBtn.textContent = 'Continue ▸';
-                  const _holder = currentHolder;
-                  contBtn.addEventListener('click', () => {
-                    note.remove();
-                    _hideUserBubble = true;
-                    _pendingContinue = _holder;
-                    const msgInput = uiModule.el('message');
-                    if (msgInput) {
-                      msgInput.value = 'You hit the step limit before finishing — the task is not complete. Continue from exactly where you left off and keep going until it is done. Do NOT repeat work already done.';
-                      const sb = document.querySelector('.send-btn');
-                      if (sb) sb.click();
-                    }
-                  });
-                  note.appendChild(contBtn);
-                  _chatBox.appendChild(note);
-                  try { note.scrollIntoView({ block: 'end', behavior: 'smooth' }); } catch (_) { uiModule.scrollHistory && uiModule.scrollHistory(); }
-                }
-              } else if (json.type === 'model_actual') {
-                if (!_isBg && holder) {
-                  holder._requestedModel = json.requested_model || holder._requestedModel || modelName;
-                  holder._actualModel = json.model || holder._actualModel || holder._requestedModel;
-                  _setRoleModelLabel(holder.querySelector('.role'), holder._requestedModel, holder._actualModel, {
-                    suffix: holder._roleSuffix,
-                    characterName: holder._characterName,
-                  });
-                }
-              } else if (json.type === 'attachments') {
-                if (_isBg) continue;
-                // Update user bubble — replace file chips with image previews
-                const _ub = document.querySelector('#chat-history .msg-user:last-of-type');
-                if (_ub) {
-                  const _aw = _ub.querySelector('.attach-cards');
-                  if (_aw) {
-                    for (const _att of json.data) {
-                      const _isImg = (_att.mime || '').startsWith('image/') || /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i.test(_att.name || '');
-                      if (_isImg && _att.id) {
-                        // Skip if we already have a preview for this file id —
-                        // on a regenerate the original user bubble keeps its
-                        // photo and the backend re-emits the attachment event
-                        // for the same id; without this guard we'd append a
-                        // duplicate (which visually pushes the real photo off).
-                        const _existingPreview = _aw.querySelector('[data-file-id="' + _att.id + '"]');
-                        if (_existingPreview) {
-                          if (_att.vision_model && !_existingPreview.querySelector('.attach-vision-model')) {
-                            const _vl = document.createElement('div');
-                            _vl.className = 'attach-vision-model';
-                            _vl.textContent = 'Vision: ' + String(_att.vision_model).split('/').pop();
-                            const _name = _existingPreview.querySelector('.attach-image-name');
-                            if (_name) _existingPreview.insertBefore(_vl, _name);
-                            else _existingPreview.appendChild(_vl);
-                          }
-                          continue;
-                        }
-                        const _card = _aw.querySelector('.attach-card[data-name="' + (_att.name || '').replace(/"/g, '\\"') + '"]');
-                        const _iw = document.createElement('div');
-                        _iw.className = 'attach-image-preview';
-                        _iw.dataset.fileId = _att.id;
-                        _iw.style.cursor = 'pointer';
-                        _iw.onclick = () => window.open(API_BASE + '/api/upload/' + _att.id, '_blank');
-                        const _im = document.createElement('img');
-                        _im.src = API_BASE + '/api/upload/' + _att.id;
-                        _im.alt = _att.name || 'Image';
-                        _im.style.cssText = 'max-width:300px;max-height:200px;border-radius:6px;display:block;';
-                        _iw.appendChild(_im);
-                        if (_att.vision_model) {
-                          const _vl = document.createElement('div');
-                          _vl.className = 'attach-vision-model';
-                          _vl.textContent = 'Vision: ' + String(_att.vision_model).split('/').pop();
-                          _iw.appendChild(_vl);
-                        }
-                        if (_att.name) {
-                          const _nm = document.createElement('div');
-                          _nm.className = 'attach-image-name';
-                          _nm.textContent = _att.name;
-                          _iw.appendChild(_nm);
-                        }
-                        if (_card) _card.replaceWith(_iw); else _aw.appendChild(_iw);
-                      } else {
-                        const _card = _aw.querySelector('.attach-card[data-name="' + (_att.name || '').replace(/"/g, '\\"') + '"]');
-                        if (_card && _att.id) {
-                          _card.dataset.fileId = _att.id;
-                          _card.style.cursor = 'pointer';
-                          _card.onclick = () => window.open(API_BASE + '/api/upload/' + _att.id, '_blank');
-                        }
-                      }
-                    }
-                  }
-                  // Caption / OCR text is no longer rendered as an inline
-                  // collapsible on the user bubble — the user can view/edit
-                  // it via the "Caption" button on the photo thumbnail.
-                }
-              } else if (json.type === 'rag_sources') {
-                if (_isBg) continue;
-                holder._ragSources = json.data;
-              } else if (json.type === 'memories_used') {
-                if (_isBg) continue;
-                holder._memoriesUsed = json.data;
-              } else if (json.type === 'compacted') {
-                if (!_isBg) {
-                  uiModule.showToast('Context compacted — older messages summarized');
-                }
-              } else if (json.type === 'context_trimmed') {
-                if (!_isBg) {
-                  const d = json.data || {};
-                  const before = Number(d.messages_before || 0);
-                  const after = Number(d.messages_after || 0);
-                  const detail = before && after && before > after ? ` (${after}/${before} messages sent)` : '';
-                  uiModule.showToast(`Context trimmed for this model${detail}`);
-                }
-              } else if (json.type === 'metrics') {
-                metrics = json.data;
-                if (!_isBg && holder && metrics) {
-                  holder._requestedModel = metrics.requested_model || holder._requestedModel || modelName;
-                  holder._actualModel = metrics.model || holder._actualModel || holder._requestedModel;
-                }
-                if (_isBg) {
-                  var bgM = _backgroundStreams.get(streamSessionId);
-                  if (bgM) bgM.metrics = json.data;
-                  continue;
-                }
-                if (metrics) {
-                  const metricsTarget = _metricsTargetForTurn();
-                  if (metricsTarget) displayMetrics(metricsTarget, metrics);
-                }
-
-              } else if (json.type === 'message_saved') {
-                // Wire the persisted DB id onto the just-streamed bubble so it
-                // can be edited/deleted immediately, without reloading the chat.
-                if (_isBg) continue;
-                if (currentHolder && json.id) currentHolder.dataset.dbId = json.id;
-
-              } else if (json.type === 'tool_start') {
-                if (_isBg) continue;
-                _cancelThinkingTimer();
-                _removeThinkingSpinner();
-                // Force-close thinking if still open — tools are real content, not thinking
-                if (isThinking) {
-                  isThinking = false;
-                  cancelAnimationFrame(_thinkTimerRAF);
-                  var _elapsed2 = thinkingStartTime ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : null;
-                  if (_liveThinkHeader) _liveThinkHeader.textContent = 'View thinking process';
-                  if (_liveThinkTimerEl) _liveThinkTimerEl.textContent = _elapsed2 ? _formatThinkStats(_elapsed2, _liveThinkTokenCount) : '';
-                  if (_liveThinkSpinnerSlot) _liveThinkSpinnerSlot.remove();
-                  // Assign stable IDs
-                  var _thinkId2 = 'think-' + Date.now();
-                  var _liveHdr2 = _liveThinkSection && _liveThinkSection.querySelector('.thinking-header');
-                  if (_liveHdr2) _liveHdr2.dataset.thinkingId = _thinkId2;
-                  if (_liveThinkContent) _liveThinkContent.id = _thinkId2;
-                  if (_liveThinkToggle) _liveThinkToggle.id = _thinkId2 + '-toggle';
-                }
-                _renderStream();
-                // --- Finalize current text bubble (only once per round) ---
-                if (!roundFinalized) {
-                  roundFinalized = true;
-                  if (spinner && spinner.element) spinner.destroy();
-                  const dt = markdownModule.normalizeThinkingMarkup(_streamDisplayText(roundText));
-                  if (dt.trim()) {
-                    var _body3 = roundHolder.querySelector('.body');
-                    var _contentEl3 = _ensureStreamLayout(_body3);
-                    _contentEl3.style.minHeight = '';  // clear streaming inflate
-                    _contentEl3.innerHTML = markdownModule.processWithThinking(markdownModule.squashOutsideCode(dt));
-                    if (window.hljs) roundHolder.querySelectorAll('pre code').forEach((b) => window.hljs.highlightElement(b));
-                  } else {
-                    roundHolder.style.display = 'none';
-                  }
-                }
-
-                // Track tool name for contextual spinner labels
-                _lastToolName = json.tool || '';
-
-                // --- Thread timeline: group tools in a thread container ---
-                const cmd = json.command || '';
-                const chatBox = document.getElementById('chat-history');
-                // Find existing thread to append to — check last few children
-                // (agent_step may insert an empty msg-ai between tool rounds)
-                let threadWrap = null;
-                for (let ci = chatBox.children.length - 1; ci >= Math.max(0, chatBox.children.length - 5); ci--) {
-                  const child = chatBox.children[ci];
-                  if (child.classList.contains('agent-thread')) {
-                    threadWrap = child;
-                    break;
-                  }
-                  // Skip hidden (empty) bubbles and thinking spinners
-                  if (child.style.display === 'none' || child.classList.contains('agent-thinking-dots')) continue;
-                  // Stop if we hit a visible message bubble (has real content between tools)
-                  if (child.classList.contains('msg')) break;
-                }
-                if (threadWrap) {
-                  // Continuing an existing thread — remove has-bottom (agent_step may have set it
-                  // expecting text, but we got more tools instead)
-                  threadWrap.classList.remove('has-bottom');
-                } else {
-                  threadWrap = document.createElement('div');
-                  threadWrap.className = 'agent-thread';
-                  // Extend line up to connect to chat bubble above (if there is one)
-                  const _prevSib = chatBox.lastElementChild;
-                  const _hasBubbleAbove = _prevSib && (_prevSib.classList.contains('msg') && _prevSib.style.display !== 'none');
-                  const _hasThreadAbove = _prevSib && _prevSib.classList.contains('agent-thread');
-                  if (_hasBubbleAbove || _hasThreadAbove || (roundText.trim() && roundHolder && roundHolder.style.display !== 'none')) {
-                    threadWrap.classList.add('has-top');
-                  }
-                  chatBox.appendChild(threadWrap);
-                }
-                threadWrap.classList.add('streaming');
-                lastToolThread = threadWrap;
-                const toolLabel = _toolLabels[json.tool.toLowerCase()] || json.tool;
-                const toolIcon = _toolIcons[json.tool.toLowerCase()] || '\u25B6';
-                const node = document.createElement('div')
-                node.className = 'agent-thread-node running';
-                const cmdHtml = cmd ? `<pre class="agent-thread-cmd">${esc(cmd)}</pre>` : '';
-                node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${toolIcon}</span><span class="agent-thread-tool">${esc(toolLabel)}</span><span class="agent-thread-wave">▁▂▃</span></div><div class="agent-thread-content">${cmdHtml}</div>`;
-                // Expand/collapse via delegated click handler (init at module bottom).
-                threadWrap.appendChild(node);
-                currentToolBubble = node;
-                // Animate the wave
-                const waveEl = node.querySelector('.agent-thread-wave');
-                if (waveEl) {
-                  const waveFrames = ['▁▂▃', '▂▃▄', '▃▄▅', '▄▅▆', '▅▆▇', '▆▅▄', '▅▄▃', '▄▃▂'];
-                  let waveIdx = 0;
-                  node._waveInterval = setInterval(() => {
-                    waveIdx = (waveIdx + 1) % waveFrames.length;
-                    waveEl.textContent = waveFrames[waveIdx];
-                  }, 100);
-                }
-                // Smooth per-second "cooking" timer — ticks every second (not
-                // just on the 2s backend heartbeat) so a long-running tool
-                // always shows visible motion and never reads as frozen.
-                node._startTime = Date.now();
-                node._elapsedTicker = setInterval(() => {
-                  const hdr2 = node.querySelector('.agent-thread-header');
-                  if (!hdr2) return;
-                  let el2 = hdr2.querySelector('.agent-thread-elapsed');
-                  if (!el2) {
-                    el2 = document.createElement('span');
-                    el2.className = 'agent-thread-elapsed';
-                    // Sits on the LEFT, right after the icon.
-                    const icon = hdr2.querySelector('.agent-thread-icon');
-                    if (icon && icon.nextSibling) hdr2.insertBefore(el2, icon.nextSibling);
-                    else hdr2.appendChild(el2);
-                  }
-                  const s = (Date.now() - node._startTime) / 1000;
-                  // Hundredths so it visibly counts sub-second (1.00, 1.05, …).
-                  el2.textContent = s < 60 ? `${s.toFixed(2)}s` : `${Math.floor(s / 60)}m ${(s % 60).toFixed(2).padStart(5, '0')}s`;
-                }, 50);
-                uiModule.scrollHistory();
-
-              } else if (json.type === 'tool_progress') {
-                // Long-running subprocess (bash, python) is still in
-                // flight — refresh the running tool card with the
-                // elapsed-time + tail of its stdout/stderr so the
-                // user doesn't stare at a blind "Running…" spinner.
-                if (_isBg) continue;
-                if (!currentToolBubble) continue;
-                // The per-second ticker (started in tool_start) owns the
-                // elapsed display; here we just surface the live output tail.
-                const tailStr = (json.tail || '').trim();
-                if (tailStr) {
-                  let tailEl = currentToolBubble.querySelector('.agent-thread-tail');
-                  if (!tailEl) {
-                    tailEl = document.createElement('pre');
-                    tailEl.className = 'agent-thread-tail';
-                    tailEl.style.cssText = 'margin:4px 0 0;padding:6px 8px;font-size:11px;background:rgba(0,0,0,0.18);border-radius:4px;max-height:140px;overflow:auto;white-space:pre-wrap;opacity:0.85;';
-                    const content = currentToolBubble.querySelector('.agent-thread-content');
-                    if (content) content.appendChild(tailEl);
-                  }
-                  tailEl.textContent = tailStr;
-                  tailEl.scrollTop = tailEl.scrollHeight;
-                }
-                uiModule.scrollHistory();
-
-              } else if (json.type === 'tool_output') {
-                if (_isBg) continue;
-                // --- Update the current thread node ---
-                if (currentToolBubble) {
-                  // Stop wave animation + the per-second cooking ticker
-                  if (currentToolBubble._waveInterval) {
-                    clearInterval(currentToolBubble._waveInterval);
-                    currentToolBubble._waveInterval = null;
-                  }
-                  if (currentToolBubble._elapsedTicker) {
-                    clearInterval(currentToolBubble._elapsedTicker);
-                    currentToolBubble._elapsedTicker = null;
-                  }
-                  const ok = (json.exit_code === 0 || json.exit_code == null);
-                  const cmd = json.command || '';
-                  let outHtml = '';
-                  if (json.output && json.output.trim()) {
-                    outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(json.output)}</pre></details>`;
-                  }
-                  // File-write diff (write_file): show a before/after unified diff.
-                  let diffHtml = '';
-                  if (json.diff && json.diff.text) {
-                    const d = json.diff;
-                    // Collapsed summary: filename + +adds (green) / −dels (red).
-                    const stat = [
-                      d.new_file ? '<span class="diff-stat-new">new</span>' : '',
-                      d.added ? `<span class="diff-stat-add">+${d.added}</span>` : '',
-                      d.removed ? `<span class="diff-stat-del">−${d.removed}</span>` : '',
-                    ].filter(Boolean).join(' ');
-                    const rows = d.text.split('\n').map(line => {
-                      let cls = 'diff-ctx', text = line;
-                      if (line.startsWith('+++') || line.startsWith('---')) cls = 'diff-meta';
-                      else if (line.startsWith('@@')) cls = 'diff-hunk';
-                      // Drop the leading diff marker (+/-/space) — the row colour
-                      // already encodes add/del, and keeping it doubles up with
-                      // markdown "- " bullets (reads as "+-"/"--").
-                      else if (line.startsWith('+')) { cls = 'diff-add'; text = line.slice(1); }
-                      else if (line.startsWith('-')) { cls = 'diff-del'; text = line.slice(1); }
-                      else if (line.startsWith(' ')) { text = line.slice(1); }
-                      return `<span class="${cls}">${esc(text) || '&nbsp;'}</span>`;
-                    }).join('');  // spans are display:block — a literal \n here would double-space the diff
-                    diffHtml = `<details class="agent-tool-output agent-tool-diff"><summary><span class="diff-file">${esc(d.file || 'diff')}</span> <span class="diff-summary-stats">${stat}</span></summary><pre class="diff-pre">${rows}</pre></details>`;
-                  }
-                  // For file edits the "command" is the raw JSON args — redundant
-                  // next to the diff, so hide it when we have a diff to show.
-                  const cmdHtml2 = (cmd && !(json.diff && json.diff.text)) ? `<pre class="agent-thread-cmd">${esc(cmd)}</pre>` : '';
-                  // Preserve the user's .open choice across the innerHTML
-                  // rewrite \u2014 otherwise expanding a running tool collapses
-                  // it as soon as the result lands, forcing the user to
-                  // click again. Click handling is delegated (see init at
-                  // bottom of file) so no per-node listener needed.
-                  const _wasOpen = currentToolBubble.classList.contains('open');
-                  currentToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error') + (_wasOpen ? ' open' : '');
-                  currentToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${ok ? '\u2713' : '\u2717'}</span><span class="agent-thread-tool">${esc(json.tool)}</span><span class="agent-thread-status">${ok ? 'done' : 'failed'}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${cmdHtml2}${outHtml}${diffHtml}</div>`;
-                  // Reset so thinking spinner between tools says "Thinking" not the old tool's label
-                  _lastToolName = '';
-                  uiModule.scrollHistory();
-                }
-                // --- Render generated images inline ---
-                if (json.image_url) {
-                  const chatBox = document.getElementById('chat-history');
-                  chatBox.appendChild(_buildImageBubble(json.image_url, json.image_prompt, json.image_model, json.image_size, json.image_quality, json.image_id));
-                  uiModule.scrollHistory();
-                  // Notify gallery to refresh if open
-                  window.dispatchEvent(new CustomEvent('gallery-refresh'));
-                }
-                // --- Render browser screenshots in tool output ---
-                if (json.screenshot && currentToolBubble) {
-                  const contentEl = currentToolBubble.querySelector('.agent-thread-content');
-                  if (contentEl) {
-                    const screenshotSrc = chatRenderer.safeToolScreenshotSrc(json.screenshot);
-                    if (screenshotSrc) {
-                      const details = document.createElement('details');
-                      details.className = 'agent-tool-output';
-                      const summary = document.createElement('summary');
-                      summary.textContent = 'Screenshot';
-                      const img = document.createElement('img');
-                      img.src = screenshotSrc;
-                      img.style.cssText = 'max-width:100%;border-radius:6px;margin-top:6px;border:1px solid var(--border)';
-                      details.appendChild(summary);
-                      details.appendChild(img);
-                      contentEl.appendChild(details);
-                    }
-                  }
-                }
-                // --- Reload sessions after manage_session tool (delete, rename, etc.) ---
-                // Debounce so bulk deletes don't fire loadSessions per call
-                if (json.tool === 'manage_session' && sessionModule) {
-                  if (window._manageSessionTimer) clearTimeout(window._manageSessionTimer);
-                  window._manageSessionTimer = setTimeout(() => sessionModule.loadSessions(), 1000);
-                }
-                // --- Live-refresh the calendar after manage_calendar (add/edit/delete) ---
-                // so a new event shows without the user hard-refreshing. Debounced
-                // so a batch of event creates only triggers one refetch.
-                if (json.tool === 'manage_calendar') {
-                  if (window._manageCalTimer) clearTimeout(window._manageCalTimer);
-                  window._manageCalTimer = setTimeout(
-                    () => window.dispatchEvent(new CustomEvent('calendar-refresh')), 600);
-                }
-                // --- Live-refresh Memories after manage_memory changes ---
-                if (json.tool === 'manage_memory') {
-                  if (window._manageMemoryTimer) clearTimeout(window._manageMemoryTimer);
-                  window._manageMemoryTimer = setTimeout(
-                    () => window.dispatchEvent(new CustomEvent('memory-refresh')), 600);
-                }
-                // --- Apply UI control actions embedded in tool_output ---
-                if (json.ui_event) {
-                  chatStream.handleUIControl(json);
-                }
-                // Native document tool calls can arrive as a completed
-                // tool_output without the text-fence streaming path. Open the
-                // document editor from the real doc metadata carried on the
-                // tool result so "create a document" never leaves only a chat
-                // link behind if the later doc_update event is missed.
-                if (
-                  documentModule
-                  && json.doc_id
-                  && ['create_document', 'update_document', 'edit_document'].includes(json.tool)
-                ) {
-                  documentModule.handleDocUpdate({
-                    type: 'doc_update',
-                    doc_id: json.doc_id,
-                    title: json.document_title || '',
-                    language: json.document_language || '',
-                    version: json.document_version || 1,
-                    content: json.document_content || '',
-                  });
-                }
-
-                // Schedule a thinking spinner between tool rounds (short delay so
-                // agent_step in the same SSE chunk can cancel it before it shows)
-                _scheduleThinkingSpinner();
-                uiModule.scrollHistory();
-
-              } else if (json.type === 'doc_stream_open') {
-                if (_isBg) {
-                  // Store for replay when user returns to this session
-                  var bgDocOpen = _backgroundStreams.get(streamSessionId);
-                  if (bgDocOpen) {
-                    bgDocOpen._docTitle = json.title || '';
-                    bgDocOpen._docLang = json.language || '';
-                    bgDocOpen._docContent = '';
-                  }
-                  continue;
-                }
-                if (documentModule) {
-                  documentModule.streamDocOpen(json.title || '', json.language || '');
-                }
-
-              } else if (json.type === 'doc_stream_delta') {
-                if (_isBg) {
-                  var bgDocDelta = _backgroundStreams.get(streamSessionId);
-                  if (bgDocDelta) bgDocDelta._docContent = json.content || '';
-                  continue;
-                }
-                if (documentModule) {
-                  documentModule.streamDocDelta(json.content || '');
-                }
-
-              } else if (json.type === 'doc_update') {
-                // doc_update means the server already saved the doc to DB.
-                if (_isBg) continue;
-                if (documentModule) {
-                  documentModule.handleDocUpdate(json);
-                }
-
-              } else if (json.type === 'doc_suggestions') {
-                if (_isBg) continue;
-                if (documentModule && documentModule.handleDocSuggestions) {
-                  documentModule.handleDocSuggestions(json);
-                }
-
-              } else if (json.type === 'ui_control') {
-                if (_isBg) continue;
-                chatStream.handleUIControl(json.data || {});
-
-              } else if (json.type === 'ask_user') {
-                if (_isBg) continue;
-                // The agent posed a multiple-choice question; the turn has ended.
-                // Use the shared history renderer so the live and restored
-                // versions have identical behavior.
-                _cancelThinkingTimer();
-                _removeThinkingSpinner();
-                chatRenderer.renderAskUserCard(json.data || {});
-
-              } else if (json.type === 'plan_update') {
-                if (_isBg) continue;
-                // Agent wrote back to the plan (ticked a step / revised). Update
-                // the stored plan + live-refresh the docked plan window.
-                const _pu = (json.data && json.data.plan) ? json.data.plan : '';
-                if (_pu) _setStoredPlan(_pu);
-
-              } else if (json.type === 'agent_step') {
-                if (_isBg) continue;
-                _cancelThinkingTimer();
-                _removeThinkingSpinner();
-                _renderStream();
-                // Mark thread as connected to bubble below
-                const _activeThread = document.querySelector('.agent-thread.streaming');
-                if (_activeThread) {
-                  _activeThread.classList.add('has-bottom');
-                }
-                // --- New round: create fresh AI bubble with spinner ---
-                currentToolBubble = null;
-                roundFinalized = false;
+                // Don't do foreground final render — the checkBackgroundStream poll
+                // will detect 'completed' and reload history cleanly
+                break;
+              }
+              // Force-close thinking if still open (model never output boundary)
+              if (isThinking) {
                 isThinking = false;
-                _docFenceOpened = false;
-                _docFenceContentStart = -1;
-                const box = document.getElementById('chat-history');
-                const newWrap = document.createElement('div');
-                newWrap.className = 'msg msg-ai msg-continuation streaming';
-                // Add model name label
-                const newRole = document.createElement('div');
-                newRole.className = 'role';
-                const metaS = sessionModule.getSessions().find(s => s.id === streamSessionId);
-                const _roundRequested = holder?._requestedModel || metaS?.model;
-                const _roundActual = holder?._actualModel || _roundRequested;
-                newRole.textContent = _modelRouteLabel(_roundRequested, _roundActual) || '';
-                _applyModelColor(newRole, _roundActual);
-                newWrap.appendChild(newRole);
-                const newBody = document.createElement('div');
-                newBody.className = 'body';
-                newWrap.appendChild(newBody);
-                box.appendChild(newWrap);
-                roundHolder = newWrap;
-                roundText = '';
-                // Destroy any previous spinner before creating new one
+                cancelAnimationFrame(_thinkTimerRAF);
+                var _elapsedDone = thinkingStartTime ? ((Date.now() - thinkingStartTime) / 1000).toFixed(1) : null;
+                if (_elapsedDone) {
+                  accumulated = accumulated.replace(/<think>/i, '<think time="' + _elapsedDone + '">');
+                  roundText = roundText.replace(/<think>/i, '<think time="' + _elapsedDone + '">');
+                }
+                if (_liveThinkHeader) _liveThinkHeader.textContent = 'View thinking process';
+                if (_liveThinkSpinnerSlot) _liveThinkSpinnerSlot.remove();
+                if (_liveThinkTimerEl && _elapsedDone) {
+                  _liveThinkTimerEl.textContent = _formatThinkStats(_elapsedDone, _liveThinkTokenCount);
+                  _liveThinkTimerEl.style.marginLeft = 'auto';
+                  _liveThinkTimerEl.style.marginRight = '5px';
+                  var _hdrDone = _liveThinkTimerEl.closest('.thinking-header');
+                  // Keep the chevron furthest right with the timer to its left
+                  // (match the live + final-render layout) — insert before the
+                  // toggle rather than appending (which would land after it).
+                  if (_hdrDone) {
+                    if (_liveThinkToggle && _liveThinkToggle.parentElement === _hdrDone)
+                      _hdrDone.insertBefore(_liveThinkTimerEl, _liveThinkToggle);
+                    else _hdrDone.appendChild(_liveThinkTimerEl);
+                  }
+                }
+                // Assign stable IDs
+                var _thinkIdDone = 'think-' + Date.now();
+                var _liveHdrDone = _liveThinkSection && _liveThinkSection.querySelector('.thinking-header');
+                if (_liveHdrDone) _liveHdrDone.dataset.thinkingId = _thinkIdDone;
+                if (_liveThinkContent) _liveThinkContent.id = _thinkIdDone;
+                if (_liveThinkToggle) _liveThinkToggle.id = _thinkIdDone + '-toggle';
+                // Rest collapsed by default (same as the thinking-end path above).
+                if (_liveThinkContent) _liveThinkContent.classList.remove('expanded');
+                if (_liveThinkToggle) _liveThinkToggle.classList.remove('expanded');
+                // Create live-reply container so final render preserves thinking bar
+                var _streamElDone = _liveThinkSection ? _liveThinkSection.parentElement : roundHolder.querySelector('.stream-content');
+                if (!_streamElDone) _streamElDone = roundHolder.querySelector('.body');
+                if (_streamElDone && !_streamElDone.querySelector('.live-reply-content')) {
+                  var _replyElDone = document.createElement('div');
+                  _replyElDone.className = 'live-reply-content';
+                  _streamElDone.appendChild(_replyElDone);
+                }
+              }
+              // Normal foreground completion — metrics will be displayed in the final render block below
+              break;
+            }
+            try {
+              const json = JSON.parse(data);
+              // Handle SSE error events (e.g. HTTP 404 from provider)
+              if (_nextIsError || json.status >= 400) {
+                _nextIsError = false;
+                const errMsg = json.text || json.error?.message || `Error ${json.status || 'unknown'}`;
+                console.error('Stream error:', errMsg);
                 if (spinner && spinner.element) spinner.destroy();
-                // Show spinner while waiting for text (skip for research — has its own progress)
-                if (!_researchingStreamIds.has(streamSessionId)) {
-                  spinner = spinnerModule.create('Generating response', 'right', 'wave');
-                  newBody.appendChild(spinner.createElement());
-                  spinner.start();
-                }
-                if (streamingTTS) window.aiTTSManager._streamSentencesSent = 0;
-                uiModule.scrollHistory();
-              } else if (json.type === 'budget_exceeded') {
-                if (_isBg) continue;
-                _cancelThinkingTimer();
-                _removeThinkingSpinner();
-                const budgetDiv = document.createElement('div');
-                budgetDiv.style.cssText = 'font-size:11px;opacity:0.6;font-style:italic;padding:4px 8px;margin:4px 0;';
-                budgetDiv.textContent = `Tool budget reached (${json.used}/${json.limit} calls). Agent stopped.`;
-                const chatBox = document.getElementById('chat-history');
-                chatBox.appendChild(budgetDiv);
-
-              } else if (json.type === 'loop_breaker_triggered' || json.type === 'intent_nudge_exhausted') {
-                if (_isBg) continue;
-                _cancelThinkingTimer();
-                _removeThinkingSpinner();
-                const guardDiv = document.createElement('div');
-                guardDiv.className = 'stopped-indicator';
-                const guardLabel = document.createElement('span');
-                guardLabel.textContent = `[Agent guard: ${json.message || json.reason || 'internal stop'}]`;
-                guardDiv.appendChild(guardLabel);
-                const targetBody = roundHolder && roundHolder.querySelector('.body');
-                if (targetBody) targetBody.appendChild(guardDiv);
-                else {
-                  const chatBox = document.getElementById('chat-history');
-                  if (chatBox) chatBox.appendChild(guardDiv);
-                }
-
-              } else if (json.type === 'teacher_takeover') {
-                if (_isBg) continue;
-                _cancelThinkingTimer();
-                _removeThinkingSpinner();
-                // Finalize any in-flight bubble so the takeover banner
-                // separates student attempt from teacher attempt.
-                if (spinner && spinner.element) { try { spinner.destroy(); } catch(_){} spinner = null; }
-                const chatBox = document.getElementById('chat-history');
-                const banner = document.createElement('div');
-                banner.className = 'teacher-takeover-banner';
-                banner.style.cssText = 'margin:10px 0;padding:8px 12px;border-left:3px solid #c08a3e;background:rgba(192,138,62,0.08);font-size:12px;color:var(--fg);border-radius:4px;';
-                const teacherName = json.teacher_model || 'teacher';
-                const why = json.student_failure ? ` &mdash; <span style="opacity:0.7">${esc(json.student_failure)}</span>` : '';
-                banner.innerHTML = `<strong>Teacher takeover:</strong> escalating to <code>${esc(teacherName)}</code>${why}`;
-                chatBox.appendChild(banner);
-                // Reset round bubble state so the teacher's first text starts a new bubble
-                roundHolder = null;
-                roundText = '';
-                roundFinalized = false;
-                currentToolBubble = null;
-                uiModule.scrollHistory();
-
-              } else if (json.type === 'skill_saved') {
-                if (_isBg) continue;
-                const chatBox = document.getElementById('chat-history');
-                const note = document.createElement('div');
-                note.className = 'skill-saved-note';
-                note.style.cssText = 'margin:6px 0;padding:6px 10px;border-left:3px solid #4a8a4a;background:rgba(74,138,74,0.07);font-size:12px;color:var(--fg);border-radius:4px;';
-                note.innerHTML = `<strong>Skill learned:</strong> <code>${esc(json.name || '')}</code>${json.category ? ` <span style="opacity:0.6">[${esc(json.category)}]</span>` : ''}`;
-                chatBox.appendChild(note);
-                uiModule.scrollHistory();
-
-              } else if (json.type === 'escalation_failed' || json.type === 'skill_save_failed') {
-                if (_isBg) continue;
-                const chatBox = document.getElementById('chat-history');
-                const note = document.createElement('div');
-                note.className = 'escalation-failed-note';
-                note.style.cssText = 'margin:6px 0;padding:6px 10px;border-left:3px solid #8a4a4a;background:rgba(138,74,74,0.07);font-size:12px;color:var(--fg);border-radius:4px;';
-                const label = json.type === 'escalation_failed' ? 'Teacher could not solve it' : 'Skill not saved';
-                note.innerHTML = `<strong>${label}:</strong> <span style="opacity:0.75">${esc(json.reason || '')}</span>`;
-                chatBox.appendChild(note);
-                uiModule.scrollHistory();
-
+                typewriterInto(roundHolder.querySelector('.body'), errMsg);
+                break;
+              }
+              if (json.delta || json.type === 'agent_prep' || json.type === 'tool_start' || json.type === 'tool_output' || json.type === 'tool_progress' || json.type === 'agent_step' || json.type === 'loop_breaker_triggered' || json.type === 'intent_nudge_exhausted' || json.type === 'doc_stream_open' || json.type === 'doc_stream_delta' || json.type === 'research_progress') {
+                clearResponseTimeout();
+                clearProcessingProbe();
+                clearFirstTokenWaitTimers();
+              }
+              if (json.type === 'agent_prep') {
+                SSE_HANDLERS.agent_prep(json);
+              } else if (json.delta) {
+                _handleSseDelta(json);
+              } else if (json.type && SSE_HANDLERS[json.type]) {
+                SSE_HANDLERS[json.type](json);
               } else if (json.error) {
                 // --- Backend error (timeout, connection issue, etc.) ---
                 console.error('Stream error from backend:', json.error);
-                if (_isBg) continue;
+                if (_isBg) return;
                 if (spinner && spinner.element) spinner.destroy();
                 const errDiv = document.createElement('div');
                 errDiv.style.cssText = 'color: var(--color-error); font-style: italic; padding: 4px 0;';
@@ -3004,12 +2995,12 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         // Finalize the last round's bubble — flatten stream-content wrapper for clean DOM
         const finalDisplay = _streamDisplayText(roundText, { final: _docFenceOpened });
         if (finalDisplay.trim()) {
-          var _body4 = roundHolder.querySelector('.body');
+          var _finalBody = roundHolder.querySelector('.body');
           // Preserve sources expanded state before final render
-          var _wasExpanded = _sourcesExpanded || !!(_body4 && _body4.querySelector('.sources-content.expanded'));
+          var _wasExpanded = _sourcesExpanded || !!(_finalBody && _finalBody.querySelector('.sources-content.expanded'));
 
           // If thinking was collapsed in-place during streaming, preserve it
-          var _liveReplyEl = _body4 && _body4.querySelector('.live-reply-content');
+          var _liveReplyEl = _finalBody && _finalBody.querySelector('.live-reply-content');
           var _extracted = _liveReplyEl ? markdownModule.extractThinkingBlocks(finalDisplay) : null;
           var _finalReply = '';
           if (_liveReplyEl) {
@@ -3053,26 +3044,26 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
             if (_sourcesData) {
               var _srcEl = document.createElement('div');
               _srcEl.innerHTML = _buildSourcesBox(_sourcesData, _sourcesType, _wasExpanded);
-              _body4.insertBefore(_srcEl.firstChild || _srcEl, _body4.firstChild);
+              _finalBody.insertBefore(_srcEl.firstChild || _srcEl, _finalBody.firstChild);
             }
-            if (_findingsData) _body4.insertAdjacentHTML('beforeend', chatRenderer.buildFindingsBox(_findingsData));
+            if (_findingsData) _finalBody.insertAdjacentHTML('beforeend', chatRenderer.buildFindingsBox(_findingsData));
           } else {
             // Full re-render (reply empty or no live-reply container)
-            _body4.innerHTML = (_sourcesData ? _buildSourcesBox(_sourcesData, _sourcesType, _wasExpanded) : '')
+            _finalBody.innerHTML = (_sourcesData ? _buildSourcesBox(_sourcesData, _sourcesType, _wasExpanded) : '')
               + markdownModule.processWithThinking(markdownModule.squashOutsideCode(finalDisplay))
               + (_findingsData ? chatRenderer.buildFindingsBox(_findingsData) : '');
           }
         } else if (_sourcesHtml) {
-          var _body4b = roundHolder.querySelector('.body');
-          var _wasExpanded2 = _sourcesExpanded || !!(_body4b && _body4b.querySelector('.sources-content.expanded'));
-          _body4b.innerHTML = _sourcesData ? _buildSourcesBox(_sourcesData, _sourcesType, _wasExpanded2) : _sourcesHtml;
+          var _sourcesOnlyBody = roundHolder.querySelector('.body');
+          var _wasExpanded2 = _sourcesExpanded || !!(_sourcesOnlyBody && _sourcesOnlyBody.querySelector('.sources-content.expanded'));
+          _sourcesOnlyBody.innerHTML = _sourcesData ? _buildSourcesBox(_sourcesData, _sourcesType, _wasExpanded2) : _sourcesHtml;
         } else if (roundHolder !== holder) {
           // Check if there's thinking content worth showing
           const _thinkingOnly = markdownModule.extractThinkingBlocks(_streamDisplayText(roundText));
           if (_thinkingOnly.thinkingBlocks?.length && !_thinkingOnly.content) {
             // Show thinking in a collapsed section even if no visible reply text
-            const _body4c = roundHolder.querySelector('.body');
-            if (_body4c) _body4c.innerHTML = markdownModule.processWithThinking(_streamDisplayText(roundText));
+            const _thinkingOnlyBody = roundHolder.querySelector('.body');
+            if (_thinkingOnlyBody) _thinkingOnlyBody.innerHTML = markdownModule.processWithThinking(_streamDisplayText(roundText));
           } else {
             roundHolder.style.display = 'none';
             // Thread above expected a bubble below — remove has-bottom since bubble is hidden
@@ -3092,22 +3083,16 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         if (markdownModule.renderMermaid) markdownModule.renderMermaid(roundHolder);
 
         uiModule.scrollHistory();
-        // Render RAG sources if present
+        // Render RAG sources if present (canonical box, shared with history restore)
         if (holder._ragSources && holder._ragSources.length) {
-          const details = document.createElement('details');
-          details.className = 'rag-sources';
-          const summary = document.createElement('summary');
-          summary.textContent = `Sources (${holder._ragSources.length} documents)`;
-          details.appendChild(summary);
-          holder._ragSources.forEach(src => {
-            const item = document.createElement('div');
-            item.className = 'rag-source-item';
-            const _esc = uiModule.esc;
-            item.innerHTML = `<strong>${_esc(src.filename)}</strong> <span class="rag-similarity">${(src.similarity * 100).toFixed(1)}%</span><div class="rag-snippet">${_esc(src.snippet)}</div>`;
-            details.appendChild(item);
-          });
-          holder.querySelector('.body').appendChild(details);
+          const _ragWrap = document.createElement('div');
+          _ragWrap.innerHTML = chatRenderer.buildRagSourcesBox(holder._ragSources);
+          const _ragBox = _ragWrap.firstChild;
+          if (_ragBox) holder.querySelector('.body').appendChild(_ragBox);
         }
+
+        // Bound long-session DOM cost (collapse old completed tool threads).
+        chatRenderer.capChatHistoryDom();
 
         // Hide first bubble if it has no visible text content (e.g. agent went straight to tools)
         if (holder !== roundHolder && holder.style.display !== 'none') {
@@ -3367,9 +3352,8 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
           // fire forever on the orphaned node (and auto-recover compounds it per
           // nudge). Safe here: auto-recover's new send is deferred 200ms, so no
           // fresh running nodes exist yet.
+          _clearAllToolTickers(document);
           document.querySelectorAll('.agent-thread-node.running').forEach(node => {
-            if (node._waveInterval) { clearInterval(node._waveInterval); node._waveInterval = null; }
-            if (node._elapsedTicker) { clearInterval(node._elapsedTicker); node._elapsedTicker = null; }
             node.classList.remove('running');
           });
           // Stream died unexpectedly — the "silently died" case. Re-engage the
@@ -3506,6 +3490,9 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       currentAbort.abort();
       // Don't set to null here - let catch block handle it
     }
+    // The stream is dead locally so its tool_output will never arrive to
+    // stop the node tickers — sweep them here (also covers Stop/detach).
+    _clearAllToolTickers(document);
     if (stopServer) {
       try {
         const _sid = _streamSessionId
@@ -3733,6 +3720,10 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     if (sessionModule && sessionModule.markStreaming) {
       sessionModule.markStreaming(sessionId);
     }
+    // Running tool nodes keep their tickers but their tool_output will be
+    // skipped as background — stop the tickers now to avoid orphaned
+    // intervals. History rebuilds the nodes from the DB on return.
+    _clearAllToolTickers(document);
     // Clear local state WITHOUT aborting the fetch
     currentAbort = null;
     isStreaming = false;
@@ -3781,12 +3772,12 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     const holder = document.createElement('div');
     holder.className = 'msg msg-ai';
     const meta = sessionModule.getSessions().find(s => s.id === sessionId);
-    const roleLabel = _shortModel(meta && meta.model);
+    const roleLabel = chatRenderer.shortModel(meta && meta.model);
     const roleTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) +
       ' <span class="role-timestamp">' + roleTs + '</span></div>' +
       '<div class="body"><div class="stream-content"></div></div>';
-    _applyModelColor(holder.querySelector('.role'), meta && meta.model);
+    chatRenderer.applyModelColor(holder.querySelector('.role'), meta && meta.model);
     const contentDiv = holder.querySelector('.stream-content');
     box.appendChild(holder);
 
@@ -3948,10 +3939,10 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       var holder = document.createElement('div');
       holder.className = 'msg msg-ai';
       var meta = sessionModule.getSessions().find(function(s) { return s.id === sessionId; });
-      var roleLabel = _shortModel(meta && meta.model);
+      var roleLabel = chatRenderer.shortModel(meta && meta.model);
       var roleTs = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
       holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) + ' <span class="role-timestamp">' + roleTs + '</span></div><div class="body"></div>';
-      _applyModelColor(holder.querySelector('.role'), meta && meta.model);
+      chatRenderer.applyModelColor(holder.querySelector('.role'), meta && meta.model);
 
       var bodyDiv = holder.querySelector('.body');
       var spinner = spinnerModule.create('Response streaming in background', 'right');
@@ -4725,8 +4716,8 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
               var _role = document.createElement('div');
               _role.className = 'role';
               var _meta = sessionModule.getSessions().find(function(s) { return s.id === sessionId; });
-              _role.textContent = _shortModel(_meta?.model);
-              _applyModelColor(_role, _meta?.model);
+              _role.textContent = chatRenderer.shortModel(_meta?.model);
+              chatRenderer.applyModelColor(_role, _meta?.model);
               _role.appendChild(chatRenderer.roleTimestamp());
               var _body = document.createElement('div');
               _body.className = 'body';
@@ -4761,9 +4752,9 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       holder.dataset.researchSession = sessionId;
       const roleTs = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
       const agentMeta = sessionModule.getSessions().find(s => s.id === sessionModule.getCurrentSessionId());
-      const agentModelLabel = _shortModel(agentMeta?.model);
+      const agentModelLabel = chatRenderer.shortModel(agentMeta?.model);
       holder.innerHTML = `<div class="role">${uiModule.esc(agentModelLabel)} <span class="role-timestamp">${roleTs}</span></div><div class="body"></div>`;
-      _applyModelColor(holder.querySelector('.role'), agentMeta?.model);
+      chatRenderer.applyModelColor(holder.querySelector('.role'), agentMeta?.model);
       box.appendChild(holder);
 
       const bodyDiv = holder.querySelector('.body');

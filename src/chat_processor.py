@@ -387,15 +387,23 @@ class ChatProcessor:
         urls = extract_urls(message)
         non_yt_urls = [u for u in urls if not is_youtube_url(u)]
         skip_url_fetch = len(message) > 2000 or len(non_yt_urls) > 3
-        if not skip_url_fetch:
-            for url in non_yt_urls:
-                result = fetch_webpage_content(url)
-                if result.get('success'):
-                    content = result.get('content', '')[:10000]
-                    preface.append(untrusted_context_message(
-                        f"web page: {url}",
-                        f"Content from {url}:\n\n{content}",
-                    ))
+        if not skip_url_fetch and non_yt_urls:
+            # Page fetches are blocking sync I/O: run them concurrently in a
+            # small bounded pool instead of stalling serially on each site's
+            # TTFB. executor.map preserves order, so preface order is stable.
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(3, len(non_yt_urls))) as _pool:
+                _fetched = list(_pool.map(fetch_webpage_content, non_yt_urls))
+            for url, result in zip(non_yt_urls, _fetched):
+                try:
+                    if result.get('success'):
+                        content = result.get('content', '')[:10000]
+                        preface.append(untrusted_context_message(
+                            f"web page: {url}",
+                            f"Content from {url}:\n\n{content}",
+                        ))
+                except Exception as e:
+                    logger.warning("Failed to inject fetched URL %s: %s", url, e)
 
         # Skills index — progressive disclosure. Only injected when the
         # model has the `manage_skills` tool available (agent_mode), and

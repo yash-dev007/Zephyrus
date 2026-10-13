@@ -170,8 +170,13 @@ from starlette.middleware.base import BaseHTTPMiddleware as _BaseHTTPMiddleware
 from starlette.responses import JSONResponse as _JSONResponse
 
 REQUEST_HARD_TIMEOUT = float(os.getenv("REQUEST_HARD_TIMEOUT", "45"))
+# Exempt ONLY the long-lived SSE paths. (The old broad "/api/chat" prefix
+# also exempted the SYNC /api/chat endpoint plus /api/chat/stop,
+# /api/chat/stream_status, /api/inject_context, /api/rewrite and /api/search.
+# Those are ordinary short JSON calls and stay under the hard timeout now.)
 _TIMEOUT_EXEMPT_PREFIXES = (
-    "/api/chat",            # streaming
+    "/api/chat_stream",       # chat SSE (detached run; streams for minutes)
+    "/api/chat/resume",       # SSE reconnect to a detached run
     "/api/shell/stream",    # SSE
     "/api/research",        # multi-minute jobs
     "/api/model/download",  # tmux setup may run pip installs
