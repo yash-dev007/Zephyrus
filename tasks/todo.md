@@ -15,7 +15,7 @@
 **Estimated scope:** Small
 
 ## Checkpoint: Baseline
-- [ ] Worktree clean, manifest v0 committed or staged
+- [x] Worktree clean, manifest v0 committed or staged
 
 ## Task 1: Asset reference graph
 **Description:** Grep every image/icon reference; mark referenced vs orphan-candidate.
@@ -65,7 +65,7 @@
 **Estimated scope:** Small
 
 ## Checkpoint: Inventory
-- [ ] MANIFEST.json v1 complete, no moves yet
+- [x] MANIFEST.json v1 complete (8 rows, 3.6M quarantined; evidence in .cleanup/*.txt)
 
 ## Task 5: Docs quarantine (depends: Task 2)
 **Description:** `git mv` zero-ref docs to quarantine, one manifest row each.
