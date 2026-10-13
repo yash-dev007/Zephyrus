@@ -2737,6 +2737,12 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                   if (_liveThinkContent) _liveThinkContent.id = _thinkId;
                   if (_liveThinkToggle) _liveThinkToggle.id = _thinkId + '-toggle';
 
+                  // Collapse the thinking box now that the reply is starting:
+                  // thinking streams visibly live, but rests collapsed by
+                  // default — the user re-opens it via the arrow toggle.
+                  if (_liveThinkContent) _liveThinkContent.classList.remove('expanded');
+                  if (_liveThinkToggle) _liveThinkToggle.classList.remove('expanded');
+
                   // Append a container for the reply text that follows thinking
                   var _streamEl = _liveThinkSection ? _liveThinkSection.parentElement : roundHolder.querySelector('.stream-content');
                   if (!_streamEl) _streamEl = roundHolder.querySelector('.body');
@@ -2859,6 +2865,9 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 if (_liveHdrDone) _liveHdrDone.dataset.thinkingId = _thinkIdDone;
                 if (_liveThinkContent) _liveThinkContent.id = _thinkIdDone;
                 if (_liveThinkToggle) _liveThinkToggle.id = _thinkIdDone + '-toggle';
+                // Rest collapsed by default (same as the thinking-end path above).
+                if (_liveThinkContent) _liveThinkContent.classList.remove('expanded');
+                if (_liveThinkToggle) _liveThinkToggle.classList.remove('expanded');
                 // Create live-reply container so final render preserves thinking bar
                 var _streamElDone = _liveThinkSection ? _liveThinkSection.parentElement : roundHolder.querySelector('.stream-content');
                 if (!_streamElDone) _streamElDone = roundHolder.querySelector('.body');
