@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "branch": "cleanup/dead-weight-audit",
   "base": "b78c4dd",
   "entries": [
@@ -12,7 +12,7 @@
       "last_git_touch": "56bb31c 2026-09-14",
       "reason": "ZERO-REFS per doc-refs.txt",
       "team": "B",
-      "disposition": "quarantine"
+      "disposition": "deleted"
     },
     {
       "orig": "docs/attachments.md",
@@ -23,7 +23,7 @@
       "last_git_touch": "56bb31c 2026-09-14",
       "reason": "ZERO-REFS per doc-refs.txt (only generic word hits)",
       "team": "B",
-      "disposition": "quarantine"
+      "disposition": "deleted"
     },
     {
       "orig": "docs/deep-research.md",
@@ -34,7 +34,7 @@
       "last_git_touch": "916c571 2026-10-06",
       "reason": "ZERO-REFS .md basename per doc-refs.txt",
       "team": "B",
-      "disposition": "quarantine"
+      "disposition": "deleted"
     },
     {
       "orig": "docs/pr-blocker-audit.md",
@@ -45,7 +45,7 @@
       "last_git_touch": "56bb31c 2026-09-14",
       "reason": "ZERO-REFS in scope (only out-of-scope test classifier hit)",
       "team": "B",
-      "disposition": "quarantine"
+      "disposition": "deleted"
     },
     {
       "orig": "docs/Ultra-Dark Technical Topographic Map.png",
@@ -56,7 +56,7 @@
       "last_git_touch": "1348553 2026-10-10",
       "reason": "ORPHAN-CANDIDATE + byte-dupe of live static/icons/topo-dark.png",
       "team": "B",
-      "disposition": "quarantine"
+      "disposition": "deleted"
     },
     {
       "orig": "docs/Zephyrus Dark Topographic Dashboard.png",
@@ -67,7 +67,7 @@
       "last_git_touch": "1348553 2026-10-10",
       "reason": "ORPHAN-CANDIDATE (only gan-harness untracked.txt mention)",
       "team": "B",
-      "disposition": "quarantine"
+      "disposition": "deleted"
     },
     {
       "orig": "static/icons/ollama-mark.png",
@@ -78,7 +78,7 @@
       "last_git_touch": "56bb31c 2026-09-14",
       "reason": "ORPHAN-CANDIDATE (only -crop variant used)",
       "team": "B",
-      "disposition": "quarantine"
+      "disposition": "deleted"
     },
     {
       "orig": "static/icons/sglang-logo.png",
@@ -89,7 +89,18 @@
       "last_git_touch": "56bb31c 2026-09-14",
       "reason": "ORPHAN-CANDIDATE (only -mark variant used)",
       "team": "B",
-      "disposition": "quarantine"
+      "disposition": "deleted"
+    },
+    {
+      "orig": "gan-harness/",
+      "quarantine": null,
+      "bytes": 7549747,
+      "md5": "dir",
+      "referenced_by": [],
+      "last_git_touch": "various",
+      "reason": "Experiment history (2026-10-08 UI run); zero external refs, not bundled in Zephyrus.spec; user-approved removal",
+      "team": "0",
+      "disposition": "deleted"
     }
   ]
 }
