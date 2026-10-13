@@ -34319,7 +34319,7 @@ body.notes-drag-mode .note-card-pin svg {
 .note-card-corner-menu:hover { opacity: 0.9; }
 /* Dropdown spawned by the ⋯ menu */
 .note-corner-menu-dropdown {
-  background: var(--surface-4);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   var(--shadow-md)
