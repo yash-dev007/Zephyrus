@@ -632,6 +632,12 @@ async function streamToPane(paneIdx, sessionId, message, aiMsgEl, opts) {
     }
   } finally {
     clearTimeout(timeoutId);
+    // An aborted/timed-out tool leaves its wave interval spinning —
+    // tool_output (the normal stop) never arrives. Clear it here.
+    if (currentToolBlock && currentToolBlock._waveInterval) {
+      clearInterval(currentToolBlock._waveInterval);
+      currentToolBlock._waveInterval = null;
+    }
     _timerDone = true;
     cancelAnimationFrame(_rafId);
     // Show final time with TTFT
