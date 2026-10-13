@@ -398,10 +398,6 @@ def test_daily_cap_db_error_fails_closed_not_silent(monkeypatch):
         _enforce_chat_privileges(req, SimpleNamespace(model="m"))
 
 
-@pytest.mark.xfail(
-    reason="Team A: POST /api/chat never consults can_use_research, so a research-disabled user with use_research=true still burns research tokens",
-    strict=True,
-)
 def test_nonstream_research_privilege_suppresses_service_call(monkeypatch):
     """use_research=true + can_use_research=False → no research call. FAILS today."""
     research_handler = MagicMock()

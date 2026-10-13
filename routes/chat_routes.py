@@ -537,6 +537,14 @@ def setup_chat_routes(
         # non-streaming path can't be used to bypass).
         _enforce_chat_privileges(request, sess)
 
+        # Mirror the chat_stream research privilege gate: a user without
+        # can_use_research must not burn research tokens via this path.
+        _privs = {}
+        if owner and hasattr(request.app.state, "auth_manager") and request.app.state.auth_manager:
+            _privs = request.app.state.auth_manager.get_privileges(owner) or {}
+        if use_research and not _privs.get("can_use_research", True):
+            raise HTTPException(403, "Your account is not allowed to use research.")
+
         tool_policy = build_effective_tool_policy(last_user_message=message)
         allow_tool_preprocessing = not tool_policy.block_all_tool_calls
 
