@@ -6,7 +6,6 @@ import os
 import re
 import time
 import logging
-from datetime import datetime
 from typing import Dict, Any, AsyncGenerator, List, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Form, Query
@@ -15,7 +14,7 @@ from pydantic import ValidationError
 
 from core.models import ChatMessage
 from src.request_models import ChatRequest
-from src.llm_core import llm_call_async, stream_llm, stream_llm_with_fallback
+from src.llm_core import llm_call_async, stream_llm, stream_llm_with_fallback, normalize_model_id
 from src.agent_loop import stream_agent_loop
 from src import agent_runs
 from src.model_context import estimate_tokens
@@ -29,6 +28,7 @@ from routes.session_routes import _verify_session_owner
 from routes.document_helpers import _owner_session_filter
 from core.database import SessionLocal, get_session_mode, set_session_mode
 from core.database import Session as DBSession, ChatMessage as DBChatMessage
+from core.database import utcnow_naive as _utcnow_naive
 from core.database import Document as DBDocument, ModelEndpoint
 from core.log_safety import redact_url
 from routes.research_routes import _resolve_research_endpoint
@@ -40,6 +40,8 @@ from routes.chat_helpers import (
     run_post_response_tasks,
     clean_thinking_for_save,
     _enforce_chat_privileges,
+    _normalize_model_id_from_cache,
+    _allowed_models_for_request,
 )
 from src.action_intents import ToolIntent, classify_tool_intent as _classify_tool_intent
 from src.tool_policy import (
@@ -67,6 +69,63 @@ def _stream_set(session_id: str, **fields) -> None:
     if rec is None:
         return
     rec.update(fields)
+
+
+def _run_is_active(session_id: str) -> bool:
+    """Single registry view: a detached agent_runs drain OR a live
+    _active_streams entry both mean "this session has a run in flight".
+
+    stop/resume/status all go through here (plus agent_runs.stop for
+    cancellation) instead of each handler combining the two registries
+    ad hoc."""
+    if agent_runs.is_active(session_id):
+        return True
+    return session_id in _active_streams
+
+
+def _run_status_view(session_id: str) -> dict | None:
+    """Unified status for stop/resume/status: None when no run exists."""
+    rec = _active_streams.get(session_id)
+    if rec is not None:
+        return dict(rec)
+    if agent_runs.is_active(session_id):
+        return {"status": "streaming", "detached": True}
+    return None
+
+
+def _run_stop(session_id: str) -> bool:
+    """Cancel a run through the single registry. Returns True if a
+    drain task was cancelled."""
+    stopped = agent_runs.stop(session_id)
+    # Belt-and-suspenders: a cancelled drain's generator finally pops its
+    # own entry, but drop it here too so status flips immediately instead
+    # of waiting on the cancellation round-trip.
+    _active_streams.pop(session_id, None)
+    return stopped
+
+
+def _save_partial_response(sess, session_manager, full_response: str, *,
+                           model: str | None, requested_model: str | None,
+                           incognito: bool = False) -> None:
+    """Single save-partial helper for client-disconnect paths (chat mode
+    and agent mode previously duplicated this block and could drift).
+
+    Strips reasoning scratchpad via clean_thinking_for_save so the saved
+    bubble holds only the real reply. Never masks the caller's
+    CancelledError: failures are logged, not raised.
+    """
+    if not full_response:
+        return
+    try:
+        content, md = clean_thinking_for_save(
+            full_response,
+            {"stopped": True, "model": model, "requested_model": requested_model},
+        )
+        sess.add_message(ChatMessage("assistant", content, metadata=md))
+        if not incognito:
+            session_manager.save_sessions()
+    except Exception:
+        logger.exception("Failed to save partial response on disconnect")
 
 
 def _message_plain_text(content: Any) -> str:
@@ -199,7 +258,7 @@ def _clear_orphaned_session_endpoint(sess, owner: str | None = None) -> bool:
         if db_session:
             db_session.endpoint_url = ""
             db_session.model = ""
-            db_session.updated_at = datetime.utcnow()
+            db_session.updated_at = _utcnow_naive()
             db.commit()
         sess.endpoint_url = ""
         sess.model = ""
@@ -264,7 +323,8 @@ def _is_image_generation_session(sess, owner: str | None = None) -> bool:
                 continue
             if _endpoint_cache_contains_model(endpoint, model):
                 return True
-    except Exception:
+    except Exception as e:
+        logger.warning("Image-session endpoint check failed", exc_info=e)
         return False
     finally:
         db.close()
@@ -289,7 +349,8 @@ def _recover_empty_session_model(sess, session_id: str, owner: str | None = None
             is_chatgpt_subscription = is_chatgpt_subscription_base(endpoint_url)
             if not is_chatgpt_subscription:
                 return False
-        except Exception:
+        except Exception as e:
+            logger.warning("ChatGPT-subscription base check failed", exc_info=e)
             return False
     db = SessionLocal()
     try:
@@ -325,7 +386,8 @@ def _recover_empty_session_model(sess, session_id: str, owner: str | None = None
         else:
             try:
                 visible = _visible_models(cached, getattr(ep, "hidden_models", None))
-            except Exception:
+            except Exception as e:
+                logger.warning("Visible-model filter failed for endpoint %r", getattr(ep, "id", "?"), exc_info=e)
                 visible = cached
         if current_model and current_model in {str(item).strip() for item in visible}:
             return False
@@ -341,7 +403,8 @@ def _recover_empty_session_model(sess, session_id: str, owner: str | None = None
                         if live_models:
                             ep.cached_models = json.dumps(live_models)
                             db.commit()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Live-model recovery failed for endpoint %r", getattr(ep, "id", "?"), exc_info=e)
                     live_models = []
             # ChatGPT Subscription recovery must use the live Codex catalog.
             # Cached rows are only trusted above to avoid revalidating a model
@@ -351,7 +414,8 @@ def _recover_empty_session_model(sess, session_id: str, owner: str | None = None
                 return False
             try:
                 visible = _visible_models(cached, getattr(ep, "hidden_models", None))
-            except Exception:
+            except Exception as e:
+                logger.warning("Visible-model filter failed for endpoint %r", getattr(ep, "id", "?"), exc_info=e)
                 visible = cached
             if current_model and current_model in {str(item).strip() for item in visible}:
                 return False
@@ -370,7 +434,7 @@ def _recover_empty_session_model(sess, session_id: str, owner: str | None = None
         db_session = db_session_q.first()
         if db_session:
             db_session.model = model
-            db_session.updated_at = datetime.utcnow()
+            db_session.updated_at = _utcnow_naive()
             db.commit()
         sess.model = model
         logger.info(
@@ -402,8 +466,8 @@ def _set_user_time_from_request(request: Request) -> None:
             set_user_tz_offset(tz_offset)
         if tz_name:
             set_user_tz_name(tz_name)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to apply request timezone headers", exc_info=e)
 
 
 def setup_chat_routes(
@@ -436,11 +500,13 @@ def setup_chat_routes(
 
         # Verify the caller owns this session before loading it.
         # Without this, any authenticated user can post into another user's chat.
-        _verify_session_owner(request, session)
+        # session_manager is passed so in-memory ghosts (no DB row yet) resolve
+        # instead of 404-ing their owner.
+        _verify_session_owner(request, session, session_manager)
 
         try:
             sess = session_manager.get_session(session)
-        except KeyError:
+        except (KeyError, SessionNotFoundError):
             raise HTTPException(404, f"Session '{session}' not found")
         owner = effective_user(request)
         if _clear_orphaned_session_endpoint(sess, owner=owner):
@@ -450,6 +516,17 @@ def setup_chat_routes(
         # the endpoint's cached model list before privilege checks, which
         # otherwise see "" and behave inconsistently with the allowlist.
         _recover_empty_session_model(sess, session, owner=owner)
+        # Normalize BEFORE the privilege gate so the allowlist compares the
+        # canonical model id (mirrors build_chat_context on the stream path).
+        try:
+            _norm = _normalize_model_id_from_cache(sess) or normalize_model_id(
+                sess.endpoint_url, sess.model, owner=getattr(sess, "owner", None),
+            )
+        except Exception as e:
+            logger.warning("Model normalization skipped for session %s: %s", session, e)
+            _norm = None
+        if _norm:
+            sess.model = _norm
         if not getattr(sess, "model", "").strip():
             raise HTTPException(
                 400,
@@ -520,14 +597,14 @@ def setup_chat_routes(
 
         # Background tasks (memory, webhook, auto-name)
         run_post_response_tasks(
-            sess, session_manager, session, message, reply, None,
+            sess, session_manager, session, message, _clean_reply, None,
             ctx.uprefs, memory_manager, memory_vector, webhook_manager,
             character_name=ctx.preset.character_name,
             owner=ctx.user,
             allow_background_extraction=not tool_policy.block_all_tool_calls,
         )
 
-        return {"response": reply}
+        return {"response": _clean_reply}
 
     # ------------------------------------------------------------------ #
     # POST /api/chat_stream
@@ -535,8 +612,10 @@ def setup_chat_routes(
     @router.post("/api/chat_stream")
     async def chat_stream(request: Request) -> StreamingResponse:
         body = None
+        _is_json = (request.headers.get("content-type", "").split(";")[0].strip().lower()
+                    == "application/json")
         try:
-            if request.headers.get("content-type", "").startswith("application/json"):
+            if _is_json:
                 try:
                     body = await request.json()
                 except json.JSONDecodeError as e:
@@ -548,7 +627,14 @@ def setup_chat_routes(
 
         _set_user_time_from_request(request)
 
-        form_data = await request.form()
+        # Parse fields by content-type: JSON API callers send a JSON object
+        # (a plain dict supports the same .get() access the form path uses
+        # below), browser clients send FormData. Never force one parser onto
+        # the other's wire format.
+        if _is_json:
+            form_data = body if isinstance(body, dict) else {}
+        else:
+            form_data = await request.form()
         message = form_data.get("message")
         session = form_data.get("session")
         attachments = form_data.get("attachments")
@@ -583,7 +669,7 @@ def setup_chat_routes(
         # huge plan can't blow the prompt.
         approved_plan = ""
         if not plan_mode:
-            approved_plan = (form_data.get("approved_plan") or "").strip()[:8192]
+            approved_plan = str(form_data.get("approved_plan") or "").strip()[:8192]
         # Did the USER explicitly pick agent mode? (vs. us auto-escalating
         # below). Skill extraction should only learn from real agent sessions,
         # not chats we quietly promoted for a notes/calendar intent.
@@ -610,25 +696,23 @@ def setup_chat_routes(
             chat_mode = "agent"
             auto_escalated = True
             logger.info("chat→agent auto-escalation: search enabled")
-        active_doc_id = form_data.get("active_doc_id", "").strip()
+        active_doc_id = str(form_data.get("active_doc_id") or "").strip()
         logger.info(f"[doc-inject] chat_mode={chat_mode}, active_doc_id={active_doc_id!r}")
 
         # Active email reader — when the user has an email open in the UI, the
         # frontend passes its uid/folder/account so "reply", "summarize this",
         # etc. resolve to the real email instead of the agent inventing a
         # fake markdown draft.
-        active_email_uid = form_data.get("active_email_uid", "").strip()
-        active_email_folder = form_data.get("active_email_folder", "INBOX").strip() or "INBOX"
-        active_email_account = form_data.get("active_email_account", "").strip()
+        active_email_uid = str(form_data.get("active_email_uid") or "").strip()
+        active_email_folder = str(form_data.get("active_email_folder") or "INBOX").strip() or "INBOX"
+        active_email_account = str(form_data.get("active_email_account") or "").strip()
         active_email_ctx: Optional[Dict[str, str]] = None
-        # Always reset between requests so a stale active-email pointer from
-        # a previous turn (different reader closed, different account, etc.)
-        # can't leak in when the user has no email open this turn.
-        try:
-            from src.tool_implementations import clear_active_email
-            clear_active_email()
-        except Exception:
-            pass
+        # Request-scoped only: active_email_ctx is built fresh per request and
+        # passed explicitly into stream_agent_loop. It MUST NOT be stashed on
+        # any process-global (the old set/clear_active_email round-trip raced
+        # between concurrent requests: turn A's clear wiped turn B's pointer
+        # mid-flight). Nothing reads the global anymore — the explicit param
+        # is the sole channel.
         if active_email_uid:
             active_email_ctx = {
                 "uid": active_email_uid,
@@ -654,19 +738,7 @@ def setup_chat_routes(
                     if _body_preview:
                         active_email_ctx["body_preview"] = _body_preview
             except Exception as _e:
-                logger.debug(f"[email-inject] cache enrich skipped: {_e}")
-            # Stash so email tools can resolve "this email" without UID guessing.
-            try:
-                from src.tool_implementations import set_active_email
-                set_active_email(
-                    uid=active_email_uid,
-                    folder=active_email_folder,
-                    account=active_email_account or None,
-                    subject=active_email_ctx.get("subject"),
-                    sender=active_email_ctx.get("from"),
-                )
-            except Exception as _e:
-                logger.debug(f"[email-inject] set_active_email failed: {_e}")
+                logger.warning("[email-inject] cache enrich skipped: %s", _e)
             logger.info(
                 "[email-inject] active_email uid=%s folder=%s account=%s subject=%r",
                 active_email_uid, active_email_folder, active_email_account or "(default)",
@@ -685,7 +757,9 @@ def setup_chat_routes(
             )
             # Verify ownership AFTER coerce (which may resolve a default session)
             # but BEFORE loading. Prevents cross-user session hijack.
-            _verify_session_owner(request, session)
+            # session_manager is passed so in-memory ghosts (no DB row yet)
+            # resolve instead of 404-ing their owner.
+            _verify_session_owner(request, session, session_manager)
             sess = session_manager.get_session(session)
             owner = effective_user(request)
             if _clear_orphaned_session_endpoint(sess, owner=owner):
@@ -716,7 +790,7 @@ def setup_chat_routes(
                     _tool_intent.category,
                     _tool_intent.reason,
                 )
-        except SessionNotFoundError as e:
+        except (KeyError, SessionNotFoundError) as e:
             raise HTTPException(404, str(e))
         except (ValueError, ValidationError):
             raise HTTPException(400, "Invalid request parameters")
@@ -1183,8 +1257,25 @@ def setup_chat_routes(
             try:
                 from src.endpoint_resolver import resolve_chat_fallback_candidates
                 _fallback_candidates = resolve_chat_fallback_candidates(owner=_user)
-            except Exception:
+            except Exception as e:
+                logger.warning("Chat fallback candidates unresolved for session %s: %s", session, e)
                 _fallback_candidates = []
+            # A fallback must never answer with a model the caller's allowlist
+            # forbids — otherwise a restricted user reaches a blocked model by
+            # letting the primary fail. None = unrestricted (single-user /
+            # admin / unconfigured), so the chain passes through untouched.
+            try:
+                _allowed_fb = _allowed_models_for_request(request)
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning("Fallback allowlist lookup failed; failing closed for session %s", session, exc_info=e)
+                raise HTTPException(401, "Authentication required")
+            if _allowed_fb is not None:
+                _fallback_candidates = [
+                    _cand for _cand in _fallback_candidates
+                    if len(_cand) > 1 and _cand[1] in _allowed_fb
+                ]
 
             # Send model name early so the frontend can show it during streaming
             _model_suffix = "Research" if effective_do_research else None
@@ -1362,17 +1453,12 @@ def setup_chat_routes(
                 except (asyncio.CancelledError, GeneratorExit):
                     if full_response:
                         logger.info("Client disconnected mid-stream (chat mode) for session %s, saving partial (%d chars)", session, len(full_response))
-                        _stopped_content, _stopped_md = clean_thinking_for_save(
-                            full_response,
-                            {
-                                "stopped": True,
-                                "model": _actual_model or _answered_by or _requested_model,
-                                "requested_model": _requested_model,
-                            },
-                        )
-                        sess.add_message(ChatMessage("assistant", _stopped_content, metadata=_stopped_md))
-                        if not incognito:
-                            session_manager.save_sessions()
+                    _save_partial_response(
+                        sess, session_manager, full_response,
+                        model=_actual_model or _answered_by or _requested_model,
+                        requested_model=_requested_model,
+                        incognito=incognito,
+                    )
                     raise
                 finally:
                     _active_streams.pop(session, None)
@@ -1522,28 +1608,18 @@ def setup_chat_routes(
                             _stream_set(session, status="done")
                             yield chunk
                 except (asyncio.CancelledError, GeneratorExit):
-                    # Client disconnected — save partial response. Wrap
-                    # the save in its own try so an exception inside
-                    # add_message / save_sessions doesn't mask the
-                    # original CancelledError (which prevented the
-                    # outer finally from running and left _active_streams
-                    # with a stale entry).
-                    try:
-                        if full_response:
-                            logger.info("Client disconnected mid-stream for session %s, saving partial response (%d chars)", session, len(full_response))
-                            _stopped_content2, _stopped_md2 = clean_thinking_for_save(
-                                full_response,
-                                {
-                                    "stopped": True,
-                                    "model": _actual_model or _answered_by or _requested_model,
-                                    "requested_model": _requested_model,
-                                },
-                            )
-                            sess.add_message(ChatMessage("assistant", _stopped_content2, metadata=_stopped_md2))
-                            if not incognito:
-                                session_manager.save_sessions()
-                    except Exception:
-                        logger.exception("Failed to save partial response on disconnect (session %s)", session)
+                    # Client disconnected — save partial response via the
+                    # shared helper (never raises, so the original
+                    # CancelledError propagates cleanly and the outer
+                    # finally still pops _active_streams).
+                    if full_response:
+                        logger.info("Client disconnected mid-stream for session %s, saving partial response (%d chars)", session, len(full_response))
+                    _save_partial_response(
+                        sess, session_manager, full_response,
+                        model=_actual_model or _answered_by or _requested_model,
+                        requested_model=_requested_model,
+                        incognito=incognito,
+                    )
                     raise
                 finally:
                     _active_streams.pop(session, None)
@@ -1589,8 +1665,8 @@ def setup_chat_routes(
     # ------------------------------------------------------------------ #
     @router.get("/api/chat/resume/{session_id}")
     async def chat_resume(request: Request, session_id: str) -> StreamingResponse:
-        _verify_session_owner(request, session_id)
-        if not agent_runs.is_active(session_id):
+        _verify_session_owner(request, session_id, session_manager)
+        if not _run_is_active(session_id):
             raise HTTPException(404, "No active run for this session")
         return StreamingResponse(agent_runs.subscribe(session_id), media_type="text/event-stream")
 
@@ -1600,25 +1676,21 @@ def setup_chat_routes(
     # ------------------------------------------------------------------ #
     @router.post("/api/chat/stop/{session_id}")
     async def chat_stop(request: Request, session_id: str) -> Dict[str, Any]:
-        _verify_session_owner(request, session_id)
-        stopped = agent_runs.stop(session_id)
-        return {"stopped": stopped}
+        _verify_session_owner(request, session_id, session_manager)
+        return {"stopped": _run_stop(session_id)}
 
     # ------------------------------------------------------------------ #
     # GET /api/chat/stream_status — check if a stream is active for a session
     # ------------------------------------------------------------------ #
     @router.get("/api/chat/stream_status/{session_id}")
     async def chat_stream_status(request: Request, session_id: str) -> Dict[str, Any]:
-        _verify_session_owner(request, session_id)
-        # A detached run can still be going even if _active_streams was popped;
-        # report it as active so the client knows to reconnect via /resume.
-        # Read once via .get() to avoid a KeyError race between the membership
-        # check and the indexed read if a sibling stream's finally pops the
-        # entry in between (same pattern _stream_set already uses).
-        rec = _active_streams.get(session_id)
+        _verify_session_owner(request, session_id, session_manager)
+        # Single-registry view: a detached run still going after
+        # _active_streams was popped reports as active so the client knows
+        # to reconnect via /resume. The .get() inside _run_status_view
+        # avoids the KeyError race the old inline version commented on.
+        rec = _run_status_view(session_id)
         if rec is None:
-            if agent_runs.is_active(session_id):
-                return {"status": "streaming", "detached": True}
             raise HTTPException(404, "No active stream for this session")
         return rec
 
@@ -1627,14 +1699,14 @@ def setup_chat_routes(
     # ------------------------------------------------------------------ #
     @router.post("/api/inject_context/{session_id}")
     async def inject_context(request: Request, session_id: str, context: str = Form(...)) -> Dict[str, str]:
-        _verify_session_owner(request, session_id)
+        _verify_session_owner(request, session_id, session_manager)
         try:
             sess = session_manager.get_session(session_id)
             msg = untrusted_context_message("injected research context", f"Research Context: {context}")
             sess.add_message(ChatMessage(msg["role"], msg["content"], metadata=msg.get("metadata")))
             session_manager.save_sessions()
             return {"status": "context_injected"}
-        except KeyError:
+        except (KeyError, SessionNotFoundError):
             raise HTTPException(404, "Session not found")
 
     # ------------------------------------------------------------------ #
@@ -1682,13 +1754,25 @@ def setup_chat_routes(
 
         if not session_id or not original_text or not instruction:
             raise HTTPException(400, "session_id, original_text, and instruction are required")
+        # Cap rewrite inputs: the prompt is built by interpolation, so an
+        # unbounded original_text/instruction blows the context (or the bill).
+        if not isinstance(original_text, str) or not isinstance(instruction, str):
+            raise HTTPException(400, "original_text and instruction must be strings")
+        if len(original_text) > 20000:
+            raise HTTPException(400, "original_text is too long (max 20000 characters)")
+        if len(instruction) > 2000:
+            raise HTTPException(400, "instruction is too long (max 2000 characters)")
 
-        _verify_session_owner(request, session_id)
+        _verify_session_owner(request, session_id, session_manager)
 
         try:
             sess = session_manager.get_session(session_id)
         except (KeyError, SessionNotFoundError):
             raise HTTPException(404, "Session not found")
+
+        # Same allowed_models + daily-cap gate as the chat paths, so rewrite
+        # can't be used to burn tokens on a model the caller may not use.
+        _enforce_chat_privileges(request, sess)
 
         messages = [
             {"role": "system", "content": (
@@ -1741,26 +1825,40 @@ def setup_chat_routes(
                         from src.research_utils import strip_thinking
                         full_response = strip_thinking(full_response).strip() or full_response
                         if full_response:
+                            # Prefer the message's own _db_id (stamped at save
+                            # time) over a "latest assistant row" scan: the scan
+                            # can hit a newer row when two rewrites overlap.
+                            _target_db_id = None
                             for msg in reversed(sess.history):
                                 if (isinstance(msg, ChatMessage) and msg.role == 'assistant') or \
                                    (isinstance(msg, dict) and msg.get('role') == 'assistant'):
                                     if isinstance(msg, ChatMessage):
                                         msg.content = full_response
+                                        _md = getattr(msg, "metadata", None)
                                     else:
                                         msg['content'] = full_response
+                                        _md = msg.get('metadata')
+                                    if isinstance(_md, dict):
+                                        _target_db_id = _md.get("_db_id")
                                     break
                             # Update in DB too
                             db = SessionLocal()
                             try:
-                                db_msg = (
-                                    db.query(DBChatMessage)
-                                    .filter(DBChatMessage.session_id == session_id, DBChatMessage.role == 'assistant')
-                                    .order_by(DBChatMessage.timestamp.desc())
-                                    .first()
-                                )
-                                if db_msg:
-                                    db_msg.content = full_response
+                                if _target_db_id:
+                                    db.query(DBChatMessage).filter(
+                                        DBChatMessage.id == _target_db_id
+                                    ).update({"content": full_response})
                                     db.commit()
+                                else:
+                                    db_msg = (
+                                        db.query(DBChatMessage)
+                                        .filter(DBChatMessage.session_id == session_id, DBChatMessage.role == 'assistant')
+                                        .order_by(DBChatMessage.timestamp.desc())
+                                        .first()
+                                    )
+                                    if db_msg:
+                                        db_msg.content = full_response
+                                        db.commit()
                             except Exception as e:
                                 logger.warning("Failed to update rewritten message in DB: %s", e)
                                 db.rollback()

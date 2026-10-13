@@ -118,6 +118,36 @@ class ChatContext:
 
 # ── Helpers ────────────────────────────────────────────────────────────── #
 
+def _allowed_models_for_request(request) -> Optional[set]:
+    """Return the350+ caller-visible allowlist for this request, or None when unrestricted.
+
+    Shared by _enforce_chat_privileges and the stream fallback-chain filter so
+    both agree on what "allowed" means. Returns None when the caller is
+    unauthenticated (single-user mode), unconfigured, unrestricted, or an
+    admin. Fail CLOSED: any auth/privilege lookup failure raises instead of
+    yielding an empty (block-all) or None (allow-all) answer.
+    """
+    try:
+        user = effective_user(request)
+    except Exception as e:
+        logger.warning("effective_user failed during allowlist lookup; failing closed", exc_info=e)
+        raise HTTPException(401, "Authentication required")
+    if not user:
+        return None
+    auth_manager = getattr(getattr(request.app, "state", None), "auth_manager", None)
+    if not auth_manager:
+        return None
+    privs = auth_manager.get_privileges(user) or {}
+    if privs.get("block_all_models"):
+        return set()
+    allowed_raw = privs.get("allowed_models")
+    allowed = allowed_raw if isinstance(allowed_raw, list) else []
+    restricted = bool(privs.get("allowed_models_restricted")) or bool(allowed)
+    if not restricted:
+        return None
+    return set(allowed)
+
+
 def _enforce_chat_privileges(request, sess) -> None:
     """Apply the per-user privilege gates (allowed_models + max_messages_per_day)
     that both /api/chat and /api/chat_stream must enforce BEFORE any LLM work.
@@ -130,35 +160,33 @@ def _enforce_chat_privileges(request, sess) -> None:
     """
     try:
         user = effective_user(request)
-    except Exception:
-        user = None
+    except Exception as e:
+        logger.warning("effective_user failed during chat privilege gate; failing closed", exc_info=e)
+        raise HTTPException(401, "Authentication required")
     if not user:
         return
     auth_manager = getattr(getattr(request.app, "state", None), "auth_manager", None)
     if not auth_manager:
         return
 
+    allowed = _allowed_models_for_request(request)
+    if allowed is not None and sess.model and sess.model not in allowed:
+        raise HTTPException(403, f"Your account is not allowed to use model '{sess.model}'.")
+
+    # Re-read privs for the daily cap (cheap; keeps the cap check
+    # independent of the allowlist helper above).
     privs = auth_manager.get_privileges(user) or {}
-
-    # Explicit "block everything" sentinel takes precedence over the
-    # allowlist — it's the only way to distinguish "user clicked [None]"
-    # (block all) from "user clicked [All]" (no restriction), since both
-    # otherwise produce an empty `allowed_models` list.
-    if privs.get("block_all_models"):
-        raise HTTPException(403, f"Your account is not allowed to use model '{sess.model}'.")
-
-    allowed_raw = privs.get("allowed_models")
-    allowed = allowed_raw if isinstance(allowed_raw, list) else []
-    restricted = bool(privs.get("allowed_models_restricted")) or bool(allowed)
-    if restricted and sess.model and sess.model not in allowed:
-        raise HTTPException(403, f"Your account is not allowed to use model '{sess.model}'.")
-
     cap = int(privs.get("max_messages_per_day") or 0)
     if cap <= 0:
         return
 
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
     from core.database import Session as _DbSess, ChatMessage as _Cm
+    # Aware-now, stripped to naive: ChatMessage.timestamp is a naive-UTC
+    # column, so the bound must compare as naive. Deriving it from an
+    # aware now (instead of datetime.utcnow()) keeps the source of truth
+    # unambiguous while staying comparable with stored rows.
+    _cutoff = (_dt.now(_tz.utc) - _td(days=1)).replace(tzinfo=None)
     db = SessionLocal()
     try:
         count = (
@@ -166,7 +194,7 @@ def _enforce_chat_privileges(request, sess) -> None:
             .join(_DbSess, _Cm.session_id == _DbSess.id)
             .filter(_DbSess.owner == user,
                     _Cm.role == "user",
-                    _Cm.timestamp >= _dt.utcnow() - _td(days=1))
+                    _Cm.timestamp >= _cutoff)
             .count()
         )
     finally:
@@ -249,10 +277,12 @@ async def auto_name_session(session_manager, sess):
         logger.error(f"Auto-name failed for {sess.id}: {e}\n{traceback.format_exc()}")
 
 
-def try_fallback_endpoint(sess, session_id: str) -> dict | None:
-    """Find an alternative working endpoint when the current one fails.
+def _ping_fallback_endpoint(ep, current_url: str, owner) -> tuple | None:
+    """Blocking probe of one fallback endpoint. Runs in a worker thread.
 
-    Returns {"model": ..., "endpoint_url": ..., "endpoint_name": ...} or None.
+    Returns (ep, models) when the endpoint answers with a non-empty model
+    list, else None. Pure (no sess/DB mutation) so pings can run concurrently;
+    the caller applies the first success in configured order.
     """
     import requests as _req
     from src.endpoint_resolver import (
@@ -261,6 +291,54 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
         build_models_url,
         normalize_base,
         resolve_endpoint_runtime,
+    )
+
+    base = normalize_base(ep.base_url)
+    # Skip current endpoint
+    if current_url and base in current_url:
+        return None
+    try:
+        base, api_key = resolve_endpoint_runtime(ep, owner=owner)
+    except Exception as e:
+        logger.debug("Fallback probe skipped endpoint %r: %s", getattr(ep, "name", "?"), e)
+        return None
+    ping_url = build_models_url(base)
+    headers = build_headers(api_key, base)
+    try:
+        if ping_url:
+            r = _req.get(ping_url, headers=headers, timeout=5)
+            r.raise_for_status()
+            data = r.json()
+            models = [m.get("id") for m in (data.get("data") or []) if m.get("id")]
+            if not models:
+                models = [
+                    m.get("name") or m.get("model")
+                    for m in (data.get("models") or [])
+                    if m.get("name") or m.get("model")
+                ]
+        else:
+            models = json.loads(ep.cached_models or "[]")
+        if not models:
+            return None
+        return (ep, base, api_key, models)
+    except Exception as e:
+        logger.debug("Fallback probe failed for endpoint %r: %s", getattr(ep, "name", "?"), e)
+        return None
+
+
+def try_fallback_endpoint(sess, session_id: str) -> dict | None:
+    """Find an alternative working endpoint when the current one fails.
+
+    Returns {"model": ..., "endpoint_url": ..., "endpoint_name": ...} or None.
+
+    Endpoint probes are blocking HTTP, so they run concurrently in a bounded
+    worker pool (order-preserving: the first success in configured order
+    wins) instead of stalling serially on each dead endpoint's timeout.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from src.endpoint_resolver import (
+        build_chat_url,
+        build_headers,
     )
     from src.chatgpt_subscription import is_chatgpt_subscription_base
 
@@ -278,33 +356,20 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
     finally:
         db.close()
 
-    for ep in endpoints:
-        base = normalize_base(ep.base_url)
-        # Skip current endpoint
-        if current_url and base in current_url:
+    if not endpoints:
+        return None
+    probed: list = [None] * len(endpoints)
+    with ThreadPoolExecutor(max_workers=min(4, len(endpoints))) as _pool:
+        for i, result in enumerate(_pool.map(
+            lambda ep: _ping_fallback_endpoint(ep, current_url, owner), endpoints
+        )):
+            probed[i] = result
+
+    for hit in probed:
+        if not hit:
             continue
+        ep, base, api_key, models = hit
         try:
-            base, api_key = resolve_endpoint_runtime(ep, owner=owner)
-        except Exception:
-            continue
-        ping_url = build_models_url(base)
-        headers = build_headers(api_key, base)
-        try:
-            if ping_url:
-                r = _req.get(ping_url, headers=headers, timeout=5)
-                r.raise_for_status()
-                data = r.json()
-                models = [m.get("id") for m in (data.get("data") or []) if m.get("id")]
-                if not models:
-                    models = [
-                        m.get("name") or m.get("model")
-                        for m in (data.get("models") or [])
-                        if m.get("name") or m.get("model")
-                    ]
-            else:
-                models = json.loads(ep.cached_models or "[]")
-            if not models:
-                continue
             # Found a working endpoint — update session
             new_model = models[0]
             chat_url = build_chat_url(base)
@@ -333,7 +398,8 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
                 "endpoint_url": chat_url,
                 "endpoint_name": ep.name,
             }
-        except Exception:
+        except Exception as e:
+            logger.warning("Fallback persist failed for endpoint %r: %s", getattr(ep, "name", "?"), e)
             continue
 
     return None
@@ -590,7 +656,8 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
                 continue
             try:
                 models = json.loads(raw_models) if isinstance(raw_models, str) else raw_models
-            except Exception:
+            except Exception as e:
+                logger.debug("Skipping endpoint %r cached-model match: %s", getattr(ep, "id", "?"), e)
                 continue
 
             matched = _match_cached_model_id(requested, models)
@@ -737,7 +804,12 @@ async def build_chat_context(
     )
     if use_rag is not None or is_research_spinoff or casual_low_signal:
         _preface_kwargs["use_rag"] = use_rag_val
-    preface, rag_sources, web_sources = chat_processor.build_context_preface(**_preface_kwargs)
+    # build_context_preface does blocking sync I/O (LLM query-gen call,
+    # web search, RAG search, memory load, page fetches). Run it in a worker
+    # thread so the event loop stays responsive for other requests.
+    preface, rag_sources, web_sources = await asyncio.to_thread(
+        chat_processor.build_context_preface, **_preface_kwargs
+    )
 
     # Capture used memories immediately
     used_memories = getattr(chat_processor, '_last_used_memories', [])
@@ -829,8 +901,9 @@ def accumulate_token_usage(session_id: str, metrics: dict):
             db_s.total_input_tokens = (db_s.total_input_tokens or 0) + in_t
             db_s.total_output_tokens = (db_s.total_output_tokens or 0) + out_t
             db.commit()
-    except Exception:
+    except Exception as e:
         db.rollback()
+        logger.warning("Failed to accumulate token usage for session %s", session_id, exc_info=e)
     finally:
         db.close()
 
