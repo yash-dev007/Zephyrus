@@ -4091,7 +4091,7 @@ body.bg-pattern-perlin-flow {
     }
     .msg-overflow-menu {
       position:fixed;
-      background:var(--surface-4);
+      background:var(--bg);
       border:1px solid var(--border);
       border-radius:6px;
       padding:4px;
