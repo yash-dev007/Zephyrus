@@ -9,6 +9,7 @@ import { providerLogo, providerLabel } from './providers.js';
 import settingsModule from './settings.js';
 import spinnerModule from './spinner.js';
 import { bindMenuDismiss } from './escMenuStack.js';
+import { topPortalZ } from './toolWindowZOrder.js';
 import { matchModelKey } from './model/matchKey.js';
 
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
@@ -1565,6 +1566,14 @@ function _trackAction(id) {
   localStorage.setItem(_ACTION_RECENTS_KEY, JSON.stringify(recent));
 }
 
+// Body-portaled menus must sit above every open tool window and dock chip.
+// The codebase-wide convention (notes, tasks, gallery, …) is topPortalZ();
+// the CSS fallback (z-index:100) loses that contest, leaving the menu
+// behind covering UI where its items can't be clicked.
+function _raiseToPortal(menu) {
+  try { menu.style.zIndex = String(topPortalZ()); } catch { /* keep CSS fallback */ }
+}
+
 /**
  * Create a footer row for an AI message with timestamp and action buttons.
  */
@@ -1676,6 +1685,7 @@ export function createMsgFooter(msgElement) {
       });
       menu._trigger = moreBtn;
       document.body.appendChild(menu);
+      _raiseToPortal(menu);
       // Position fixed relative to the ··· button
       const btnRect = moreBtn.getBoundingClientRect();
       menu.style.top = (btnRect.top - menu.offsetHeight - 4) + 'px';
@@ -1739,6 +1749,7 @@ export function createMsgFooter(msgElement) {
       });
       detail.style.visibility = 'hidden';
       document.body.appendChild(detail);
+      _raiseToPortal(detail);
       const pillRect = pill.getBoundingClientRect();
       const detailRect = detail.getBoundingClientRect();
       const spaceAbove = pillRect.top;
@@ -1865,6 +1876,7 @@ export function createUserMsgFooter(msgElement) {
       });
       menu._trigger = moreBtn;
       document.body.appendChild(menu);
+      _raiseToPortal(menu);
       const btnRect = moreBtn.getBoundingClientRect();
       menu.style.top = (btnRect.top - menu.offsetHeight - 4) + 'px';
       menu.style.left = btnRect.left + 'px';

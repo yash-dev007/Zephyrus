@@ -46,3 +46,13 @@ def test_sse_handlers_do_not_use_loop_scoped_isbg():
     bare = re.findall(r"(?<![\w$])_isBg(?![\w$])", handler_region.replace("_isBgNow", ""))
     assert not bare, f"{len(bare)} handler references to loop-scoped _isBg remain"
     assert "_isBgNow()" in handler_region
+
+
+def test_msg_overflow_menus_use_portal_z():
+    """Regression: the chat `···` overflow menu used hardcoded CSS
+    z-index:100 while every other body-portaled dropdown uses topPortalZ(),
+    so it rendered behind covering UI and its items couldn't be clicked."""
+    source = Path("static/js/chatRenderer.js").read_text(encoding="utf-8")
+    assert "topPortalZ" in source
+    assert source.count("_raiseToPortal(menu);") == 2
+    assert source.count("_raiseToPortal(detail);") == 1
