@@ -892,6 +892,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     const streamSessionId = sessionModule.getCurrentSessionId();
     _streamSessionId = streamSessionId;
     const streamQuery = msg;
+      const _isBgNow = () => sessionModule.getCurrentSessionId() !== streamSessionId;
     _lastReaderActivity = Date.now();
 
     // Acquire Web Lock to hint browser not to discard this tab while streaming
@@ -1718,14 +1719,14 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       let _thinkTimerStart = 0, _thinkTimerRAF = 0;
       const SSE_HANDLERS = {
         agent_prep(json) {
-                if (!_isBg) {
+                if (!_isBgNow()) {
                   _cancelThinkingTimer();
                   _replaceThinkingSpinner('Preparing agent');
                 }
                 return;
         },
         research_progress(json) {
-                if (_isBg) return; // Skip DOM updates in background
+                if (_isBgNow()) return; // Skip DOM updates in background
                 _researchingStreamIds.add(streamSessionId);
                 // Highlight research button while running
                 var _rToggle = document.getElementById('research-toggle-btn');
@@ -1799,7 +1800,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 }
         },
         research_sources(json) {
-                if (_isBg) {
+                if (_isBgNow()) {
                   // Store sources HTML in background map
                   if (json.data && json.data.length > 0) {
                     _sourcesHtml = _buildSourcesBox(json.data, 'research');
@@ -1824,7 +1825,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 }
         },
         research_findings(json) {
-                if (_isBg) {
+                if (_isBgNow()) {
                   var bgEf = _backgroundStreams.get(streamSessionId);
                   if (bgEf) bgEf.findingsData = json.data;
                   return;
@@ -1854,7 +1855,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 return;
         },
         web_sources(json) {
-                if (_isBg) {
+                if (_isBgNow()) {
                   if (json.data && json.data.length > 0) {
                     _sourcesHtml = _buildSourcesBox(json.data, 'web');
                     var bgE2 = _backgroundStreams.get(streamSessionId);
@@ -1900,7 +1901,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         },
         model_info(json) {
                 // Update role label with model name as soon as we know it
-                if (!_isBg && holder) {
+                if (!_isBgNow() && holder) {
                   const roleEl = holder.querySelector('.role');
                   if (roleEl) {
                     holder._requestedModel = json.requested_model || json.model || holder._requestedModel;
@@ -1920,7 +1921,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 // The selected model failed and another provider answered. Make
                 // it visible so a misconfigured provider is never silently
                 // masked under the selected model's name.
-                if (!_isBg) {
+                if (!_isBgNow()) {
                   var _selM = chatRenderer.shortModel(json.selected_model || '');
                   var _ansM = chatRenderer.shortModel(json.answered_by || '');
                   uiModule.showToast('⚠ ' + _selM + ' failed — answered by ' + _ansM, 6000);
@@ -1952,7 +1953,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 // message body — the body innerHTML is re-rendered at stream
                 // finalize, which would wipe a note placed inside it.
                 const _chatBox = document.getElementById('chat-history');
-                if (!_isBg && _chatBox) {
+                if (!_isBgNow() && _chatBox) {
                   // Drop any prior box so repeated cap-hits each get a fresh
                   // Continue at the bottom (multiple continues in a row).
                   const _old = _chatBox.querySelector('.rounds-exhausted');
@@ -1985,7 +1986,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 }
         },
         model_actual(json) {
-                if (!_isBg && holder) {
+                if (!_isBgNow() && holder) {
                   holder._requestedModel = json.requested_model || holder._requestedModel || modelName;
                   holder._actualModel = json.model || holder._actualModel || holder._requestedModel;
                   _setRoleModelLabel(holder.querySelector('.role'), holder._requestedModel, holder._actualModel, {
@@ -1995,7 +1996,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 }
         },
         attachments(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 // Update user bubble — replace file chips with image previews
                 const _ub = document.querySelector('#chat-history .msg-user:last-of-type');
                 if (_ub) {
@@ -2061,20 +2062,20 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 }
         },
         rag_sources(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 holder._ragSources = json.data;
         },
         memories_used(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 holder._memoriesUsed = json.data;
         },
         compacted(json) {
-                if (!_isBg) {
+                if (!_isBgNow()) {
                   uiModule.showToast('Context compacted — older messages summarized');
                 }
         },
         context_trimmed(json) {
-                if (!_isBg) {
+                if (!_isBgNow()) {
                   const d = json.data || {};
                   const before = Number(d.messages_before || 0);
                   const after = Number(d.messages_after || 0);
@@ -2084,11 +2085,11 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         },
         metrics(json) {
                 metrics = json.data;
-                if (!_isBg && holder && metrics) {
+                if (!_isBgNow() && holder && metrics) {
                   holder._requestedModel = metrics.requested_model || holder._requestedModel || modelName;
                   holder._actualModel = metrics.model || holder._actualModel || holder._requestedModel;
                 }
-                if (_isBg) {
+                if (_isBgNow()) {
                   var bgM = _backgroundStreams.get(streamSessionId);
                   if (bgM) bgM.metrics = json.data;
                   return;
@@ -2102,12 +2103,12 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         message_saved(json) {
                 // Wire the persisted DB id onto the just-streamed bubble so it
                 // can be edited/deleted immediately, without reloading the chat.
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 if (currentHolder && json.id) currentHolder.dataset.dbId = json.id;
 
         },
         tool_start(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 // Force-close thinking if still open — tools are real content, not thinking
@@ -2199,7 +2200,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 // flight — refresh the running tool card with the
                 // elapsed-time + tail of its stdout/stderr so the
                 // user doesn't stare at a blind "Running…" spinner.
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 if (!currentToolBubble) return;
                 // The single node ticker (started in tool_start) owns the
                 // elapsed display; here we just surface the live output tail.
@@ -2220,7 +2221,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
         },
         tool_output(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 // --- Update the current thread node ---
                 if (currentToolBubble) {
                   // Stop the single 500ms node ticker.
@@ -2299,7 +2300,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
         },
         doc_stream_open(json) {
-                if (_isBg) {
+                if (_isBgNow()) {
                   // Store for replay when user returns to this session
                   var bgDocOpen = _backgroundStreams.get(streamSessionId);
                   if (bgDocOpen) {
@@ -2315,7 +2316,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
         },
         doc_stream_delta(json) {
-                if (_isBg) {
+                if (_isBgNow()) {
                   var bgDocDelta = _backgroundStreams.get(streamSessionId);
                   if (bgDocDelta) bgDocDelta._docContent = json.content || '';
                   return;
@@ -2327,26 +2328,26 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         },
         doc_update(json) {
                 // doc_update means the server already saved the doc to DB.
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 if (documentModule) {
                   documentModule.handleDocUpdate(json);
                 }
 
         },
         doc_suggestions(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 if (documentModule && documentModule.handleDocSuggestions) {
                   documentModule.handleDocSuggestions(json);
                 }
 
         },
         ui_control(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 chatStream.handleUIControl(json.data || {});
 
         },
         ask_user(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 // The agent posed a multiple-choice question; the turn has ended.
                 // Use the shared history renderer so the live and restored
                 // versions have identical behavior.
@@ -2356,7 +2357,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
         },
         plan_update(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 // Agent wrote back to the plan (ticked a step / revised). Update
                 // the stored plan + live-refresh the docked plan window.
                 const _pu = (json.data && json.data.plan) ? json.data.plan : '';
@@ -2364,7 +2365,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
         },
         agent_step(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 _renderStream();
@@ -2409,7 +2410,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                 uiModule.scrollHistory();
         },
         budget_exceeded(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 const budgetDiv = document.createElement('div');
@@ -2420,7 +2421,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
         },
         loop_breaker_triggered(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 const guardDiv = document.createElement('div');
@@ -2437,7 +2438,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
         },
         teacher_takeover(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 _cancelThinkingTimer();
                 _removeThinkingSpinner();
                 // Finalize any in-flight bubble so the takeover banner
@@ -2460,7 +2461,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
         },
         skill_saved(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 const chatBox = document.getElementById('chat-history');
                 const note = document.createElement('div');
                 note.className = 'skill-saved-note';
@@ -2471,7 +2472,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 
         },
         escalation_failed(json) {
-                if (_isBg) return;
+                if (_isBgNow()) return;
                 const chatBox = document.getElementById('chat-history');
                 const note = document.createElement('div');
                 note.className = 'escalation-failed-note';
@@ -2508,12 +2509,12 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
 	                accumulated += _delta;
 	                currentAccumulated = accumulated; // Update global tracker
 	                // First token arrived — switch stop button from processing to streaming
-	                if (wasEmpty && submitBtn && !_isBg) {
+	                if (wasEmpty && submitBtn && !_isBgNow()) {
 	                  submitBtn.dataset.phase = 'receiving';
                 }
 
                 // Update background map if running in background
-                if (_isBg) {
+                if (_isBgNow()) {
                   var bgEntry = _backgroundStreams.get(streamSessionId);
 	                  if (bgEntry) bgEntry.accumulated = accumulated;
 	                  return; // Skip all DOM writes
