@@ -1,0 +1,23 @@
+# Doc reference graph — 2026-10-13, branch cleanup/dead-weight-audit
+# Scope: README.md, Dockerfile, app.py, launcher.py, integrations/*/SKILL.md, static/index.html, docs/*.md
+
+## ZERO-REFS (quarantine candidates)
+- docs/agent-migration.md | ZERO-REFS | last-touch 56bb31c 2026-09-14
+- docs/attachments.md | ZERO-REFS | last-touch 56bb31c 2026-09-14
+- docs/deep-research.md | ZERO-REFS | last-touch 916c571 2026-10-06
+- docs/pr-blocker-audit.md | ZERO-REFS (only out-of-scope tests/test_pr_blocker_audit.py:412) | last-touch 56bb31c 2026-09-14
+- docs/security-ci.md | ZERO-REFS strict (weak bare-word README.md:211 listing, no .md link) | last-touch 56bb31c 2026-09-14 — HOLD for human (CI-relevant name)
+
+## REFERENCED (KEEP)
+- docs/setup.md | README.md:7,71,103,107,259 | last-touch b78c4dd 2026-10-11
+- docs/backup-restore.md | README.md:195,260 + docs/setup.md:475 | last-touch 56bb31c 2026-09-14
+- docs/email-outlook.md | docs/setup.md:371 link + README.md:43 bare listing — KEEP (referenced by setup.md)
+- ACKNOWLEDGMENTS.md | README.md:262
+- CONTRIBUTING.md | README.md:7,9,242
+- SECURITY.md | README.md:7,254
+- ROADMAP.md | README.md:7,258
+- THREAT_MODEL.md | README.md:254
+
+## Notes
+- Dockerfile + app.py + launcher.py + both SKILL.md + static/index.html contain zero docs/*.md refs.
+- Plan correction: email-outlook.md is NOT zero-ref (setup.md:371 links it); agent-migration.md + attachments.md replace it in the quarantine set.

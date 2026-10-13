@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "branch": "cleanup/dead-weight-audit",
+  "base": "b78c4dd",
+  "entries": [
+    {
+      "orig": "docs/agent-migration.md",
+      "quarantine": ".cleanup/quarantine/docs/agent-migration.md",
+      "bytes": 6142,
+      "md5": "b0d961433b4122e6e52985309c262621",
+      "referenced_by": [],
+      "last_git_touch": "56bb31c 2026-09-14",
+      "reason": "ZERO-REFS per doc-refs.txt",
+      "team": "B",
+      "disposition": "quarantine"
+    },
+    {
+      "orig": "docs/attachments.md",
+      "quarantine": ".cleanup/quarantine/docs/attachments.md",
+      "bytes": 3782,
+      "md5": "0b54e11793cce4bf2d49e9119b64bfd4",
+      "referenced_by": [],
+      "last_git_touch": "56bb31c 2026-09-14",
+      "reason": "ZERO-REFS per doc-refs.txt (only generic word hits)",
+      "team": "B",
+      "disposition": "quarantine"
+    },
+    {
+      "orig": "docs/deep-research.md",
+      "quarantine": ".cleanup/quarantine/docs/deep-research.md",
+      "bytes": 23245,
+      "md5": "8de3f572a9eb9593e26dcd5da0d71bf5",
+      "referenced_by": [],
+      "last_git_touch": "916c571 2026-10-06",
+      "reason": "ZERO-REFS .md basename per doc-refs.txt",
+      "team": "B",
+      "disposition": "quarantine"
+    },
+    {
+      "orig": "docs/pr-blocker-audit.md",
+      "quarantine": ".cleanup/quarantine/docs/pr-blocker-audit.md",
+      "bytes": 9106,
+      "md5": "88a0847f1485dc9867e300d60ad1aae5",
+      "referenced_by": [],
+      "last_git_touch": "56bb31c 2026-09-14",
+      "reason": "ZERO-REFS in scope (only out-of-scope test classifier hit)",
+      "team": "B",
+      "disposition": "quarantine"
+    },
+    {
+      "orig": "docs/Ultra-Dark Technical Topographic Map.png",
+      "quarantine": ".cleanup/quarantine/images/Ultra-Dark Technical Topographic Map.png",
+      "bytes": 1920179,
+      "md5": "723f0916edfc2c1fe201622f6b44edf9",
+      "referenced_by": [],
+      "last_git_touch": "1348553 2026-10-10",
+      "reason": "ORPHAN-CANDIDATE + byte-dupe of live static/icons/topo-dark.png",
+      "team": "B",
+      "disposition": "quarantine"
+    },
+    {
+      "orig": "docs/Zephyrus Dark Topographic Dashboard.png",
+      "quarantine": ".cleanup/quarantine/images/Zephyrus Dark Topographic Dashboard.png",
+      "bytes": 1562638,
+      "md5": "f1e1c51ab978dd603261c66b45cb90f5",
+      "referenced_by": [],
+      "last_git_touch": "1348553 2026-10-10",
+      "reason": "ORPHAN-CANDIDATE (only gan-harness untracked.txt mention)",
+      "team": "B",
+      "disposition": "quarantine"
+    },
+    {
+      "orig": "static/icons/ollama-mark.png",
+      "quarantine": ".cleanup/quarantine/images/ollama-mark.png",
+      "bytes": 7487,
+      "md5": "255a0192cc7bcb4cbcb9dfa667937675",
+      "referenced_by": [],
+      "last_git_touch": "56bb31c 2026-09-14",
+      "reason": "ORPHAN-CANDIDATE (only -crop variant used)",
+      "team": "B",
+      "disposition": "quarantine"
+    },
+    {
+      "orig": "static/icons/sglang-logo.png",
+      "quarantine": ".cleanup/quarantine/images/sglang-logo.png",
+      "bytes": 109100,
+      "md5": "27836c709d6c7329c3bb00ebf81de7d5",
+      "referenced_by": [],
+      "last_git_touch": "56bb31c 2026-09-14",
+      "reason": "ORPHAN-CANDIDATE (only -mark variant used)",
+      "team": "B",
+      "disposition": "quarantine"
+    }
+  ]
+}

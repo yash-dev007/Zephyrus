@@ -1,0 +1,27 @@
+# Asset reference graph — 2026-10-13, branch cleanup/dead-weight-audit
+# Source: parallel recon lane (read-only grep, .git/venv/node_modules/__pycache__ excluded)
+
+## REFERENCED (KEEP)
+- docs/Zephyrus-Logo.png (44K) | README.md:1 hero img
+- docs/Zephyrus-Chat.png (1.6M) | README.md:46 preview
+- docs/zephyrus.jpg (81K) | build-macos-app.sh:31,36 (macOS .icns source) + README.md:43
+- static/icons/Zep_LOGO.png (2.2M) | launcher.py:73,81-82 tray icon + Zephyrus.spec:8 bundle
+- static/icons/Zephyrus-Logo.png (44K) | static/index.html:618, static/login.html:298, static/sw.js:68
+- static/icons/Zephyrus-Mark.png (20K) | static/index.html:105,339,370 + static/js/spinner.js:429
+- static/icons/apple-touch-icon.png, favicon-32x32.png, icon-192.png, icon-512.png, icon-maskable-512.png | PWA set: static/manifest.json + index.html:6-8 + login.html:7-9 + sw.js:63-68 + app.py:927-943 — KEEP ALL
+- static/icons/ollama-mark-crop.png | cookbook.js:1102 + cookbookServe.js:1955 + cookbook-hwfit.js:1933
+- static/icons/sglang-mark.png | cookbook.js:1099 + cookbookServe.js:1952 + cookbook-hwfit.js:1930
+- static/icons/topo-dark.png (1.9M) | static/style.css:40800 chat canvas + login.html:104
+- static/icons/topo-field.png (668K) | static/login.html:106 login bg — REFERENCED (not orphan)
+
+## ORPHAN-CANDIDATE (quarantine if approved)
+- docs/Ultra-Dark Technical Topographic Map.png (1.9M) | zero refs outside gan-harness/baseline/untracked.txt:1; byte-identical to topo-dark.png
+- docs/Zephyrus Dark Topographic Dashboard.png (1.5M) | zero refs outside gan-harness/baseline/untracked.txt:2
+- static/icons/ollama-mark.png (7.5K) | no repo-wide hits; only -crop variant used
+- static/icons/sglang-logo.png (109K) | no repo-wide hits; only -mark variant used
+
+## DUPLICATES (md5 confirmed)
+- SET A: docs/Zephyrus-Logo.png == static/icons/Zephyrus-Logo.png (a9cbd1e2..., 44137B)
+- SET B: static/icons/topo-dark.png == docs/Ultra-Dark Technical Topographic Map.png (723f0916..., 1920179B)
+- logs/Zephyrus-Logo.png: ABSENT in worktree (logs/ gitignored, no logs/ dir)
+- Zep_LOGO.png, topo-field.png, Zephyrus-Mark.png: unique

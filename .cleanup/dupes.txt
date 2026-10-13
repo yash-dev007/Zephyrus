@@ -1,0 +1,26 @@
+# Duplicate + size report — 2026-10-13, branch cleanup/dead-weight-audit
+
+## md5 (confirmed)
+- docs/Zephyrus-Logo.png = static/icons/Zephyrus-Logo.png (a9cbd1e2, 44137B) IDENTICAL
+- static/icons/topo-dark.png = docs/Ultra-Dark Technical Topographic Map.png (723f0916, 1920179B) IDENTICAL
+- static/icons/Zep_LOGO.png (1dc7c1ec, 2234432B) unique
+- static/icons/topo-field.png (3aeee12a, 682364B) unique
+- static/icons/Zephyrus-Mark.png (524281a5, 20554B) unique
+- logs/Zephyrus-Logo.png: ABSENT (no logs/ dir in worktree; gitignored)
+
+## +5M sweep
+- ./gan-harness/baseline/untracked-assets.tar.gz 5.2M — ONLY +5M file
+- Videos (.mp4/.mov/.webm/.avi): ZERO
+
+## static/lib verdicts (index.html + document.js + emailLibrary.js scoped; plus documentLibrary.js extra)
+- xlsx.full.min.js (930K): NOT in 3 scoped files, BUT referenced in static/js/documentLibrary.js:1366 (live via document.js:16 import + chatStream.js:105 lazy) — KEEP
+- html2pdf.bundle.min.js (885K): REFERENCED document.js:9320 loader + 9579 consumer — KEEP
+- docx.umd.min.js (726K): REFERENCED document.js:9306 loader + 9600 consumer — KEEP
+- mammoth.browser.min.js (628K): NOT in 3 scoped files, BUT referenced in documentLibrary.js:1380 — KEEP
+- Conclusion: zero static/lib deletes.
+
+## Top tracked sizes (worktree)
+- gan-harness/baseline/untracked-assets.tar.gz 5.2M
+- static/icons/Zep_LOGO.png 2.2M
+- static/icons/topo-dark.png 1.9M = docs/Ultra-Dark...png 1.9M (dupe)
+- docs/Zephyrus-Chat.png 1.6M, docs/Dashboard.png 1.5M

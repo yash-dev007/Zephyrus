@@ -1,0 +1,22 @@
+# Code entry-point map — 2026-10-13, branch cleanup/dead-weight-audit
+# L0: app.py (orchestrator), launcher.py:147 (from app import app), src/app_initializer.py:34, routes/__init__.py (EMPTY), core/*
+
+## REACHABLE (KEEP — do not flag)
+- companion/* (all 3 files): app.py:863-864 chain
+- services/hwfit/* (all + data JSON): routes/hwfit_routes.py:189-416 chain; Zephyrus.spec:8 bundle
+- mcp_servers/email,memory,rag,image_gen: REACHABLE via subprocess strings src/builtin_mcp.py:73-76 <- app.py:1066 lifespan
+- mcp_servers/__init__.py: empty, UNREACHABLE-CANDIDATE but zero value in deleting; HOLD
+- core/database.py + core/auth.py legacy-migration fns: KNOWN-KEEP
+
+## scripts/* — CLI-STANDALONE BY DESIGN (DO NOT DELETE)
+- Zero `import scripts.*` in prod is expected: CLIs dispatch via Path.iterdir()+execv (scripts/zephyrus:33-49,129), wrappers sys.path-insert + `from cli import ...`.
+- Documented in docs/backup-restore.md, docs/deep-research.md, .env.example:141-142, README.md:213.
+- scripts/diffusion_server.py: spawned by cmd-string (agent_loop.py:196,535; tool_schemas.py:792,797; cookbook.py:203).
+- One-shot/test-only scripts (claim_ownerless, migrate_faiss_to_chroma, update_database, agent_migration_manifest, pr_blocker_audit, backfill, index_documents, import_from_vllm, hf_download, add_hwfit_models): UNREACHABLE via import but ops-helpers; NO file deletes in this pass.
+
+## static/js/* — NOTHING EMPTY, MODULE_SUMMARY.md FRESH
+- calendar/utils.js, color/hex.js, compare/ (10 files), editor/ (30+ files), emailLibrary/ (4 files): all imported + SW-precached.
+- MODULE_SUMMARY.md: every named file exists; minor omissions only.
+
+## Dynamic-loading caveats
+- Subprocess string paths (mcp_servers, diffusion_server), filesystem CLI dispatch, route sys.modules shims, shell_routes importlib (optional deps only), lazy function-level imports (still greppable), getattr = attribute access only.
