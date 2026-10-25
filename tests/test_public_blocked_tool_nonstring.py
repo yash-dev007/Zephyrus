@@ -6,6 +6,7 @@ AttributeError/TypeError. Because this is a public-execution security gate, a
 malformed (non-string) identifier must be treated as BLOCKED, not silently
 allowed. None/empty mean there is no tool to gate.
 """
+import pytest
 from src.tool_security import is_public_blocked_tool
 
 
@@ -23,3 +24,39 @@ def test_none_or_empty_is_not_gated():
 
 def test_real_tool_names_still_classified():
     assert is_public_blocked_tool("mcp__whatever") is True
+
+
+def test_cookbook_inspection_tools_blocked_for_public_users():
+    cookbook_tools = [
+        "list_served_models",
+        "tail_serve_output",
+        "list_downloads",
+        "list_cached_models",
+        "list_serve_presets",
+        "list_cookbook_servers",
+        "adopt_served_model",
+    ]
+    for t in cookbook_tools:
+        assert is_public_blocked_tool(t) is True, f"{t} must be blocked for public/non-admin users"
+
+    from src.tool_execution import _ADMIN_TOOLS
+    for t in cookbook_tools:
+        assert t in _ADMIN_TOOLS, f"{t} must be in _ADMIN_TOOLS"
+
+
+@pytest.mark.asyncio
+async def test_cookbook_tools_blocked_at_execution_for_non_admin(monkeypatch):
+    import src.tool_execution as te
+    from src.agent_tools import ToolBlock
+
+    monkeypatch.setattr(te, "_owner_is_admin", lambda owner: False)
+
+    for tool in ("list_served_models", "tail_serve_output"):
+        desc, result = await te.execute_tool_block(
+            ToolBlock(tool, "{}"),
+            owner="regular_user",
+        )
+        assert result.get("exit_code") == 1
+        assert "admin" in result.get("error", "").lower() or "restricted" in result.get("error", "").lower()
+
+

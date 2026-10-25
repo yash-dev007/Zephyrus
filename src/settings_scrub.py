@@ -25,6 +25,12 @@ _SENSITIVE_KEY_EXACT = (
     # trigger outbound webhook sends; do not expose it to non-admin settings
     # callers even though it is not secret-shaped.
     "reminder_webhook_integration_id",
+    # Sensitive operational and infrastructure configuration that must not leak
+    # to unauthenticated or non-admin callers via /api/auth/settings.
+    "tool_path_extra_roots",
+    "reminder_email_to",
+    "reminder_ntfy_topic",
+    "search_url",
 )
 
 
@@ -49,17 +55,22 @@ def _scrub_value(key, value):
     """Mask secret-shaped leaves, recursing into nested dicts/lists so a secret
     stored under a non-secret parent key (e.g.
     ``{"email_account": {"smtp_password": "..."}}``) is still blanked. Only
-    non-empty *string* values are blanked; presence is preserved."""
+    non-empty *string* values and sensitive lists are blanked; presence is preserved."""
+    if is_secret_key(key):
+        if isinstance(value, list):
+            return []
+        if isinstance(value, str) and value:
+            return ""
+        return value
     if isinstance(value, dict):
         return {
-            k: ("" if (is_secret_key(k) and isinstance(v, str) and v)
-                else _scrub_value(k, v))
+            k: ([] if (is_secret_key(k) and isinstance(v, list))
+                else ("" if (is_secret_key(k) and isinstance(v, str) and v)
+                else _scrub_value(k, v)))
             for k, v in value.items()
         }
     if isinstance(value, list):
         return [_scrub_value(key, item) for item in value]
-    if is_secret_key(key) and isinstance(value, str) and value:
-        return ""
     return value
 
 

@@ -40541,7 +40541,7 @@ input.cp-swatch-input::selection { background: transparent; }
   padding: 12px 16px 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--fg) 4%, var(--surface-2));
+  background: var(--bg);
 }
 /* Focused only programmatically (tabIndex -1) to move SR/keyboard position; no
    visible outline on the whole card box. */
@@ -40567,28 +40567,53 @@ input.cp-swatch-input::selection { background: transparent; }
 .ask-user-option {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 4px 8px;
   width: 100%;
+  box-sizing: border-box;
+  /* The global `button { height: 32px }` reset fixed every option row to a
+     single-line height, so long labels overflowed and painted over the next
+     row. `height: auto` lets tall content grow the row instead. */
+  height: auto;
   /* Match the height of the free-text input below (.styled-prompt-input). */
   min-height: 39px;
   text-align: left;
+  white-space: normal;
   padding: 9px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface-3);
+  background: var(--bg);
   color: var(--fg);
   font-size: var(--text-base);
+  line-height: 1.4;
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
 .ask-user-option:hover:not(:disabled) {
   border-color: var(--accent-ink, var(--red));
-  background: color-mix(in srgb, var(--accent-ink, var(--red)) 10%, var(--surface-3));
+  background: color-mix(in srgb, var(--accent-ink, var(--red)) 10%, var(--bg));
 }
 .ask-user-option:disabled { cursor: default; }
-.ask-user-option-label { font-weight: 500; }
-.ask-user-option-desc { opacity: 0.65; font-size: var(--text-sm); }
+/* Long labels wrap inside the row; the description always drops to its own
+   full-width line below so the two never sit side-by-side and clip. */
+.ask-user-option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.ask-user-option-desc {
+  flex: 1 1 100%;
+  min-width: 0;
+  opacity: 0.65;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+/* Multi-select rows are <label>s: keep the checkbox pinned to the first line. */
+.ask-user-option input[type="checkbox"] { flex-shrink: 0; margin-top: 3px; }
 /* Free-text "Other" row: input + send, on one line. */
 .ask-user-other {
   display: flex;
@@ -41081,6 +41106,10 @@ input.cp-swatch-input::selection { background: transparent; }
   margin-bottom: var(--space-1);
   padding: var(--space-1) var(--space-2);
   min-height: 0;
+  /* Flex children of the scrolling .sidebar-inner column: without this the
+     default flex-shrink:1 lets a long session list squash these two header
+     rows when the chats section grows. */
+  flex-shrink: 0;
   background: var(--bg);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);

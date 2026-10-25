@@ -92,3 +92,22 @@ def test_camel_case_secret_keys_blanked():
 def test_non_object_settings_return_empty_mapping():
     assert scrub_settings(["not", "settings"]) == {}
     assert scrub_settings("not settings") == {}
+
+
+def test_sensitive_operational_settings_blanked():
+    s = {
+        "tool_path_extra_roots": ["/var/data/private", "/opt/tools"],
+        "reminder_email_to": "admin@example.com",
+        "reminder_ntfy_topic": "secret-alerts-topic",
+        "search_url": "http://10.0.0.5:8080/search",
+        "theme": "dark",
+        "tts_voice": "alloy",
+    }
+    out = scrub_settings(s)
+    assert out["tool_path_extra_roots"] == []
+    assert out["reminder_email_to"] == ""
+    assert out["reminder_ntfy_topic"] == ""
+    assert out["search_url"] == ""
+    assert out["theme"] == "dark"
+    assert out["tts_voice"] == "alloy"
+
