@@ -81,9 +81,9 @@ removed, and there is now a single UI. Its palette was later redesigned from the
 original green Terminal look to **Ice / Arctic** — black surfaces, cool grey-blue
 text, one ice-blue accent, green reserved for added/success semantics. Don't
 propose new themes or a light mode — see
-`docs/superpowers/specs/2026-10-05-terminal-only-theme-design.md` for why there is
+`docs/superpowers/specs/2026-10-07-design-system-foundation-design.md` for why there is
 no runtime theme layer, and
-`docs/superpowers/specs/2026-10-06-ice-arctic-redesign-design.md` for the palette
+`docs/superpowers/specs/2026-10-07-design-system-foundation-design.md` for the palette
 and its rules.
 
 A design-system pass then landed on top of that palette. The outcome is a real
