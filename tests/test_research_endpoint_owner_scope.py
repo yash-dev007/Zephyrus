@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 # comparisons return inspectable predicates (the real one is a SQLAlchemy
 # class, MagicMock'd to oblivion by conftest). owner_filter stays REAL.
 _sd = types.ModuleType("src.database")
+_sd.SessionLocal = MagicMock()
 _sd.ModelEndpoint = MagicMock()
 sys.modules.setdefault("src.database", _sd)
 

@@ -37,14 +37,14 @@ def test_desktop_new_chat_actions_use_shared_preference_helper():
         "// New session button on icon rail",
         "// Mobile new chat button",
     )
-    brand_handler = _slice(
+    sidebar_handler = _slice(
         source,
-        "// Logo click \u2192 new chat",
         "const sidebarNewChatBtn = el('sidebar-new-chat-btn');",
+        "// Delete session button on icon rail",
     )
 
     assert "if (preferModel && await _createDirectChatFromPreferredModel()) return;" in shared_handler
     assert "await _handleNewChatAction();" in rail_handler
-    assert "await _handleNewChatAction();" in brand_handler
+    assert "await _handleNewChatAction();" in sidebar_handler
     assert "const dc = await _refreshDefaultChat();" not in rail_handler
-    assert "const dc = await _refreshDefaultChat();" not in brand_handler
+    assert "const dc = await _refreshDefaultChat();" not in sidebar_handler

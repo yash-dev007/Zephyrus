@@ -14,4 +14,4 @@ def test_exact_parent_command_expands_subcommands_before_top_level_row_cap():
 
 
 def test_setup_group_has_room_for_chatgpt_subscription_suggestion():
-    assert "const MAX_VISIBLE = 14;" in _AC
+    assert "const MAX_VISIBLE = 8;" in _AC

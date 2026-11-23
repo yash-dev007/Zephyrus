@@ -10,7 +10,7 @@ import re
 import os
 from contextlib import asynccontextmanager
 from fastapi import HTTPException
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Callable
 from src.model_context import get_context_length, DEFAULT_CONTEXT, is_local_endpoint
 from urllib.parse import urlparse
 
@@ -120,7 +120,8 @@ def _stream_timeout(read_timeout) -> httpx.Timeout:
 
 # Cache for LLM responses
 def _get_cache_key(url: str, model: str, messages: List[Dict], 
-                   temperature: float, max_tokens: int) -> str:
+                   temperature: float, max_tokens: int,
+                   response_format: Optional[Dict] = None) -> str:
     """Generate cache key for LLM requests."""
     hashable_messages = []
     for msg in messages:
@@ -132,7 +133,8 @@ def _get_cache_key(url: str, model: str, messages: List[Dict],
         'model': model, 
         'messages': hashable_messages,
         'temp': temperature,
-        'max_tokens': max_tokens
+        'max_tokens': max_tokens,
+        'response_format': response_format,
     }, sort_keys=True)
     return hashlib.sha256(content.encode()).hexdigest()
 
@@ -1933,6 +1935,8 @@ async def llm_call_async(
     prompt_type: Optional[str] = None,
     session_id: Optional[str] = None,
     workload: str = "foreground",
+    response_format: Optional[Dict] = None,
+    usage_callback: Optional[Callable[[Dict], None]] = None,
 ) -> str:
     """Asynchronous LLM call using httpx with connection pooling, timeout, retry logic, and performance logging."""
     provider = _detect_provider(url)
@@ -1951,7 +1955,9 @@ async def llm_call_async(
     else:
         messages_copy = non_sys
 
-    cache_key = _get_cache_key(url, model, messages_copy, temperature, max_tokens)
+    cache_key = _get_cache_key(
+        url, model, messages_copy, temperature, max_tokens, response_format
+    )
     cached_response = _get_cached_response(cache_key)
     if cached_response:
         logger.debug(f"Returning cached response for key: {cache_key}")
@@ -1994,6 +2000,16 @@ async def llm_call_async(
                     status = int(data.get("status") or 502)
                     text = data.get("text") or data.get("error") or "ChatGPT Subscription request failed"
                     raise HTTPException(status, text)
+                _usage = (
+                    data.get("data")
+                    if data.get("type") == "usage" and isinstance(data.get("data"), dict)
+                    else (data.get("usage") or (data.get("response") or {}).get("usage"))
+                )
+                if _usage and usage_callback:
+                    try:
+                        usage_callback(_usage)
+                    except Exception:
+                        logger.debug("usage_callback failed", exc_info=True)
                 delta = data.get("delta")
                 if isinstance(delta, str):
                     parts.append(delta)
@@ -2035,6 +2051,8 @@ async def llm_call_async(
             payload["think"] = False
         if provider == "mistral" and _supports_thinking(model):
             payload["reasoning_effort"] = _MISTRAL_REASONING_EFFORT
+        if response_format:
+            payload["response_format"] = response_format
         _apply_local_cache_affinity(payload, url, session_id)
         _apply_local_generation_stability(payload, target_url, model)
 
@@ -2068,11 +2086,30 @@ async def llm_call_async(
             try:
                 if provider == "anthropic":
                     response = _parse_anthropic_response(data)
+                    _usage = data.get("usage") or {}
+                    _usage = {
+                        "prompt_tokens": _usage.get("input_tokens", 0),
+                        "completion_tokens": _usage.get("output_tokens", 0),
+                    }
                 elif provider == "ollama":
                     response = _parse_ollama_response(data)
+                    _usage = {
+                        "prompt_tokens": data.get("prompt_eval_count", 0),
+                        "completion_tokens": data.get("eval_count", 0),
+                    }
                 else:
                     msg = data["choices"][0]["message"]
                     response = msg.get("content") or msg.get("reasoning_content") or ""
+                    _usage = data.get("usage") or {}
+                    _usage = {
+                        "prompt_tokens": _usage.get("prompt_tokens", 0),
+                        "completion_tokens": _usage.get("completion_tokens", 0),
+                    }
+                if usage_callback and any(_usage.values()):
+                    try:
+                        usage_callback(_usage)
+                    except Exception:
+                        logger.debug("usage_callback failed", exc_info=True)
                 _set_cached_response(cache_key, response)
                 return response
             except Exception:

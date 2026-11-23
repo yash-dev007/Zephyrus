@@ -763,7 +763,7 @@ app.include_router(setup_editor_draft_routes())
 
 # Scheduled tasks + event bus
 from src.task_scheduler import TaskScheduler
-task_scheduler = TaskScheduler(session_manager)
+task_scheduler = TaskScheduler(session_manager, research_handler=research_handler)
 from src.event_bus import set_task_scheduler
 set_task_scheduler(task_scheduler)
 from routes.task_routes import setup_task_routes
@@ -1281,6 +1281,13 @@ async def _shutdown_event():
     # Stop task scheduler (no-op if it never started under the gate)
     try:
         await task_scheduler.stop()
+    except Exception:
+        pass
+    # Close research handler
+    try:
+        research_handler = getattr(app.state, "research_handler", None)
+        if research_handler is not None:
+            research_handler.shutdown()
     except Exception:
         pass
     # Close webhook manager

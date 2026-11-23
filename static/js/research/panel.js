@@ -6,6 +6,7 @@ import createResearchSynapse from '../researchSynapse.js';
 import spinnerModule from '../spinner.js';
 import { makeWindowDraggable } from '../windowDrag.js';
 import { sortModelIds } from '../modelSort.js';
+import uiModule from '../ui.js';
 
 // Rotating research textarea placeholders — pick one at random each
 // time the panel is rendered so the example keeps feeling fresh.
@@ -56,9 +57,9 @@ function _toggleSynapseMinimized() {
 
 let _open = false;
 let _onDocKeydown = null;
+let _previousFocus = null;
 let _apiBase = '';
 let _endpoints = [];
-let _expandedJobId = null;
 let _markdownModule = null;
 let _sessionModule = null;
 let _settingsCollapsed = false;
@@ -75,6 +76,8 @@ function _saveSettingsToStorage() {
       endpoint_id: document.getElementById('research-endpoint')?.value || '',
       model: document.getElementById('research-model')?.value || '',
       category: document.getElementById('research-category')?.value || '',
+      max_time_preset: document.getElementById('research-max-time')?.value || '300',
+      max_time_custom: document.getElementById('research-max-time-custom')?.value || '10',
     }));
   } catch {}
 }
@@ -259,21 +262,25 @@ export function openPanel(focusJobId) {
   const overlay = document.createElement('div');
   overlay.id = 'research-overlay';
   overlay.className = 'modal research-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'research-panel-title');
 
   // Match doclib/gallery/calendar modal sizing exactly so research feels like
-  // the rest of the modal family (centered, ~640px, 85vh).
+  // the rest of the modal family (centered, ~640px, 85vh). Geometry lives in
+  // CSS (static/style.css) so viewport resizes adapt without a reload.
   const pane = document.createElement('div');
   pane.id = 'research-pane';
   pane.className = 'modal-content doclib-modal-content research-pane';
-  // Mobile: full-screen so the content has room and the jobs list can scroll
-  // inside it. Desktop: centered ~640px / 85vh modal like the rest.
-  pane.style.cssText = (window.innerWidth <= 768)
-    ? 'width:100vw;max-width:100vw;height:90dvh;max-height:90dvh;border-radius:14px 14px 0 0;background:var(--bg);'
-    : 'width:min(640px, 92vw);max-height:85vh;background:var(--bg);';
+  pane.tabIndex = -1;
   pane.innerHTML = _buildPanelHTML();
 
   overlay.appendChild(pane);
   document.body.appendChild(overlay);
+  _previousFocus = document.activeElement;
+  // Focus the dialog itself (not the query box) so screen readers announce the
+  // title without popping the mobile keyboard.
+  try { pane.focus({ preventScroll: true }); } catch { pane.focus(); }
 
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) closePanel();
@@ -282,10 +289,13 @@ export function openPanel(focusJobId) {
   // Document-level ESC handler — overlay-only listener never fired because
   // overlay isn't focused. Tracked in module scope so closePanel can detach.
   _onDocKeydown = (e) => {
-    if (e.key === 'Escape' && _open) {
+    if (!_open) return;
+    if (e.key === 'Escape') {
       e.preventDefault();
       closePanel();
+      return;
     }
+    if (e.key === 'Tab') _trapFocus(e, pane);
   };
   document.addEventListener('keydown', _onDocKeydown);
 
@@ -340,8 +350,43 @@ export function closePanel() {
   const btn = document.getElementById('tool-research-btn');
   if (btn) btn.classList.remove('active');
 
+  const pop = document.getElementById('research-run-mode-popover');
+  if (pop) pop.remove();
+
   const overlay = document.getElementById('research-overlay');
   if (overlay) overlay.remove();
+  const prev = _previousFocus;
+  _previousFocus = null;
+  if (prev && typeof prev.focus === 'function' && document.contains(prev)) {
+    try { prev.focus({ preventScroll: true }); } catch { try { prev.focus(); } catch {} }
+  }
+}
+
+const _FOCUSABLE = [
+  'a[href]', 'button:not([disabled])', 'textarea:not([disabled])',
+  'input:not([disabled])', 'select:not([disabled])', '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+/** Keep Tab/Shift+Tab cycling inside the open dialog. */
+function _trapFocus(e, pane) {
+  if (!pane) return;
+  const pop = document.getElementById('research-run-mode-popover');
+  const scope = pop ? [pop, pane] : [pane];
+  const nodes = scope.flatMap(root => Array.from(root.querySelectorAll(_FOCUSABLE)))
+    .filter(el => el.offsetParent !== null && !el.hasAttribute('aria-hidden'));
+  if (!nodes.length) return;
+  const first = nodes[0];
+  const last = nodes[nodes.length - 1];
+  const active = document.activeElement;
+  if (e.shiftKey) {
+    if (active === first || active === pane) {
+      e.preventDefault();
+      last.focus();
+    }
+  } else if (active === last) {
+    e.preventDefault();
+    first.focus();
+  }
 }
 
 function _buildPanelHTML() {
@@ -360,7 +405,7 @@ function _buildPanelHTML() {
 
   return `
     <div class="modal-header research-pane-header">
-      <h4><span style="position:relative;top:-1px;left:6px;display:inline-flex;vertical-align:middle;">${_searchIcon}</span><span style="margin-left:6px;">Deep Research</span></h4>
+      <h4 id="research-panel-title"><span style="position:relative;top:-1px;left:6px;display:inline-flex;vertical-align:middle;">${_searchIcon}</span><span style="margin-left:6px;">Deep Research</span></h4>
       <div class="research-pane-header-actions">
         <button id="research-panel-minimize" class="modal-minimize-btn" type="button" title="Minimize"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="18" x2="19" y2="18"/></svg></button>
         <button id="research-panel-close" class="close-btn" title="Close">&#x2716;</button>
@@ -385,12 +430,26 @@ function _buildPanelHTML() {
             <select id="research-rounds">${roundOpts}</select>
           </label>
           <label class="research-setting">
+            <span class="research-setting-label">Time</span>
+            <select id="research-max-time">
+              <option value="120">Quick 2m</option>
+              <option value="300" selected>Standard 5m</option>
+              <option value="900">Deep 15m</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </label>
+          <label class="research-setting" id="research-max-time-custom-wrap" style="display:none">
+            <span class="research-setting-label">Minutes</span>
+            <input id="research-max-time-custom" type="number" min="1" max="30" step="1" value="10">
+          </label>
+          <label class="research-setting">
             <span class="research-setting-label">Format <span class="hwfit-help-chip hwfit-help-chip-inline" title="Auto lets the LLM pick the output shape. Override when you specifically want a Compare table, How-to, Product, or Fact-check.">?</span></span>
             <select id="research-category">
               <option value="" selected>Auto</option>
               <option value="product">Product</option>
               <option value="comparison">Compare</option>
               <option value="howto">How-to</option>
+              <option value="landscape">Landscape</option>
               <option value="factcheck">Fact-check</option>
             </select>
           </label>
@@ -475,6 +534,15 @@ function _wireEvents(pane) {
     }
   });
 
+  const timeSel = pane.querySelector('#research-max-time');
+  const customWrap = pane.querySelector('#research-max-time-custom-wrap');
+  const _syncCustomTime = () => {
+    if (customWrap) customWrap.style.display = timeSel?.value === 'custom' ? '' : 'none';
+  };
+  timeSel?.addEventListener('change', _syncCustomTime);
+  customWrap?.querySelector('input')?.addEventListener('change', _syncCustomTime);
+  _syncCustomTime();
+
   const endpointSelect = pane.querySelector('#research-endpoint');
   endpointSelect.addEventListener('change', () => _populateModels(endpointSelect.value));
 
@@ -483,8 +551,17 @@ function _wireEvents(pane) {
 
 function _readSettings() {
   const category = document.getElementById('research-category')?.value || undefined;
+  const timeValue = document.getElementById('research-max-time')?.value || '300';
+  let maxTime = parseInt(timeValue, 10);
+  if (timeValue === 'custom') {
+    const minutes = parseFloat(document.getElementById('research-max-time-custom')?.value || '10');
+    maxTime = Math.round((Number.isFinite(minutes) ? minutes : 10) * 60);
+  }
+  if (!Number.isFinite(maxTime)) maxTime = 300;
+  maxTime = Math.max(60, Math.min(1800, maxTime));
   const settings = {
     max_rounds: parseInt(document.getElementById('research-rounds')?.value || '0', 10),
+    max_time: maxTime,
     search_provider: document.getElementById('research-search-provider')?.value || undefined,
     endpoint_id: document.getElementById('research-endpoint')?.value || undefined,
     model: document.getElementById('research-model')?.value || undefined,
@@ -527,6 +604,18 @@ function _editJob(job) {
   const s = job.settings || {};
   const roundsEl = document.getElementById('research-rounds');
   if (roundsEl && s.max_rounds) roundsEl.value = s.max_rounds;
+  const maxTime = parseInt(s.max_time || job.settings?.max_time || 0, 10);
+  if (maxTime > 0) {
+    const timeSel = document.getElementById('research-max-time');
+    const customWrap = document.getElementById('research-max-time-custom-wrap');
+    const preset = ['120', '300', '900'].includes(String(maxTime)) ? String(maxTime) : 'custom';
+    if (timeSel) timeSel.value = preset;
+    if (preset === 'custom') {
+      const customInput = document.getElementById('research-max-time-custom');
+      if (customInput) customInput.value = String(Math.round(maxTime / 60));
+    }
+    if (customWrap) customWrap.style.display = preset === 'custom' ? '' : 'none';
+  }
   const spEl = document.getElementById('research-search-provider');
   if (spEl && s.search_provider) spEl.value = s.search_provider;
   const epEl = document.getElementById('research-endpoint');
@@ -537,6 +626,35 @@ function _editJob(job) {
   jobs.removeJob(job.id);
   // Scroll the form into view
   queryEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// Continue a finished investigation: same query, prior report injected as
+// context by the backend, with the panel's current time/round settings.
+function _continueResearch(job) {
+  if (!job?.id) return;
+  const settings = {
+    ...(job.settings || {}),
+    continue_from_session_id: job.id,
+  };
+  delete settings._endpointName;
+  delete settings._modelName;
+  if (!settings.max_rounds && job.maxRounds) settings.max_rounds = job.maxRounds;
+  if (!settings.max_time && job.maxTime) settings.max_time = job.maxTime;
+  // Library cards only know the round count; keep the current time budget.
+  if (!settings.max_time) {
+    const timeValue = document.getElementById('research-max-time')?.value || '300';
+    const minutes = parseFloat(document.getElementById('research-max-time-custom')?.value || '10');
+    settings.max_time = timeValue === 'custom'
+      ? Math.round((Number.isFinite(minutes) ? minutes : 10) * 60)
+      : parseInt(timeValue, 10) || 300;
+  }
+  settings.max_time = Math.max(60, Math.min(1800, Number.isFinite(settings.max_time) ? settings.max_time : 300));
+  _saveSettingsToStorage();
+  jobs.startJob(job.query, settings).catch(() => {
+    if (typeof uiModule !== 'undefined' && uiModule?.showError) {
+      uiModule.showError('Failed to continue research');
+    }
+  });
 }
 
 async function _handleStart() {
@@ -611,6 +729,16 @@ function _restoreSavedSettings() {
   if (saved.category !== undefined) {
     const catSel = document.getElementById('research-category');
     if (catSel) catSel.value = saved.category;
+  }
+  const timeSel = document.getElementById('research-max-time');
+  const customWrap = document.getElementById('research-max-time-custom-wrap');
+  if (timeSel && saved.max_time_preset) {
+    timeSel.value = saved.max_time_preset;
+    if (saved.max_time_custom !== undefined) {
+      const customInput = document.getElementById('research-max-time-custom');
+      if (customInput) customInput.value = saved.max_time_custom;
+    }
+    if (customWrap) customWrap.style.display = saved.max_time_preset === 'custom' ? '' : 'none';
   }
   // Rounds intentionally defaults to "Auto" on every open — don't restore.
   // Users can pick a specific cap each time if needed.
@@ -870,7 +998,7 @@ function _promptParallelOrSequential(count, anchorBtn) {
     close();
   };
   const onKey = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
   };
   setTimeout(() => {
     document.addEventListener('click', onDocClick, true);
@@ -894,7 +1022,6 @@ function _buildJobCard(job) {
   if (job.category) card.dataset.category = job.category;
 
   const elapsed = jobs.formatElapsed(job.elapsed || 0);
-  const isExpanded = _expandedJobId === job.id;
   const modelTag = (job.modelName || job.settings?._modelName)
     ? `<span class="research-job-model">${_esc(job.modelName || job.settings._modelName)}</span>` : '';
 
@@ -926,14 +1053,19 @@ function _buildJobCard(job) {
     });
 
   } else if (job.status === 'running') {
-    // Auto mode (max_rounds=0/undefined) — show round number without total,
-    // and base the progress bar on a heuristic cap of 8 rounds.
-    const userMaxR = job.settings?.max_rounds || 0;
-    const phaseMaxR = userMaxR || 0;  // 0 = formatPhase shows "Round X" without total
-    const phase = jobs.formatPhase(job.progress, phaseMaxR);
+    // Progress uses the real limits returned by /api/research/start (or by
+    // /api/research/active on reconnect). Auto-rounds falls back to the
+    // backend's safety cap, not a hardcoded heuristic.
+    const userMaxR = job.settings?.max_rounds || job.maxRounds || 0;
+    const effectiveMaxRounds = userMaxR || job.maxRounds || 20;
+    const maxTime = job.settings?.max_time || job.maxTime || 300;
+    const phase = jobs.formatPhase(job.progress, effectiveMaxRounds);
     const round = job.progress?.round || 0;
-    const barCap = userMaxR || 8;
-    const pct = Math.min(100, Math.round((round / barCap) * 100));
+    const elapsedSeconds = (job.elapsed || 0) / 1000;
+    const pct = Math.min(99, Math.round(Math.max(
+      round / effectiveMaxRounds,
+      elapsedSeconds / Math.max(1, maxTime),
+    ) * 100));
     card.innerHTML = `
       <div class="research-job-header">
         <span class="research-job-query">${_esc(job.query)}</span>${job.category ? `<span class="research-cat-badge">${_esc(job.category)}</span>` : ""}
@@ -944,7 +1076,7 @@ function _buildJobCard(job) {
       </div>
       <div class="research-job-phase">${phase}</div>
       <div class="research-job-synapse-host${_synapseMinimized ? ' synapse-collapsed' : ''}" data-synapse-host="${job.id}"></div>
-      <div class="research-progress-bar"><div class="research-progress-fill" style="width:${pct}%"></div></div>
+      <div class="research-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Research progress"><div class="research-progress-fill" style="width:${pct}%"></div></div>
     `;
     card.querySelector('.research-job-cancel').addEventListener('click', (e) => {
       e.stopPropagation(); jobs.cancelJob(job.id);
@@ -997,10 +1129,16 @@ function _buildJobCard(job) {
       ? `<div class="research-job-failnote">Couldn't extract anything — try rephrasing the question, or switch the search engine in Settings.</div>`
       : '';
     const thumbSource = (job.sources || []).find(s => s && (s.image || s.og_image));
-    const thumbUrl = job.thumbnail || thumbSource?.image || thumbSource?.og_image || '';
+    let thumbUrl = job.thumbnail || thumbSource?.image || thumbSource?.og_image || '';
+    if (thumbUrl && !(thumbUrl.startsWith('http://') || thumbUrl.startsWith('https://'))) {
+      thumbUrl = '';
+    }
     const thumbnail = thumbUrl
       ? `<img class="research-job-thumb" src="${_esc(thumbUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
       : '<span class="research-job-thumb research-job-thumb-empty" aria-hidden="true"></span>';
+    const continueBtn = failed
+      ? ''
+      : `<button class="research-job-action" data-action="continue" title="Run another round with this report as context">${_retryIcon} Continue</button>`;
     card.innerHTML = `
       <div class="research-job-header">
         <span class="research-job-query">${_esc(job.query)}</span>${doneBadge}
@@ -1011,12 +1149,12 @@ function _buildJobCard(job) {
       <div class="research-job-actions">
         ${thumbnail}
         <button class="research-job-action research-job-action-report" data-action="report" title="Visual report">${_externalIcon} Visual Report</button>
+        ${continueBtn}
         <button class="research-job-action" data-action="chat" title="Open follow-up chat with this research as context">${_chatIcon} Discuss</button>
-        <button class="research-job-action research-job-action-dim" data-action="copy" title="Copy report to clipboard">${_copyIcon}</button>
-        <button class="research-job-action research-job-action-dim" data-action="dismiss" title="Clear from list">${_cancelIcon}</button>
+        <button class="research-job-action research-job-action-dim" data-action="copy" title="Copy report to clipboard" aria-label="Copy report to clipboard">${_copyIcon}</button>
+        <button class="research-job-action research-job-action-dim" data-action="dismiss" title="Clear from list" aria-label="Dismiss job">${_cancelIcon}</button>
         <button class="research-job-action research-job-action-dim" data-action="delete" title="Delete from disk">${_trashIcon} Delete</button>
       </div>
-      ${isExpanded ? `<div class="research-job-result">${_renderResult(job)}</div>` : ''}
     `;
     // Clicking anywhere on the card (except the action buttons, which
     // stopPropagation) opens the visual report — same as the Visual Report btn.
@@ -1037,6 +1175,11 @@ function _buildJobCard(job) {
     card.querySelector('[data-action="chat"]').addEventListener('click', (e) => {
       e.stopPropagation();
       _chatAboutResearch(job.id, e.currentTarget);
+    });
+    // Failed cards render no Continue button, so this lookup can be null.
+    card.querySelector('[data-action="continue"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _continueResearch(job);
     });
     card.querySelector('[data-action="delete"]').addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -1078,65 +1221,6 @@ function _buildJobCard(job) {
   }
 
   return card;
-}
-
-const _CAT_ICONS = {
-  product:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M7 8V5a5 5 0 0 1 10 0v3"/></svg>',
-  comparison: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v18"/><path d="M16 3v18"/><path d="M3 8h5"/><path d="M16 16h5"/></svg>',
-  howto:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
-  landscape:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
-  factcheck:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>',
-};
-
-const _CAT_LABELS = {
-  product: 'Product',
-  comparison: 'Comparison',
-  howto: 'How-to Guide',
-  landscape: 'Landscape',
-  factcheck: 'Fact-check',
-};
-
-function _renderResult(job) {
-  if (!job.result) return '<div class="research-job-loading">Loading result...</div>';
-  const cat = job.category || '';
-  const catIcon = _CAT_ICONS[cat] || '';
-  const catLabel = _CAT_LABELS[cat] || '';
-
-  let html = '';
-
-  // Category hero banner — only for completed, known-category results
-  if (cat && catIcon) {
-    html += `
-      <div class="research-hero research-hero-${cat}">
-        <span class="research-hero-icon">${catIcon}</span>
-        <div class="research-hero-text">
-          <div class="research-hero-label">${catLabel}</div>
-          <div class="research-hero-query">${_esc(job.query)}</div>
-        </div>
-      </div>
-    `;
-  }
-
-  if (job.sources?.length) {
-    html += '<div class="research-job-sources">';
-    for (const s of job.sources.slice(0, 10)) {
-      const title = _esc(s.title || s.url || '');
-      const url = _safeSourceHref(s.url);
-      html += url
-        ? `<a href="${url}" target="_blank" rel="noopener" class="research-source-link">${title}</a>`
-        : `<span class="research-source-link">${title}</span>`;
-    }
-    if (job.sources.length > 10) html += `<span class="research-source-more">+${job.sources.length - 10} more</span>`;
-    html += '</div>';
-  }
-
-  const bodyCls = `research-job-report-body${cat ? ' research-body-' + cat : ''}`;
-  if (_markdownModule) {
-    html += `<div class="${bodyCls}">${_markdownModule.renderContent(job.result)}</div>`;
-  } else {
-    html += `<div class="${bodyCls}"><pre>${_esc(job.result)}</pre></div>`;
-  }
-  return html;
 }
 
 async function _ensureResult(job) {
@@ -1247,9 +1331,13 @@ async function _chatAboutResearch(researchId, btn) {
 }
 
 function _esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
+  return String(s || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[c]);
 }
 
 function _safeSourceHref(raw) {

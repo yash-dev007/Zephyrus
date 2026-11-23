@@ -92,7 +92,9 @@ def require_user(request: Request) -> str:
     # the loopback fall-through below never fires.
     if _auth_disabled():
         return ""
-    auth_mgr = getattr(request.app.state, "auth_manager", None)
+    app = getattr(request, "app", None)
+    app_state = getattr(app, "state", None) if app else None
+    auth_mgr = getattr(app_state, "auth_manager", None) if app_state else None
     client = getattr(request, "client", None)
     host = (client.host if client else "") or ""
     is_loopback = host in ("127.0.0.1", "::1", "localhost")

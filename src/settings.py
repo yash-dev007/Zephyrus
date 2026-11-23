@@ -99,6 +99,19 @@ DEFAULT_SETTINGS = {
     "research_planning_timeout_seconds": 90,
     "research_query_timeout_seconds": 90,
     "research_extraction_concurrency": 3,
+    # Minimum number of rounds before the LLM stop decision is consulted.
+    # Decoupled from max_rounds: the old `max(2, max_rounds - 2)` formula only
+    # asked the model at round 18 of 20, so max_time became the real terminator.
+    "research_min_rounds": 2,
+    # Total unique URLs fetched per round across ALL generated queries. This is
+    # distinct from max_results_per_query (per provider call).
+    "research_max_urls_per_round": 8,
+    # Reserved from the cooperative max_time budget so the final report can be
+    # written before the hard wall-clock timeout fires.
+    "research_final_report_reserve_seconds": 45,
+    # 0 = keep reports forever. Any positive value purges completed reports
+    # older than N days on a throttled background sweep.
+    "research_retention_days": 0,
     # Hard wall-clock cap on a single deep-research run. The previous 600s
     # (10 min) default cut off slow local / edge LLMs mid-synthesis; 1800s
     # (30 min) is comfortable for most local setups while still bounding
@@ -203,7 +216,11 @@ DEFAULT_SETTINGS = {
 DEFAULT_FEATURES = {
     "web_search": True,
     "web_fetch": True,
-    "deep_research": False,
+    # Deep research is gated server-side by can_use_research. Defaulting the
+    # UI flag to False while the privilege defaults to True made the feature
+    # look disabled yet reachable through the API / slash command. Keep both
+    # defaults aligned; admins can still flip this off as a kill switch.
+    "deep_research": True,
     "memory": True,
     "document_editor": True,
     "rag": True,
@@ -322,3 +339,16 @@ def save_features(features: dict):
     from core.atomic_io import atomic_write_json
     atomic_write_json(FEATURES_FILE, features, indent=2)
     _invalidate_caches()
+
+
+def is_feature_enabled(name: str, default: bool = True) -> bool:
+    """Return the effective value of a UI feature flag.
+
+    ``deep_research`` is also enforced server-side as an operational kill
+    switch (see ``_require_research_enabled`` in the research routes), so this
+    helper must be cheap and safe to call on every research request.
+    """
+    try:
+        return bool(load_features().get(name, default))
+    except Exception:
+        return bool(default)

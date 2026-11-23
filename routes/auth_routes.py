@@ -590,8 +590,9 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
             except Exception:
                 pass
 
+        target_username = (body.username or "").strip().lower()
         try:
-            ok = auth_manager.delete_user(body.username, user)
+            ok = auth_manager.delete_user(target_username, user)
         except Exception:
             # delete_user can touch ApiToken rows before a later auth-store write
             # fails. Dirty the bearer cache anyway so a partial token purge does
@@ -606,6 +607,18 @@ def setup_auth_routes(auth_manager: AuthManager) -> APIRouter:
         # cached token keeps authenticating until some other token op or a
         # restart clears the cache. Mirror what the token routes do.
         _invalidate_api_token_cache()
+        # Cascade cleanup: research reports and in-flight jobs are otherwise
+        # orphaned forever after the account disappears.
+        try:
+            research_handler = getattr(request.app.state, "research_handler", None)
+            cancel_owner_tasks = getattr(research_handler, "cancel_owner_tasks", None)
+            delete_owner_files = getattr(research_handler, "delete_owner_files", None)
+            if callable(cancel_owner_tasks):
+                cancel_owner_tasks(target_username)
+            if callable(delete_owner_files):
+                await asyncio.to_thread(delete_owner_files, target_username)
+        except Exception as exc:
+            logger.warning("Research cleanup for deleted user %s failed: %s", target_username, exc)
         return {"ok": True}
 
     # ---- Feature visibility (admin-managed) ----

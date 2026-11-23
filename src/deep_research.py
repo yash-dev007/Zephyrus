@@ -9,12 +9,13 @@ when to stop.  Inspired by Alibaba's IterResearch approach.
 import asyncio
 import json
 import logging
+import random
 import re
 import time
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Set
 
-from src.research_utils import strip_thinking, is_low_quality
+from src.research_utils import strip_thinking, is_low_quality, normalize_url, verify_citations
 
 from src.goal_based_extractor import EXTRACTOR_SYSTEM
 from src.prompt_security import untrusted_context_message
@@ -77,8 +78,8 @@ You are a research assistant planning web searches.
 Generate {num_queries} focused search queries that will help answer the question.
 {round_instruction}
 
-Return ONLY a JSON array of query strings, nothing else.
-Example: ["query one", "query two", "query three"]
+Return ONLY a JSON object with a "queries" array, nothing else.
+Example: {{"queries": ["query one", "query two", "query three"]}}
 """
 
 SYNTHESIZE_PROMPT = """\
@@ -105,23 +106,23 @@ You are deciding whether a research report is comprehensive enough.
 
 **Original question:** {question}
 
+**Success criteria:** {success_criteria}
+
 **Current report:**
 {report}
 
 **Rounds completed:** {round_num} of {max_rounds}
 
-Based on the report so far, do we have enough information to answer the question \
-comprehensively?  Consider:
+Assess the report against the success criteria. Consider:
 - Are the key aspects of the question addressed?
 - Are there obvious gaps or unanswered sub-questions?
 - Is the evidence sufficient and from multiple sources?
 
+Return ONLY a JSON object with this exact shape:
+{{"stop": true|false, "coverage_score": 0-100, "missing_gaps": ["gap one", "gap two"]}}
+
 If rounds completed is well below the target, prefer continuing unless the \
 report is already exhaustive.
-
-Reply with ONLY "YES" or "NO" followed by a brief one-sentence reason.
-Example: "YES — The report covers all major aspects with evidence from multiple sources."
-Example: "NO — We still lack information about the economic impact."
 """
 
 FINAL_REPORT_PROMPT = """\
@@ -196,7 +197,8 @@ class DeepResearcher:
         llm_headers: Optional[Dict] = None,
         max_rounds: int = 8,
         max_time: int = 300,
-        max_urls_per_round: int = 3,
+        max_urls_per_round: int = 8,
+        max_results_per_query: int = 5,
         max_content_chars: int = 15000,
         max_report_tokens: int = 8192,
         extraction_timeout: int = 90,
@@ -206,28 +208,36 @@ class DeepResearcher:
         min_rounds: int = 2,
         max_empty_rounds: int = 2,
         synthesis_window: int = 10,
+        final_report_reserve_seconds: int = 45,
         progress_callback: Optional[Callable] = None,
         search_provider: Optional[str] = None,
         category: Optional[str] = None,
+        endpoint_id: Optional[str] = None,
+        shared_semaphore: Optional[asyncio.Semaphore] = None,
+        checkpoint_callback: Optional[Callable[[dict], None]] = None,
     ):
         self.llm_endpoint = llm_endpoint
         self.llm_model = llm_model
         self.llm_headers = llm_headers
+        self.endpoint_id = endpoint_id or llm_endpoint
         self.search_provider_override = search_provider
         self.category = category
         self.max_rounds = max_rounds
         self.max_time = max_time
-        self.max_urls_per_round = max_urls_per_round
+        self.max_urls_per_round = max(1, int(max_urls_per_round or 8))
+        self.max_results_per_query = max(1, int(max_results_per_query or 5))
         self.max_content_chars = max_content_chars
         self.max_report_tokens = max_report_tokens
         self.extraction_timeout = min(3600, max(15, int(extraction_timeout or 90)))
         self.planning_timeout = min(3600, max(15, int(planning_timeout or 90)))
         self.query_timeout = min(3600, max(15, int(query_timeout or 120)))
         self.extraction_concurrency = min(12, max(1, int(extraction_concurrency or 3)))
-        self.min_rounds = min_rounds
+        self.min_rounds = max(1, int(min_rounds or 1))
         self.max_empty_rounds = max_empty_rounds
         self.synthesis_window = synthesis_window
+        self.final_report_reserve_seconds = max(0, int(final_report_reserve_seconds or 0))
         self._progress = progress_callback
+        self._checkpoint_callback = checkpoint_callback
         self._cancelled = False
         self._start_time: float = 0
         self.queries_used: Set[str] = set()
@@ -241,6 +251,14 @@ class DeepResearcher:
         self.findings: List[Dict] = []
         self.evolving_report: str = ""
         self.research_plan: str = ""
+        self.success_criteria: str = ""
+        # Token / call telemetry, accumulated per stage.
+        self.usage: Dict[str, Dict[str, int]] = {}
+        # Whether the endpoint accepted response_format=json_object. None means
+        # "not tried yet"; False permanently falls back to prose+regex parsing.
+        self._response_format_supported: Optional[bool] = None
+        self._shared_semaphore = shared_semaphore
+        self._final_citation_stats: Dict[str, int] = {}
 
     def cancel(self):
         """Request cooperative cancellation of the research loop."""
@@ -284,7 +302,11 @@ class DeepResearcher:
                 logger.info(f"Auto-detected category: {self.category}")
 
         if prior_urls:
-            self.urls_fetched.update(prior_urls)
+            for prior_url in prior_urls:
+                self.urls_fetched.add(prior_url)
+                normalized = normalize_url(prior_url)
+                if normalized:
+                    self.urls_fetched.add(normalized)
         self.findings = findings  # expose for handler
         consecutive_empty_rounds = 0
 
@@ -293,8 +315,8 @@ class DeepResearcher:
             if self._cancelled:
                 logger.info(f"Research cancelled after {round_num - 1} rounds")
                 break
-            if self._time_exceeded():
-                logger.info(f"Time limit reached after {round_num - 1} rounds")
+            if self._time_exceeded(self.final_report_reserve_seconds):
+                logger.info(f"Time budget reached after {round_num - 1} rounds")
                 break
 
             logger.info(f"=== Research Round {round_num} ===")
@@ -337,10 +359,19 @@ class DeepResearcher:
 
             # SYNTHESIZE
             if findings:
+                if self._time_exceeded(self.final_report_reserve_seconds):
+                    logger.info(
+                        "Time reserve reached before synthesis after round %d; "
+                        "finalizing with the current report", round_num,
+                    )
+                    break
                 self._emit(phase="analyzing", round=round_num,
                            total_sources=len(self.urls_fetched),
                            total_findings=len(findings))
                 report = await self._synthesize(question, findings, report)
+
+            # Persist a lightweight checkpoint after every completed round.
+            self._checkpoint(round_num, report, findings)
 
             # DECIDE
             if round_num >= self.min_rounds:
@@ -378,20 +409,102 @@ class DeepResearcher:
     # ------------------------------------------------------------------
     # LLM helper
     # ------------------------------------------------------------------
-    async def _llm(self, messages: List[Dict], temperature: float = 0.3,
-                   max_tokens: int = 4096, timeout: int = 60) -> str:
-        """Call the LLM asynchronously and strip thinking tags."""
+    async def _llm(
+        self,
+        messages: List[Dict],
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+        timeout: int = 60,
+        response_format: Optional[Dict] = None,
+        stage: str = "llm",
+    ) -> str:
+        """Call the LLM with structured-output support and bounded retries.
+
+        Endpoints that reject ``response_format`` with HTTP 400 permanently
+        fall back to prose + regex parsing for this run. Transient upstream
+        failures (429/502/503/504, connection resets) are retried twice with
+        exponential backoff and jitter before the error is surfaced.
+        """
         from src.llm_core import llm_call_async
-        response = await llm_call_async(
-            url=self.llm_endpoint,
-            model=self.llm_model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            headers=self.llm_headers,
-            timeout=timeout,
+
+        kwargs: Dict = {
+            "url": self.llm_endpoint,
+            "model": self.llm_model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "headers": self.llm_headers,
+            "timeout": timeout,
+            # Retries are handled here so backoff can be jittered and so a
+            # 400 response_format rejection is not retried by the transport.
+            "max_retries": 1,
+            "usage_callback": lambda usage: self._record_usage(stage, usage),
+        }
+
+        use_response_format = bool(response_format) and self._response_format_supported is not False
+        if use_response_format:
+            kwargs["response_format"] = response_format
+
+        delays = (1.0, 3.0)
+        transient_attempt = 0
+
+        while True:
+            try:
+                response = await llm_call_async(**kwargs)
+                if use_response_format:
+                    self._response_format_supported = True
+                return strip_thinking(response)
+            except Exception as exc:
+                status = getattr(exc, "status_code", None)
+                if use_response_format and status == 400:
+                    logger.info(
+                        "Endpoint %s rejected response_format; falling back to prose parsing",
+                        self.endpoint_id,
+                    )
+                    self._response_format_supported = False
+                    kwargs.pop("response_format", None)
+                    use_response_format = False
+                    continue
+
+                transient = status in (429, 502, 503, 504)
+                if not transient:
+                    try:
+                        import httpx
+
+                        transient = isinstance(
+                            exc, (httpx.RequestError, httpx.TimeoutException, ConnectionError)
+                        )
+                    except Exception:
+                        transient = isinstance(exc, (ConnectionError, asyncio.TimeoutError))
+
+                if transient and transient_attempt < len(delays):
+                    delay = delays[transient_attempt] + random.uniform(0, 0.25)
+                    transient_attempt += 1
+                    logger.warning(
+                        "Transient LLM failure in %s (status=%s), retrying in %.1fs: %s",
+                        stage, status, delay, exc,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+
+    def _record_usage(self, stage: str, usage: Optional[Dict]):
+        """Accumulate token usage per pipeline stage."""
+        if not isinstance(usage, dict):
+            usage = {}
+        prompt = usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0
+        completion = usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0
+        try:
+            prompt = int(prompt)
+            completion = int(completion)
+        except (TypeError, ValueError):
+            prompt = completion = 0
+        bucket = self.usage.setdefault(
+            stage, {"prompt_tokens": 0, "completion_tokens": 0, "llm_calls": 0}
         )
-        return strip_thinking(response)
+        bucket["prompt_tokens"] += max(0, prompt)
+        bucket["completion_tokens"] += max(0, completion)
+        bucket["llm_calls"] += 1
 
     # ------------------------------------------------------------------
     # PLAN: create research strategy
@@ -405,17 +518,20 @@ class DeepResearcher:
                 temperature=0.3,
                 max_tokens=1024,
                 timeout=getattr(self, "planning_timeout", 90),
+                response_format={"type": "json_object"},
+                stage="plan",
             )
             # Try to parse as JSON for structured plan
             parsed = self._parse_json_object(response)
             if parsed:
+                self.success_criteria = str(parsed.get("success_criteria") or "").strip()
                 parts = []
                 if parsed.get("sub_questions"):
                     parts.append("Sub-questions: " + "; ".join(parsed["sub_questions"]))
                 if parsed.get("key_topics"):
                     parts.append("Key topics: " + ", ".join(parsed["key_topics"]))
-                if parsed.get("success_criteria"):
-                    parts.append("Success: " + parsed["success_criteria"])
+                if self.success_criteria:
+                    parts.append("Success: " + self.success_criteria)
                 return "\n".join(parts) if parts else response
             return response
         except Exception as e:
@@ -489,8 +605,10 @@ class DeepResearcher:
                 temperature=0.5,
                 max_tokens=4096,
                 timeout=getattr(self, "query_timeout", 120),
+                response_format={"type": "json_object"},
+                stage="query",
             )
-            queries = self._parse_json_array(response)
+            queries = self._parse_queries(response)
             # Deduplicate
             new_queries = [q for q in queries if q not in self.queries_used]
             self.queries_used.update(new_queries)
@@ -506,44 +624,84 @@ class DeepResearcher:
     # ------------------------------------------------------------------
     async def _search_and_extract(self, queries: List[str],
                                   question: str) -> List[Dict]:
-        """Search each query and extract relevant info from top results."""
+        """Search each query, rank candidates, then extract the capped batch.
+
+        All queries run concurrently. URLs are deduplicated against previously
+        fetched pages and within the batch, scored with reciprocal rank fusion
+        so a page surfaced by several queries wins, then sliced strictly to
+        ``max_urls_per_round`` before any fetch/extraction work is dispatched.
+        """
         all_findings: List[Dict] = []
 
         # Search all queries in parallel
         search_tasks = [self._search(q) for q in queries]
         search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
 
-        # Collect URLs to fetch from all search results
-        urls_to_fetch = []
-        for result in search_results:
+        # Reciprocal-rank fusion across queries. A page returned by several
+        # independent queries is more likely to be central to the topic.
+        candidates: Dict[str, Dict] = {}
+        for query_index, result in enumerate(search_results):
             if isinstance(result, Exception):
                 logger.warning(f"Search error: {result}")
                 continue
             if not result:
                 continue
-            for r in result:
-                url = r.get("url", "")
-                if url and url not in self.urls_fetched:
-                    urls_to_fetch.append(r)
-                    self.urls_fetched.add(url)
-                    self.analyzed_urls.append({
+            for rank, item in enumerate(result):
+                url = (item or {}).get("url", "")
+                if not url:
+                    continue
+                key = normalize_url(url)
+                if not key or key in self.urls_fetched:
+                    continue
+                candidate = candidates.get(key)
+                if candidate is None:
+                    candidate = {
                         "url": url,
-                        "title": r.get("title", "") or url,
-                    })
-                if len(urls_to_fetch) >= self.max_urls_per_round * len(queries):
-                    break
+                        "title": item.get("title", "") or url,
+                        "score": 0.0,
+                        "first_seen": len(candidates),
+                    }
+                    candidates[key] = candidate
+                candidate["score"] += 1.0 / (60.0 + rank + 1.0)
 
-        if self._cancelled or self._time_exceeded():
+        ranked = sorted(
+            candidates.values(),
+            key=lambda c: (-c["score"], c["first_seen"]),
+        )
+        urls_to_fetch = ranked[: self.max_urls_per_round]
+
+        logger.info(
+            "Round candidates: %d unique, fetching %d (cap=%d)",
+            len(candidates), len(urls_to_fetch), self.max_urls_per_round,
+        )
+
+        if self._cancelled or self._time_exceeded(self.final_report_reserve_seconds):
+            if not self._cancelled:
+                logger.info("Time reserve reached before fetch dispatch; skipping extraction")
             return all_findings
+
+        for candidate in urls_to_fetch:
+            key = normalize_url(candidate["url"])
+            self.urls_fetched.add(key)
+            self.urls_fetched.add(candidate["url"])
+            self.analyzed_urls.append({
+                "url": candidate["url"],
+                "title": candidate["title"],
+            })
 
         # Fetch and extract URLs with backpressure. Local model servers often
         # serialize requests behind one GPU; flooding them makes every request
-        # slower and can trip the extraction timeout.
-        semaphore = asyncio.Semaphore(self.extraction_concurrency)
+        # slower and can trip the extraction timeout. The handler may inject a
+        # shared per-endpoint semaphore so parallel jobs do not multiply load.
+        semaphore = self._shared_semaphore or asyncio.Semaphore(self.extraction_concurrency)
 
         async def _bounded_extract(result: Dict) -> Optional[Dict]:
             async with semaphore:
-                return await self._fetch_and_extract(result["url"], question, result.get("title", ""))
+                if self._cancelled or self._time_exceeded(self.final_report_reserve_seconds):
+                    return None
+                return await self._fetch_and_extract(
+                    result["url"], question, result.get("title", "")
+                )
 
         extract_tasks = [_bounded_extract(r) for r in urls_to_fetch]
         results_gathered = await asyncio.gather(*extract_tasks, return_exceptions=True)
@@ -579,7 +737,10 @@ class DeepResearcher:
             raised = False
             for prov in chain:
                 try:
-                    results = await asyncio.to_thread(_call_provider, prov, query, 10)
+                    results = await asyncio.to_thread(
+                        _call_provider, prov, query,
+                        getattr(self, "max_results_per_query", 5),
+                    )
                     if results:
                         logger.info(f"Research search: {prov} returned {len(results)} results")
                         if prov not in self.providers_used:
@@ -641,6 +802,8 @@ class DeepResearcher:
                 temperature=0.2,
                 max_tokens=2048,
                 timeout=self.extraction_timeout,
+                response_format={"type": "json_object"},
+                stage="extract",
             )
             parsed = self._parse_json_object(response)
             if parsed:
@@ -693,6 +856,7 @@ class DeepResearcher:
                 # LM Studio) routinely needs >60s for it. The old 60s cap timed
                 # out mid-stream and discarded the round's findings (#1551).
                 timeout=180,
+                stage="synthesize",
             )
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")
@@ -708,6 +872,7 @@ class DeepResearcher:
         prompt = STOP_PROMPT.format(
             question=question,
             report=report,
+            success_criteria=self.success_criteria or "(No explicit criteria — assess completeness directly.)",
             round_num=round_num,
             max_rounds=self.max_rounds,
         )
@@ -716,8 +881,35 @@ class DeepResearcher:
             response = await self._llm(
                 [{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=128,
+                max_tokens=256,
+                response_format={"type": "json_object"},
+                stage="decide",
             )
+            parsed = self._parse_json_object(response)
+            if isinstance(parsed, dict) and "stop" in parsed:
+                stop_value = parsed.get("stop")
+                if isinstance(stop_value, str):
+                    should_stop = stop_value.strip().lower() in {"true", "yes", "1"}
+                else:
+                    should_stop = bool(stop_value)
+                try:
+                    coverage = int(parsed.get("coverage_score", 0) or 0)
+                except (TypeError, ValueError):
+                    coverage = 0
+                gaps = parsed.get("missing_gaps") or []
+                if gaps:
+                    self._emit(
+                        phase="deciding",
+                        round=round_num,
+                        coverage_score=coverage,
+                        missing_gaps=gaps[:5] if isinstance(gaps, list) else [],
+                    )
+                logger.info(
+                    "Stop decision (round %d): stop=%s coverage=%s gaps=%d",
+                    round_num, should_stop, coverage,
+                    len(gaps) if isinstance(gaps, list) else 0,
+                )
+                return should_stop
             # Reasoning models prepend a <think>...</think> block — strip it
             # before checking for YES/NO, otherwise the answer always looks
             # like it starts with "<THINK>" and the engine never stops.
@@ -736,10 +928,18 @@ class DeepResearcher:
     # ------------------------------------------------------------------
     async def _final_report(self, question: str, report: str) -> str:
         """LLM writes a polished final report, retrying if too short."""
+        ledger = self._source_ledger()
         prompt = FINAL_REPORT_PROMPT.format(
             question=question,
             report=report,
         )
+        if ledger:
+            prompt += (
+                "\n\n**Numbered source ledger — cite only these URLs:**\n"
+                f"{ledger}\n"
+                "Do not invent URLs. If a claim has no source in the ledger, "
+                "state that it is unsupported rather than fabricating a link."
+            )
         cat_extra = CATEGORY_PROMPTS.get(self.category or "", "")
         if cat_extra:
             prompt += "\n\n" + cat_extra
@@ -750,6 +950,7 @@ class DeepResearcher:
                 temperature=0.3,
                 max_tokens=self.max_report_tokens,
                 timeout=180,
+                stage="final",
             )
 
             # If report is too short, ask the LLM to expand it
@@ -773,14 +974,50 @@ class DeepResearcher:
                     temperature=0.4,
                     max_tokens=self.max_report_tokens,
                     timeout=180,
+                    stage="final",
                 )
                 if len(expanded.split()) > len(result.split()):
-                    return expanded
+                    result = expanded
 
-            return result
+            return self._verify_final_citations(result)
         except Exception as e:
             logger.error(f"Final report generation failed: {e}")
-            return report  # return the evolving report as-is
+            return self._verify_final_citations(report)  # return evolving report
+
+    def _source_ledger(self, limit: int = 60) -> str:
+        """Build a deterministic numbered ledger from fetched sources."""
+        seen = set()
+        lines = []
+        for index, item in enumerate(self.analyzed_urls, 1):
+            url = (item or {}).get("url", "")
+            key = normalize_url(url)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            title = (item or {}).get("title", "") or url
+            lines.append(f"[{len(lines) + 1}] {title} — {url}")
+            if len(lines) >= limit:
+                break
+        return "\n".join(lines)
+
+    def _verify_final_citations(self, report_md: str) -> str:
+        """Strip markdown links that were never fetched during this run."""
+        allowed = set(self.urls_fetched)
+        allowed.update(item.get("url", "") for item in self.analyzed_urls if item)
+        cleaned, stats = verify_citations(report_md or "", allowed)
+        self._final_citation_stats = stats
+        if stats.get("citations_stripped"):
+            logger.warning(
+                "Stripped %d unverified citation(s); %d verified",
+                stats["citations_stripped"], stats["citations_verified"],
+            )
+            self._emit(
+                phase="writing",
+                message=f"Removed {stats['citations_stripped']} unverified citation(s)",
+                citations_verified=stats["citations_verified"],
+                citations_stripped=stats["citations_stripped"],
+            )
+        return cleaned
 
     # ------------------------------------------------------------------
     # Helpers
@@ -793,8 +1030,31 @@ class DeepResearcher:
             except Exception:
                 pass
 
-    def _time_exceeded(self) -> bool:
-        return (time.time() - self._start_time) > self.max_time
+    def _checkpoint(self, round_num: int, report: str, findings: List[Dict]):
+        """Persist a lightweight round checkpoint through the handler callback."""
+        if not self._checkpoint_callback:
+            return
+        try:
+            self._checkpoint_callback({
+                "round": round_num,
+                "plan": self.research_plan,
+                "success_criteria": self.success_criteria,
+                "findings": findings,
+                "urls_fetched": sorted(self.urls_fetched),
+                "analyzed_urls": self.analyzed_urls,
+                "queries_used": len(self.queries_used),
+                "evolving_report": report,
+                "usage": self.usage,
+                "providers_used": self.providers_used,
+                "category": self.category,
+            })
+        except Exception as exc:
+            logger.warning("Failed to write research checkpoint: %s", exc)
+
+    def _time_exceeded(self, reserve_seconds: int = 0) -> bool:
+        """True when the cooperative time budget (minus a reserve) is spent."""
+        budget = max(0, self.max_time - max(0, int(reserve_seconds or 0)))
+        return (time.time() - self._start_time) > budget
 
     # _strip_think_tags removed — use research_utils.strip_thinking()
 
@@ -806,6 +1066,15 @@ class DeepResearcher:
             text = re.sub(r'^```(?:json)?\s*', '', text)
             text = re.sub(r'\s*```$', '', text)
         return text.strip()
+
+    def _parse_queries(self, text: str) -> List[str]:
+        """Parse the query-generation response as either an object or array."""
+        parsed = self._parse_json_object(text)
+        if isinstance(parsed, dict):
+            queries = parsed.get("queries")
+            if isinstance(queries, list):
+                return [str(item).strip() for item in queries if str(item).strip()]
+        return self._parse_json_array(text)
 
     def _parse_json_array(self, text: str) -> List[str]:
         """Extract a JSON array of strings from LLM output."""
@@ -926,4 +1195,18 @@ class DeepResearcher:
             stats["Search"] = ", ".join(self.providers_used)
         if self.category:
             stats["Category"] = self.category.capitalize()
+        if self.usage:
+            prompt_tokens = sum(v.get("prompt_tokens", 0) for v in self.usage.values())
+            completion_tokens = sum(v.get("completion_tokens", 0) for v in self.usage.values())
+            llm_calls = sum(v.get("llm_calls", 0) for v in self.usage.values())
+            stats["Tokens"] = prompt_tokens + completion_tokens
+            stats["tokens"] = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+                "llm_calls": llm_calls,
+                "by_stage": {k: dict(v) for k, v in self.usage.items()},
+            }
+        if self._final_citation_stats:
+            stats["citations"] = dict(self._final_citation_stats)
         return stats

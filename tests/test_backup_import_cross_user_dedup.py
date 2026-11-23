@@ -16,6 +16,7 @@ import routes.backup_routes as br
 class _Req:
     def __init__(self, body):
         self._body = body
+        self.state = SimpleNamespace(current_user="admin")
 
     async def json(self):
         return self._body
@@ -58,3 +59,23 @@ def test_users_own_duplicate_is_still_skipped(monkeypatch):
     alice_milk = [e for e in saved["entries"]
                   if e.get("owner") == "alice" and e.get("text", "").lower() == "buy milk"]
     assert len(alice_milk) == 1  # the real duplicate is still deduped
+
+
+def test_export_includes_research_key(monkeypatch):
+    # Regression: /api/export 500 because asyncio was not imported.
+    import json
+    from routes.backup_routes import setup_backup_routes
+    from unittest.mock import MagicMock
+    monkeypatch.setattr(br, "require_admin", lambda request: None)
+    mem = MagicMock()
+    mem.load.return_value = []
+    presets = MagicMock()
+    presets.get_all.return_value = []
+    skills = MagicMock()
+    skills.load.return_value = []
+    router = setup_backup_routes(mem, presets, skills)
+    req = _Req({})
+    resp = asyncio.run(router.routes[0].endpoint(req))  # first route is /api/export
+    body = json.loads(resp.body)
+    assert "research" in body
+    assert body["research"] == []

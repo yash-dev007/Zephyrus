@@ -331,8 +331,9 @@ def _normalize_chat_endpoint(url: str) -> str:
 
 
 class TaskScheduler:
-    def __init__(self, session_manager):
+    def __init__(self, session_manager, research_handler=None):
         self._session_manager = session_manager
+        self._research_handler = research_handler
         self._running = False
         self._task = None
         self._executing = set()  # task IDs currently running OR queued behind the semaphore
@@ -1964,12 +1965,14 @@ class TaskScheduler:
         return full_text or "(no output)"
 
     async def _execute_research_task(self, task, db) -> str:
-        """Execute a deep research task using DeepResearcher."""
-        from core.database import Session as DbSession, ChatMessage
-        from src.deep_research import DeepResearcher
-        from src.research_handler import RESEARCH_DATA_DIR, ResearchHandler
-        from src.research_utils import strip_thinking
-        from src.settings import get_setting
+        """Execute a deep research task through ResearchHandler.
+
+        Routing scheduled work through the same handler as the panel gives it
+        the hard wall-clock timeout, endpoint probe, cancellation visibility,
+        atomic persistence and partial-report salvage for free.
+        """
+        from core.database import Session as DbSession
+        from src.research_handler import ResearchHandler
 
         # Resolve endpoint/model: research settings > task settings > session defaults
         endpoint_url = task.endpoint_url
@@ -2020,30 +2023,7 @@ class TaskScheduler:
         except Exception:
             pass
 
-        max_tokens = int(get_setting("research_max_tokens", 8192))
-        extraction_timeout = int(get_setting("research_extraction_timeout_seconds", 90) or 90)
-        extraction_concurrency = int(get_setting("research_extraction_concurrency", 3) or 3)
-
-        researcher = DeepResearcher(
-            llm_endpoint=endpoint_url,
-            llm_model=model,
-            llm_headers=headers,
-            max_rounds=8,
-            max_time=600,  # 10 min for scheduled research
-            max_report_tokens=max_tokens,
-            extraction_timeout=extraction_timeout,
-            extraction_concurrency=extraction_concurrency,
-        )
-
-        started_ts = time.time()
-        report = await researcher.research(task.prompt)
-        completed_ts = time.time()
-        try:
-            stats = researcher.get_stats() or {}
-        except Exception:
-            stats = {}
-
-        # Ensure a session exists for output
+        # Ensure a session exists for output / cancellation lookup.
         session_id = task.session_id
         if not session_id:
             session_id = str(uuid.uuid4())
@@ -2062,41 +2042,59 @@ class TaskScheduler:
             db.commit()
             if self._session_manager:
                 try:
-                    self._session_manager.sessions[session_id] = self._session_manager._db_to_session(sess)
+                    self._session_manager.ensure_task_session(
+                        session_id, f"[Research] {task.name}", endpoint_url, model, owner=task.owner, task=task
+                    )
                 except Exception:
-                    pass
+                    try:
+                        self._session_manager.sessions[session_id] = self._session_manager._db_to_session(sess)
+                    except Exception:
+                        pass
 
-        # Persist scheduled research in the same on-disk shape used by the
-        # Research panel. Without this, task research had Markdown output but
-        # no Library entry and no visual report route to open.
-        try:
-            RESEARCH_DATA_DIR.mkdir(parents=True, exist_ok=True)
-            findings = getattr(researcher, "findings", []) or []
-            payload = {
-                "query": task.prompt or task.name or "Scheduled research",
-                "status": "done",
-                "result": report,
-                "raw_report": strip_thinking(report or ""),
-                "sources": ResearchHandler._extract_sources(findings),
-                "raw_findings": ResearchHandler._extract_raw_findings(findings),
-                "stats": stats,
+        handler = self._research_handler
+        if handler is None:
+            handler = ResearchHandler()
+            self._research_handler = handler
+
+        handle = handler.start_research(
+            session_id=session_id,
+            query=task.prompt or task.name or "Scheduled research",
+            llm_endpoint=endpoint_url,
+            llm_model=model,
+            max_time=600,
+            max_rounds=20,
+            llm_headers=headers,
+            owner=task.owner or "",
+            category="scheduled",
+            metadata={
                 "category": "scheduled",
-                "started_at": started_ts,
-                "completed_at": completed_ts,
-                "owner": task.owner or "",
                 "task_id": task.id,
                 "task_name": task.name,
-            }
-            (RESEARCH_DATA_DIR / f"{session_id}.json").write_text(json.dumps(payload), encoding="utf-8")
-            try:
-                from src.event_bus import fire_event
-                fire_event("research_completed", task.owner or None)
-            except Exception:
-                logger.debug("research_completed event dispatch failed", exc_info=True)
-        except Exception as e:
-            logger.warning("Failed to persist task research report %s: %s", session_id, e)
+            },
+            endpoint_id=getattr(task, "endpoint_id", None),
+        )
 
-        return report
+        task_handle = handle.get("task") if isinstance(handle, dict) else None
+        if task_handle is not None:
+            # Await the same background task so external /api/research/cancel
+            # propagates a CancelledError up to the scheduler's aborted path.
+            try:
+                await task_handle
+            except asyncio.CancelledError:
+                try:
+                    handler.cancel_research(session_id)
+                except Exception:
+                    pass
+                raise
+
+        entry = handler._active_tasks.get(session_id) or {}
+        if entry.get("status") == "error":
+            err_msg = entry.get("result") or "Scheduled research failed without an error message"
+            raise RuntimeError(str(err_msg))
+        result = handler.get_result(session_id)
+        if result:
+            return result
+        return "Scheduled research completed but produced no report."
 
     async def _run_chained(self, task_id: str):
         """Run a chained task. Acquires _executing membership the same way

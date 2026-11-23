@@ -38965,7 +38965,13 @@ body.research-panel-view #research-divider { display:none; }
   position: relative;
   isolation: isolate;
   overflow: hidden;
+  /* Desktop geometry; the @media (max-width:768px) block below turns this
+     into a bottom sheet. Keeping it here (not inline JS) lets resizes adapt. */
+  width: min(640px, 92vw);
+  max-height: 85vh;
+  background: var(--bg);
 }
+#research-pane:focus { outline: none; }
 /* Synapse signal traveling around the outer edge of the pane. The pane keeps a
    flat background; only this thin border ring remains animated. */
 .research-pane::after {
@@ -39099,6 +39105,13 @@ body.research-panel-view #research-divider { display:none; }
   color: var(--fg);
   border: 1px solid var(--border-control); border-radius: 4px;
 }
+.research-setting input[type="number"] {
+  font-size: var(--text-xs); padding: 4px 6px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border-control); border-radius: 4px;
+  width: 100%; box-sizing: border-box;
+}
 .research-controls-row {
   display:flex; align-items:center; gap:10px; margin-top:10px;
 }
@@ -39201,7 +39214,7 @@ body.research-panel-view #research-divider { display:none; }
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
-  var(--shadow-md)
+  box-shadow: var(--shadow-md);
   padding: 5px;
   font-size: var(--text-base);
   animation: rrm-pop-in 0.12s ease-out both;

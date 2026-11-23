@@ -88,9 +88,11 @@ class _FakeStream:
 
 @pytest.fixture
 def no_cache(monkeypatch, tmp_path):
+    import ipaddress
     monkeypatch.setattr(content_mod, "CONTENT_CACHE_DIR", tmp_path)
     monkeypatch.setattr(content_mod, "_cache_result", lambda *a, **k: None)
     monkeypatch.setattr(content_mod, "_public_http_url", lambda u: True)
+    monkeypatch.setattr(content_mod, "_resolve_public_ips", lambda u: [ipaddress.ip_address("93.184.216.34")])
 
 
 def _patch_stream(monkeypatch, fake):

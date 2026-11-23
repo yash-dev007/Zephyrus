@@ -28,6 +28,7 @@ function _markDismissed(ids) {
 
 let _activePollInterval = null;
 let _activePollInFlight = false;
+let _hasVisibilityListener = false;
 let _librarySyncInFlight = false;
 let _lastLibrarySyncAt = 0;
 const _LIBRARY_SYNC_MIN_MS = 120000;
@@ -40,7 +41,16 @@ export function init(apiBase) {
   // sidebar — _reconnectActive only ran once at load before, so
   // agent-started jobs never appeared until a page reload.
   if (_activePollInterval) clearInterval(_activePollInterval);
-  _activePollInterval = setInterval(() => { _reconnectActive(); }, 20000);
+  _activePollInterval = setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    _reconnectActive();
+  }, 20000);
+  if (typeof document !== 'undefined' && !_hasVisibilityListener) {
+    _hasVisibilityListener = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) _reconnectActive();
+    });
+  }
 }
 
 // Allow an immediate adopt when the chat stream signals a new research
@@ -71,6 +81,7 @@ async function _reconnectActive(options = {}) {
           elapsed: task.started_at ? Date.now() - task.started_at * 1000 : 0,
           result: null, sources: null, findings: null,
           errorMsg: null, avgDuration: null, modelName: null,
+          maxRounds: task.max_rounds || 0, maxTime: task.max_time || 0,
           settings: {}, _es: null, _timerInterval: null,
         };
         _jobs.push(job);
@@ -160,6 +171,9 @@ export function addToQueue(query, settings) {
 export async function startJob(query, settings) {
   const job = addToQueue(query, settings);
   await _launchJob(job);
+  if (job.status === 'error') {
+    throw new Error(job.errorMsg || 'Failed to start research');
+  }
   return job;
 }
 
@@ -241,6 +255,16 @@ export function formatElapsed(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+function _esc(s) {
+  return String(s || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[c]);
+}
+
 export function formatPhase(progress, maxRounds) {
   if (!progress || !progress.phase) return 'Starting...';
   const p = progress;
@@ -252,7 +276,7 @@ export function formatPhase(progress, maxRounds) {
     case 'reading': return `${rn}Reading ${p.total_sources || 0} sources`;
     case 'analyzing': return `${rn}Analyzing ${p.total_findings || 0} findings`;
     case 'writing': return `Writing report -- ${p.total_sources || 0} sources`;
-    default: return p.phase;
+    default: return _esc(p.phase);
   }
 }
 
@@ -295,6 +319,9 @@ async function _launchJob(job) {
   job.id = data.session_id;
   job.status = 'running';
   job.startedAt = Date.now();
+  // Real limits from the server drive the progress bar and phase label.
+  if (data.max_rounds) job.maxRounds = data.max_rounds;
+  if (data.max_time) job.maxTime = data.max_time;
   _connectStream(job);
   _notify();
 }

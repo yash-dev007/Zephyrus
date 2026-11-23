@@ -104,7 +104,29 @@ def _format_source_line(source: Any) -> Optional[str]:
     return None
 
 
-def _read_research_sync(data_dir: Path, rid: str) -> Dict[str, Any]:
+def _owner_scope(owner: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """Resolve the owner filter for a tool call.
+
+    Returns ``(scope, error)``. ``scope is None`` means unconstrained mode
+    (internal / legacy / test calls or single-user mode with authentication
+    disabled). When authentication is enabled and an explicit empty owner is
+    passed, an authentication error is returned.
+    """
+    from src.auth_helpers import _auth_disabled
+
+    if owner is None:
+        return (None, None)
+    normalized = str(owner).strip()
+    if not normalized:
+        if _auth_disabled():
+            return (None, None)
+        return (None, "Authentication is required to manage research.")
+    return (normalized, None)
+
+
+def _read_research_sync(
+    data_dir: Path, rid: str, owner_scope: Optional[str] = None
+) -> Dict[str, Any]:
     path = _resolve_research_path(data_dir, rid)
     if path is None:
         return _err("Invalid research id.")
@@ -112,8 +134,9 @@ def _read_research_sync(data_dir: Path, rid: str) -> Dict[str, Any]:
         return _err(f"Research '{rid}' not found.")
 
     record = _load_research_json(path)
-    if record is None:
-        return _err(f"Research '{rid}' could not be read or contains invalid JSON.")
+    if record is None or (owner_scope is not None and str(record.get("owner") or "") != owner_scope):
+        # Uniform message for missing, unreadable, or foreign reports: no ID enumeration.
+        return _err(f"Research '{rid}' not found.")
 
     title = str(record.get("query") or "(untitled)")
     summary = str(
@@ -140,12 +163,18 @@ def _read_research_sync(data_dir: Path, rid: str) -> Dict[str, Any]:
     return _ok(out)
 
 
-def _delete_research_sync(data_dir: Path, rid: str) -> Dict[str, Any]:
+def _delete_research_sync(
+    data_dir: Path, rid: str, owner_scope: Optional[str] = None
+) -> Dict[str, Any]:
     path = _resolve_research_path(data_dir, rid)
     if path is None:
         return _err("Invalid research id.")
     if not path.exists():
         return _err(f"Research '{rid}' not found.")
+    if owner_scope is not None:
+        record = _load_research_json(path)
+        if record is None or str(record.get("owner") or "") != owner_scope:
+            return _err(f"Research '{rid}' not found.")
 
     try:
         path.unlink()
@@ -155,12 +184,16 @@ def _delete_research_sync(data_dir: Path, rid: str) -> Dict[str, Any]:
     return _ok(f"Deleted research '{rid}'.")
 
 
-def _list_research_sync(data_dir: Path, search: str) -> Dict[str, Any]:
+def _list_research_sync(
+    data_dir: Path, search: str, owner_scope: Optional[str] = None
+) -> Dict[str, Any]:
     items: List[Tuple[float, str, str, int]] = []
     if data_dir.exists():
         for path in data_dir.glob("*.json"):
             record = _load_research_json(path)
             if record is None:
+                continue
+            if owner_scope is not None and str(record.get("owner") or "") != owner_scope:
                 continue
             query = str(record.get("query") or "")
             if search and search not in query.lower():
@@ -200,8 +233,11 @@ async def do_manage_research(content: str, owner: Optional[str] = None) -> Dict[
     Args (JSON): ``{"action": "list|read|delete", "id": "<id>", "search": "..."}``.
     Research is stored as ``data/deep_research/<id>.json`` (query, summary, sources).
     """
-    # TODO: Enforce per-owner isolation if DEEP_RESEARCH_DIR becomes multi-tenant.
-    _ = owner
+    # SECURITY: never scan/read/delete another user's library. Legacy callers
+    # (owner=None) are tolerated only while authentication is disabled.
+    owner_scope, scope_error = _owner_scope(owner)
+    if scope_error:
+        return _err(scope_error)
 
     args = _parse_optional_args(content)
     if args is None:
@@ -217,16 +253,16 @@ async def do_manage_research(content: str, owner: Optional[str] = None) -> Dict[
     if action in _READ_ACTIONS:
         if not rid:
             return _err("Provide the research id (from action='list').")
-        return await asyncio.to_thread(_read_research_sync, data_dir, rid)
+        return await asyncio.to_thread(_read_research_sync, data_dir, rid, owner_scope)
 
     if action == "delete":
         if not rid:
             return _err("Provide the research id to delete (from action='list').")
-        return await asyncio.to_thread(_delete_research_sync, data_dir, rid)
+        return await asyncio.to_thread(_delete_research_sync, data_dir, rid, owner_scope)
 
     if action == "list":
         search = str(args.get("search") or "").strip().lower()
-        return await asyncio.to_thread(_list_research_sync, data_dir, search)
+        return await asyncio.to_thread(_list_research_sync, data_dir, search, owner_scope)
 
     return _err(f"Unknown action '{action}'. Expected 'list', 'read', or 'delete'.")
 

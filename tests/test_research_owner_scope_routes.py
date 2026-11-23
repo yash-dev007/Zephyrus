@@ -70,6 +70,30 @@ def test_library_returns_only_caller_owned_unarchived_reports(tmp_path, monkeypa
     assert out["total"] == 1
 
 
+def test_library_retains_metadata_and_invalidates_on_update(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    data_dir = tmp_path / "data" / "deep_research"
+    _write_research(
+        data_dir,
+        "alice-report",
+        owner="alice",
+        query="Research Topic",
+        sources=[{"url": "https://example.com/1", "image": "https://cdn.example.com/pic.png"}],
+        stats={"Duration": "2m 10s", "Rounds": "3", "Tokens": 1500},
+        completed_at=100,
+    )
+    router = setup_research_routes(_research_handler())
+    target = _route(router, "/api/research/library", "GET")
+    out = asyncio.run(target(request=_request("alice"), search=None, sort="recent", limit=50, archived=False))
+    assert len(out["research"]) == 1
+    item = out["research"][0]
+    assert item["source_count"] == 1
+    assert item["duration"] == "2m 10s"
+    assert item["rounds"] == "3"
+    assert item["tokens"] == 1500
+    assert item["thumbnail"] == "https://cdn.example.com/pic.png"
+
+
 def test_detail_rejects_cross_owner_and_null_owner_reports(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     data_dir = tmp_path / "data" / "deep_research"

@@ -1,15 +1,59 @@
 """Backup routes — export/import user data (memories, presets, settings, skills, preferences)."""
 
+import asyncio
 import json
 import logging
+import os
+import re
+import uuid
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from core.atomic_io import atomic_write_json
 from core.middleware import require_admin
 from src.auth_helpers import get_current_user
+from src.constants import DEEP_RESEARCH_DIR
 from src.settings import load_settings, save_settings, load_features, save_features
 
 logger = logging.getLogger(__name__)
+
+_RESEARCH_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,128}$")
+
+
+def _collect_research_reports(owner: str) -> list:
+    """Return this owner's deep-research reports for backup export."""
+    reports = []
+    data_dir = Path(DEEP_RESEARCH_DIR)
+    if not data_dir.exists():
+        return reports
+    target_owner = str(owner or "").strip().lower()
+    for path in data_dir.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        report_owner = str(data.get("owner") or "").strip().lower()
+        if report_owner != target_owner:
+            continue
+        data["id"] = path.stem
+        reports.append(data)
+
+    def _sort_key(r: dict) -> float:
+        val = r.get("completed_at")
+        if isinstance(val, (int, float)) and not isinstance(val, bool):
+            return float(val)
+        if isinstance(val, str) and val.strip():
+            try:
+                return float(val.strip())
+            except ValueError:
+                pass
+        return 0.0
+
+    reports.sort(key=_sort_key, reverse=True)
+    return reports
 
 
 def setup_backup_routes(memory_manager, preset_manager, skills_manager) -> APIRouter:
@@ -41,7 +85,7 @@ def setup_backup_routes(memory_manager, preset_manager, skills_manager) -> APIRo
         preferences = _load_for_user(user)
 
         export_data = {
-            "version": 1,
+            "version": 2,
             "exported_at": datetime.now().isoformat(),
             "exported_by": user,
             "memories": memories,
@@ -50,6 +94,9 @@ def setup_backup_routes(memory_manager, preset_manager, skills_manager) -> APIRo
             "settings": settings,
             "features": features,
             "preferences": preferences,
+            # P2-01: research was the one user-owned corpus missing from
+            # backups, so an account export silently lost every report.
+            "research": await asyncio.to_thread(_collect_research_reports, user),
         }
 
         filename = f"zephyrus_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -203,6 +250,49 @@ def setup_backup_routes(memory_manager, preset_manager, skills_manager) -> APIRo
             current.update(body["preferences"])
             _save_for_user(user, current)
             imported.append("preferences")
+
+        # ── Research reports ──
+        if "research" in body and isinstance(body["research"], list):
+            data_dir = Path(DEEP_RESEARCH_DIR)
+            data_dir.mkdir(parents=True, exist_ok=True)
+            added = 0
+            for report in body["research"]:
+                if not isinstance(report, dict):
+                    continue
+                query = report.get("query")
+                res = report.get("result") or report.get("raw_report")
+                if not isinstance(query, str) or not isinstance(res, str) or not query.strip():
+                    continue
+                rid = str(report.get("id") or "").strip()
+                target = data_dir / f"{rid}.json" if _RESEARCH_ID_RE.fullmatch(rid) else None
+                if target is not None and target.exists():
+                    try:
+                        existing_data = json.loads(target.read_text(encoding="utf-8"))
+                        existing_owner = str(existing_data.get("owner") or "").strip().lower()
+                    except Exception:
+                        existing_owner = None
+                    # Never overwrite another tenant's report or unowned/unverified files
+                    clean_user = str(user or "").strip().lower()
+                    if not clean_user or existing_owner != clean_user:
+                        target = None
+                if target is None:
+                    rid = f"rp-{uuid.uuid4().hex}"
+                    target = data_dir / f"{rid}.json"
+                payload = dict(report)
+                payload.pop("id", None)
+                payload["owner"] = user or ""
+                payload.setdefault("status", "done")
+                payload.setdefault("completed_at", 0)
+                try:
+                    atomic_write_json(str(target), payload)
+                    try:
+                        os.chmod(target, 0o600)
+                    except OSError:
+                        pass
+                    added += 1
+                except Exception as exc:
+                    logger.warning("Failed to restore research report %s: %s", rid, exc)
+            imported.append(f"{added} research report(s)")
 
         if not imported:
             return {"ok": False, "message": "No recognized data found in the file"}

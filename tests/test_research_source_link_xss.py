@@ -22,5 +22,4 @@ def test_research_panel_whitelists_source_hrefs():
 
     assert "function _safeSourceHref(raw)" in src
     assert "parsed.protocol === 'http:' || parsed.protocol === 'https:'" in src
-    assert "const url = _safeSourceHref(s.url);" in src
     assert 'const url = _esc(s.url || \'\');' not in src

@@ -649,7 +649,7 @@ def test_remaining_durable_writers_reserve_before_commit(monkeypatch):
 
     SessionLocal, engine, tmpfile = make_temp_sqlite(Base.metadata)
     monkeypatch.setattr(database, "SessionLocal", SessionLocal)
-    monkeypatch.setattr(legacy_database, "SessionLocal", SessionLocal)
+    monkeypatch.setattr(legacy_database, "SessionLocal", SessionLocal, raising=False)
     monkeypatch.setattr(legacy_database, "Document", Document, raising=False)
     monkeypatch.setattr(
         legacy_database,

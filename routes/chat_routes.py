@@ -544,6 +544,10 @@ def setup_chat_routes(
             _privs = request.app.state.auth_manager.get_privileges(owner) or {}
         if use_research and not _privs.get("can_use_research", True):
             raise HTTPException(403, "Your account is not allowed to use research.")
+        if use_research:
+            from src.settings import is_feature_enabled
+            if not is_feature_enabled("deep_research"):
+                raise HTTPException(403, "Deep research is disabled by the administrator.")
 
         tool_policy = build_effective_tool_policy(last_user_message=message)
         allow_tool_preprocessing = not tool_policy.block_all_tool_calls
@@ -577,7 +581,12 @@ def setup_chat_routes(
             try:
                 _r_ep, _r_model, _r_headers = _resolve_research_endpoint(sess)
                 research_ctx = await research_handler.call_research_service(
-                    message, _r_ep, _r_model, llm_headers=_r_headers
+                    message, _r_ep, _r_model, llm_headers=_r_headers,
+                    # Inline non-streaming chat requests sit behind reverse
+                    # proxies with 60-120s idle timeouts. Keep this path short;
+                    # full deep research belongs on the background panel path.
+                    max_time=180,
+                    max_rounds=2,
                 )
                 ctx.messages.insert(
                     len(ctx.preface),
@@ -1029,6 +1038,9 @@ def setup_chat_routes(
             if not _privs.get("can_use_agent", True):
                 _effective_mode = 'chat'
                 chat_mode = 'chat'
+        from src.settings import is_feature_enabled
+        if not is_feature_enabled("deep_research"):
+            _research_flags["do"] = False
         # Global admin disabled tools
         from src.settings import get_setting
         _global_disabled = get_setting("disabled_tools", [])
@@ -1205,6 +1217,7 @@ def setup_chat_routes(
                         prior_urls=_prior_urls,
                         on_complete=_on_research_done,
                         owner=_user,
+                        ephemeral=bool(incognito),
                     )
 
                     _heartbeat_counter = 0

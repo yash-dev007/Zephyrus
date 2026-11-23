@@ -7,6 +7,10 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+_venv_bin = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".venv", "bin")
+if os.path.isdir(_venv_bin) and _venv_bin not in os.environ.get("PATH", "").split(os.pathsep):
+    os.environ["PATH"] = _venv_bin + os.pathsep + os.environ.get("PATH", "")
+
 # Importing core.database below runs init_db() at import time, and its default
 # (sqlite:///./data/app.db) can't be opened in a clean worktree because SQLite
 # won't create the missing ./data parent dir - pytest then dies during

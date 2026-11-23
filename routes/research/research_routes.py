@@ -4,21 +4,29 @@ import asyncio
 import json
 import logging
 import re
+import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from core.atomic_io import atomic_write_json
 from core.middleware import INTERNAL_TOOL_USER
 from src.endpoint_resolver import resolve_endpoint
 from src.auth_helpers import _auth_disabled, get_current_user
 from core.auth import RESERVED_USERNAMES
 from src.constants import DEEP_RESEARCH_DIR
+from src.settings import is_feature_enabled
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9-]{1,128}$")
+
+# Lightweight metadata cache for the Library: keyed by (data_dir_str, mtime)
+# so a report write invalidates it without parsing every JSON file.
+_LIBRARY_CACHE: dict = {"key": None, "records": []}
+
 
 
 def _validate_session_id(session_id: str) -> str:
@@ -129,6 +137,61 @@ def _research_thumbnail(data: dict) -> str:
     return ""
 
 
+METADATA_KEYS = (
+    "id", "owner", "query", "category", "source_count", "status",
+    "duration", "rounds", "tokens", "started_at", "completed_at",
+    "archived", "thumbnail", "sources", "stats", "hidden_images",
+)
+
+
+def _load_library_records(data_dir: Path) -> list[dict]:
+    """Parse research JSON files, reusing cached records until files change.
+    Only metadata fields are cached; full report bodies stay on disk.
+    Keyed on (dir_path, file_count, max_mtime) so in-place edits (e.g. image hide)
+    properly invalidate the cache.
+    """
+    try:
+        entries = [p for p in data_dir.glob("*.json") if p.is_file()]
+        file_count = len(entries)
+        max_mtime = max((p.stat().st_mtime for p in entries), default=0.0)
+    except OSError:
+        return []
+    key = (str(data_dir), file_count, max_mtime)
+    if _LIBRARY_CACHE.get("key") == key:
+        return _LIBRARY_CACHE.get("records") or []
+    records = []
+    for path in entries:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            stats = data.get("stats") or {}
+            sources = data.get("sources") or []
+            record = {
+                "id": data.get("id") or path.stem,
+                "owner": data.get("owner"),
+                "query": data.get("query", ""),
+                "category": data.get("category") or "",
+                "source_count": len(sources) if isinstance(sources, list) else int(data.get("source_count") or 0),
+                "status": data.get("status", "done"),
+                "duration": stats.get("Duration", "") if stats else str(data.get("duration") or ""),
+                "rounds": stats.get("Rounds", "") if stats else str(data.get("rounds") or ""),
+                "tokens": stats.get("Tokens", 0) if stats else int(data.get("tokens") or 0),
+                "started_at": data.get("started_at", 0),
+                "completed_at": data.get("completed_at", 0),
+                "archived": bool(data.get("archived")),
+                "thumbnail": _research_thumbnail(data),
+                "sources": sources,
+                "stats": stats,
+                "hidden_images": data.get("hidden_images") or [],
+                "_path": path,
+            }
+            records.append(record)
+        except Exception:
+            continue
+    _LIBRARY_CACHE["key"] = key
+    _LIBRARY_CACHE["records"] = records
+    return records
+
+
 def _first_chat_model(models) -> str:
     """First model that isn't an embedding/tts/etc. — falls back to models[0]."""
     for m in (models or []):
@@ -210,15 +273,20 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
     router = APIRouter(tags=["research"])
 
     def _require_user(request: Request) -> str:
-        """All research endpoints require an authenticated user. Research
-        data isn't owner-scoped in the on-disk JSON yet, so we at least
-        block anonymous access. Multi-tenant deploys should additionally
-        verify the session belongs to this user."""
+        """All research endpoints require an authenticated user."""
         user = get_current_user(request)
         if not user:
             if _auth_disabled():
                 return ""
             raise HTTPException(401, "Not authenticated")
+        return user
+
+    def _require_research_enabled(request: Request) -> str:
+        """Server-side kill switch + privilege gate for every launch path."""
+        from src.auth_helpers import require_privilege
+        user = require_privilege(request, "can_use_research")
+        if not is_feature_enabled("deep_research"):
+            raise HTTPException(403, "Deep research is disabled by the administrator.")
         return user
 
     def _owns_in_memory(session_id: str, user: str) -> bool:
@@ -272,6 +340,9 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                     "status": "running",
                     "progress": entry.get("progress", {}),
                     "started_at": entry.get("started_at", 0),
+                    "max_time": entry.get("max_time"),
+                    "max_rounds": entry.get("max_rounds"),
+                    "ephemeral": bool(entry.get("ephemeral")),
                 })
         return {"active": active}
 
@@ -309,9 +380,17 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         research_handler.clear_result(session_id)
         return {"result": result, "sources": sources, "raw_findings": raw_findings}
 
-    def _assert_owns_research(session_id: str, user: str) -> None:
-        """404-not-403 ownership gate for a research session's on-disk JSON.
-        Use BEFORE returning any data or mutating the file."""
+    def _assert_owns_research(session_id: str, user: str) -> Optional[Path]:
+        """404-not-403 ownership gate for a research session.
+
+        Returns the on-disk path for completed reports, or ``None`` for an
+        owned in-memory (incognito / still-running) entry.
+        """
+        entry = research_handler._active_tasks.get(session_id)
+        if entry is not None:
+            if entry.get("owner", "") == user:
+                return None
+            raise HTTPException(404, "Research not found")
         path = _require_research_path(session_id)
         try:
             owner = json.loads(path.read_text(encoding="utf-8")).get("owner")
@@ -319,6 +398,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             raise HTTPException(404, "Research not found")
         if owner != user:
             raise HTTPException(404, "Research not found")
+        return path
 
     @router.get("/api/research/report/{session_id}")
     async def research_report(session_id: str, request: Request):
@@ -373,11 +453,14 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
     ):
         user = _require_user(request)
         """List all completed research for the Library panel."""
+        try:
+            research_handler._maybe_purge_retention()
+        except Exception:
+            pass
         data_dir = Path(DEEP_RESEARCH_DIR)
         items = []
-        for p in data_dir.glob("*.json"):
+        for d in _load_library_records(data_dir):
             try:
-                d = json.loads(p.read_text(encoding="utf-8"))
                 # SECURITY: only show research belonging to this user. Legacy
                 # JSONs without an `owner` field are hidden — auth was the only
                 # gate before, so every user saw every other user's reports.
@@ -390,31 +473,48 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                 if search and search.lower() not in query.lower():
                     continue
                 sources = d.get("sources", [])
+                p = d.get("_path")
+                stats = d.get("stats") or {}
+                thumbnail = d.get("thumbnail")
+                if thumbnail is None:
+                    thumbnail = _research_thumbnail(d)
                 items.append({
-                    "id": p.stem,
+                    "id": p.stem if p else d.get("id", ""),
                     "query": query,
                     "category": d.get("category") or "",
-                    "source_count": len(sources),
+                    "source_count": len(sources) if isinstance(sources, list) else int(d.get("source_count") or 0),
                     "status": d.get("status", "done"),
-                    "duration": d.get("stats", {}).get("Duration", ""),
-                    "rounds": d.get("stats", {}).get("Rounds", ""),
+                    "duration": stats.get("Duration", "") if stats else str(d.get("duration") or ""),
+                    "rounds": stats.get("Rounds", "") if stats else str(d.get("rounds") or ""),
+                    "tokens": stats.get("Tokens", 0) if stats else int(d.get("tokens") or 0),
                     "started_at": d.get("started_at", 0),
                     "completed_at": d.get("completed_at", 0),
                     "archived": bool(d.get("archived")),
-                    "thumbnail": _research_thumbnail(d),
+                    "thumbnail": thumbnail,
                 })
             except Exception:
                 continue
 
-        # Sort
+        def _sort_ts(x: dict) -> float:
+            val = x.get("completed_at")
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                return float(val)
+            if isinstance(val, str) and val.strip():
+                try:
+                    return float(val.strip())
+                except ValueError:
+                    pass
+            return 0.0
+
+        # Sort. "most-messages" is kept as an alias for old clients.
         if sort == "recent":
-            items.sort(key=lambda x: x["completed_at"] or 0, reverse=True)
+            items.sort(key=_sort_ts, reverse=True)
         elif sort == "oldest":
-            items.sort(key=lambda x: x["completed_at"] or 0)
-        elif sort == "most-messages":
+            items.sort(key=_sort_ts)
+        elif sort in ("most-sources", "most-messages"):
             items.sort(key=lambda x: x["source_count"], reverse=True)
         elif sort == "alpha":
-            items.sort(key=lambda x: x["query"].lower())
+            items.sort(key=lambda x: str(x.get("query") or "").lower())
 
         return {"research": items[:limit], "total": len(items)}
 
@@ -445,7 +545,8 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             if data.get("owner") != user:
                 raise HTTPException(404, "Research not found")
             data["archived"] = bool(archived)
-            path.write_text(json.dumps(data), encoding="utf-8")
+            atomic_write_json(str(path), data)
+            _LIBRARY_CACHE["key"] = None
         except HTTPException:
             raise
         except Exception as e:
@@ -454,12 +555,26 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
 
     @router.delete("/api/research/{session_id}")
     async def research_delete(session_id: str, request: Request):
-        """Delete a research result from disk."""
+        """Delete a research result from disk and active state."""
         user = _require_user(request)
         _validate_session_id(session_id)
+
+        # Cancel and clean active task if present
+        active_entry = research_handler._active_tasks.get(session_id)
+        if active_entry is not None:
+            if active_entry.get("owner", "") != user:
+                raise HTTPException(404, "Research not found")
+            try:
+                research_handler.cancel_research(session_id)
+            except Exception:
+                pass
+            research_handler._active_tasks.pop(session_id, None)
+
+        research_handler._delete_checkpoint(session_id)
+
         json_path = _find_research_path(session_id)
         deleted = False
-        if json_path is not None:
+        if json_path is not None and json_path.exists():
             # SECURITY: verify ownership before letting the caller delete it.
             try:
                 data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -471,7 +586,8 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                 raise HTTPException(404, "Research not found")
             json_path.unlink()
             deleted = True
-        return {"deleted": deleted}
+            _LIBRARY_CACHE["key"] = None
+        return {"deleted": deleted or active_entry is not None}
 
     # ------------------------------------------------------------------
     # Panel endpoints — launch research without a chat session
@@ -488,26 +604,27 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         extraction_timeout: Optional[int] = Field(default=None, ge=15, le=3600)
         extraction_concurrency: Optional[int] = Field(default=None, ge=1, le=12)
         category: Optional[str] = None
+        continue_from_session_id: Optional[str] = None
 
     @router.post("/api/research/start")
     async def research_start(body: ResearchStartRequest, request: Request):
         """Launch a research job from the dedicated panel."""
-        from src.auth_helpers import require_privilege
-        user = require_privilege(request, "can_use_research")
+        user = _require_research_enabled(request)
         if user == INTERNAL_TOOL_USER:
             tool_owner = (request.headers.get("X-Zephyrus-Owner") or "").strip()
             if tool_owner and tool_owner not in RESERVED_USERNAMES:
                 auth_mgr = getattr(request.app.state, "auth_manager", None)
                 if auth_mgr is not None and getattr(auth_mgr, "is_configured", False):
-                    try:
-                        privs = auth_mgr.get_privileges(tool_owner) or {}
-                        if not privs.get("can_use_research", True):
-                            raise HTTPException(403, "Your account is not allowed to use research.")
-                    except HTTPException:
-                        raise
-                    except Exception:
-                        pass
-                user = tool_owner
+                    if tool_owner in getattr(auth_mgr, "users", {}):
+                        try:
+                            privs = auth_mgr.get_privileges(tool_owner) or {}
+                            if not privs.get("can_use_research", True):
+                                raise HTTPException(403, "Your account is not allowed to use research.")
+                            user = tool_owner
+                        except HTTPException:
+                            raise
+                        except Exception:
+                            pass
         session_id = f"rp-{uuid.uuid4().hex[:12]}"
 
         if body.endpoint_id:
@@ -560,21 +677,63 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
 
         # max_rounds=0 → "Auto", let AI decide; pass 20 as the safety cap.
         effective_max_rounds = body.max_rounds if body.max_rounds > 0 else 20
-        research_handler.start_research(
+
+        prior_report = ""
+        prior_findings = None
+        prior_urls = None
+        if body.continue_from_session_id:
+            prior_id = _validate_session_id(body.continue_from_session_id)
+            prior_path = _find_owned_research_path(prior_id, user)
+            prior_data = None
+            if prior_path is not None:
+                try:
+                    prior_data = json.loads(prior_path.read_text(encoding="utf-8"))
+                except Exception:
+                    prior_data = None
+            if prior_data is None:
+                prior_entry = research_handler._active_tasks.get(prior_id)
+                if prior_entry is not None and prior_entry.get("owner", "") == user:
+                    prior_data = prior_entry
+            if prior_data is None:
+                raise HTTPException(404, "Research not found")
+            prior_report = prior_data.get("raw_report") or prior_data.get("result") or ""
+            prior_findings = prior_data.get("raw_findings") or prior_data.get("findings")
+            prior_urls = {
+                source.get("url", "")
+                for source in (prior_data.get("sources") or [])
+                if isinstance(source, dict) and source.get("url")
+            } or None
+            if not prior_report:
+                raise HTTPException(400, "Research has no report to continue from")
+
+        handle = research_handler.start_research(
             session_id=session_id,
             query=body.query,
             llm_endpoint=ep_url,
             llm_model=ep_model,
             max_time=body.max_time,
             llm_headers=ep_headers,
+            prior_report=prior_report,
+            prior_findings=prior_findings,
+            prior_urls=prior_urls,
             max_rounds=effective_max_rounds,
             search_provider=body.search_provider or None,
             category=body.category or None,
             extraction_timeout=body.extraction_timeout,
             extraction_concurrency=body.extraction_concurrency,
             owner=user,
+            endpoint_id=body.endpoint_id,
         )
-        return {"session_id": session_id, "status": "running", "query": body.query}
+        started_at = handle.get("started_at") if isinstance(handle, dict) else time.time()
+        return {
+            "session_id": session_id,
+            "status": "running",
+            "query": body.query,
+            "max_rounds": effective_max_rounds,
+            "max_time": body.max_time,
+            "started_at": started_at,
+            "continued_from": body.continue_from_session_id,
+        }
 
     @router.get("/api/research/stream/{session_id}")
     async def research_stream(session_id: str, request: Request):
@@ -586,6 +745,13 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         async def _generate():
             last_progress = None
             while True:
+                event_obj = None
+                entry = research_handler._active_tasks.get(session_id)
+                if isinstance(entry, dict):
+                    event_obj = entry.get("progress_event")
+                if event_obj is not None:
+                    event_obj.clear()
+
                 status = research_handler.get_status(session_id)
                 if status is None:
                     yield f"data: {json.dumps({'status': 'not_found'})}\n\n"
@@ -602,7 +768,17 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                         final['error'] = str(task["result"])[:500]
                     yield f"data: {json.dumps(final)}\n\n"
                     return
-                await asyncio.sleep(1.5)
+
+                # Event-driven wakeup: a progress update or terminal transition
+                # sets the entry event, so the next event is delivered in
+                # milliseconds. The 15s timeout is a keepalive, not a poll.
+                if event_obj is not None:
+                    try:
+                        await asyncio.wait_for(event_obj.wait(), timeout=15)
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"
+                else:
+                    await asyncio.sleep(1.5)
 
         return StreamingResponse(
             _generate(),
@@ -755,7 +931,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
         # The user can open the visual report for source details; keeping sources
         # out of the chat context saves tokens and avoids the AI fabricating
         # citations.
-        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         primer = (
             f"[Research context — {date_str}]\n\n"
             f"The user previously ran a deep research investigation. Use the "

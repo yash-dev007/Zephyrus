@@ -99,6 +99,11 @@ docs/windows-port/
 
 # Local config
 compound.config.json
+# OpenCode CLI config carries provider credentials — never commit it.
+opencode.json
+opencode.json.backup
+# uv lockfile is per-platform and optional (see README); keep it local.
+uv.lock
 *.error.log
 _scratch/
 /zephyrus/

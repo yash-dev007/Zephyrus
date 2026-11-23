@@ -311,7 +311,7 @@ def test_spinners_are_grey_not_red():
     assert "--fg-muted" in SPINNER_JS
     assert "--red" not in SPINNER_JS
     assert "156, 222" not in SPINNER_JS and "9cdef2" not in SPINNER_JS
-    assert "loader-dots" in HTML and "loader-wave" not in HTML
+    assert "boot-chip" in HTML and "loader-wave" not in HTML
     assert ".ai-spinner {\n  color: var(--fg-muted);" in TAIL
 
 
