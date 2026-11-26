@@ -3,7 +3,7 @@ import state from './state.js';
 import Storage from '../storage.js';
 import { fetchModels, _persistSelections, getExcludedModels } from './models.js';
 import { showScoreboard } from './scoreboard.js';
-import { EYE_OPEN, EYE_CLOSED, ICON_DICE, ICON_PARALLEL, ICON_SEQUENTIAL, SAVE_ICON, WAVE_FRAMES, CHAT_ICON } from './icons.js';
+import { EYE_OPEN, EYE_CLOSED, ICON_DICE, ICON_PARALLEL, ICON_SEQUENTIAL, SAVE_ICON, CHAT_ICON } from './icons.js';
 import { _clearProbeWaves } from './probe.js';
 import uiModule from '../ui.js';
 import spinnerModule from '../spinner.js';
@@ -935,16 +935,9 @@ async function showModelSelector() {
         const name = m.name || m.model.split('/').pop();
         const displayName = isBlind ? `Model ${_slotChar(i)}` : escapeHtml(name);
         row._realName = name;
-        row.innerHTML = `<span class="compare-probe-spinner">▁▂▃</span><span class="compare-probe-name">${displayName}</span><span class="compare-probe-status"></span>`;
+        row.innerHTML = `<span class="compare-probe-spinner"></span><span class="compare-probe-name">${displayName}</span><span class="compare-probe-status"></span>`;
         const waveEl = row.querySelector('.compare-probe-spinner');
-        const waveFrames = WAVE_FRAMES;
-        let waveIdx = 0;
-        row._waveInterval = setInterval(() => {
-          waveIdx = (waveIdx + 1) % waveFrames.length;
-          if (waveEl && !waveEl.classList.contains('ok') && !waveEl.classList.contains('fail')) {
-            waveEl.textContent = waveFrames[waveIdx];
-          }
-        }, 100);
+        waveEl.replaceChildren(spinnerModule.createIndicator(12));
         probeList.appendChild(row);
       });
       probeCard.appendChild(probeList);
@@ -1017,8 +1010,6 @@ async function showModelSelector() {
       function _updateRow(idx, result) {
         const row = probeList.querySelector(`[data-idx="${idx}"]`);
         if (!row) return;
-        // Stop wave animation
-        if (row._waveInterval) { clearInterval(row._waveInterval); row._waveInterval = null; }
         const spinner = row.querySelector('.compare-probe-spinner');
         const status = row.querySelector('.compare-probe-status');
         if (result.status === 'ok') {
@@ -1071,11 +1062,9 @@ async function showModelSelector() {
               const nameEl = row.querySelector('.compare-probe-name');
               if (nameEl) nameEl.textContent = `Model ${_slotChar(idx)}`;
             }
-            const waveFrames2 = WAVE_FRAMES;
-            let w2 = 0;
             spinner.classList.remove('ok', 'fail');
             spinner.style.color = '';
-            row._waveInterval = setInterval(() => { w2 = (w2 + 1) % waveFrames2.length; spinner.textContent = waveFrames2[w2]; }, 100);
+            spinner.replaceChildren(spinnerModule.createIndicator(12));
             row.classList.remove('fail');
             const r2 = await Promise.race([_probeOne(modelsToProbe[idx]), new Promise(r => setTimeout(() => r({ status: 'fail', error: 'Timeout' }), row._probeTimeout))]);
             _updateRow(idx, r2);
@@ -1128,16 +1117,14 @@ async function showModelSelector() {
           for (let i = 0; i < results.length; i++) {
             if (results[i].status !== 'ok') {
               const row = probeList.querySelector(`[data-idx="${i}"]`);
-              // Restart wave in red to show swapping
+              // Show the shared loader while trying replacement models.
               if (row) {
                 const spinner = row.querySelector('.compare-probe-spinner');
                 const status = row.querySelector('.compare-probe-status');
                 if (spinner) {
                   spinner.classList.remove('ok', 'fail');
                   spinner.style.color = 'var(--color-error, #f44)';
-                  const waveFrames = WAVE_FRAMES;
-                  let wIdx = 0;
-                  row._waveInterval = setInterval(() => { wIdx = (wIdx + 1) % waveFrames.length; spinner.textContent = waveFrames[wIdx]; }, 100);
+                  spinner.replaceChildren(spinnerModule.createIndicator(12));
                 }
                 if (status) status.textContent = 'Swapping...';
               }
@@ -1152,14 +1139,12 @@ async function showModelSelector() {
                 if (probeResult.status === 'ok') {
                   selections[i] = { model: replacement.id, endpoint: replacement.url, endpointId: replacement.endpointId, name: replacement.name };
                   usedModels.add(replacement.id);
-                  if (row && row._waveInterval) { clearInterval(row._waveInterval); row._waveInterval = null; }
                   _updateRow(i, probeResult);
                   swapped = true;
                   break;
                 }
               }
               if (!swapped) {
-                if (row && row._waveInterval) { clearInterval(row._waveInterval); row._waveInterval = null; }
                 if (row) {
                   const spinner = row.querySelector('.compare-probe-spinner');
                   const status = row.querySelector('.compare-probe-status');
@@ -1193,14 +1178,9 @@ async function showModelSelector() {
               const row = document.createElement('div');
               row.className = 'compare-probe-row';
               row.dataset.idx = 'p' + i;
-              row.innerHTML = `<span class="compare-probe-spinner">▁▂▃</span><span class="compare-probe-name">${escapeHtml(p.label || p.id)}</span><span class="compare-probe-status"></span>`;
+              row.innerHTML = `<span class="compare-probe-spinner"></span><span class="compare-probe-name">${escapeHtml(p.label || p.id)}</span><span class="compare-probe-status"></span>`;
               const waveEl = row.querySelector('.compare-probe-spinner');
-              const waveFrames = WAVE_FRAMES;
-              let wIdx = 0;
-              row._waveInterval = setInterval(() => {
-                wIdx = (wIdx + 1) % waveFrames.length;
-                if (waveEl && !waveEl.classList.contains('ok') && !waveEl.classList.contains('fail')) waveEl.textContent = waveFrames[wIdx];
-              }, 100);
+              waveEl.replaceChildren(spinnerModule.createIndicator(12));
               probeList.appendChild(row);
               providerRows.push(row);
             });
@@ -1223,7 +1203,6 @@ async function showModelSelector() {
             let searchAllOk = true;
             provResults.forEach((result, i) => {
               const row = providerRows[i];
-              if (row._waveInterval) { clearInterval(row._waveInterval); row._waveInterval = null; }
               const spinner = row.querySelector('.compare-probe-spinner');
               const status = row.querySelector('.compare-probe-status');
               if (result.status === 'ok') {

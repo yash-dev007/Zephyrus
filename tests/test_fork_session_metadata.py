@@ -42,6 +42,9 @@ class _FakeSessionManager:
     def save_sessions(self):
         pass
 
+    def get_session(self, session_id):
+        return self.sessions[session_id]
+
 
 def _fork_handler(router):
     for route in router.routes:

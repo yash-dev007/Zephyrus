@@ -12,7 +12,7 @@ venv/
 
 # Environment
 .env
-.env.bak.*
+.env.*
 !.env.example
 # Local uv lockfile (optional, per-platform — see "Faster installs with uv" in README)
 requirements.lock
@@ -50,6 +50,20 @@ services/data/
 
 # Test capture artifacts (browser session dumps may contain personal content)
 .playwright-mcp/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+playwright-report/
+test-results/
+
+# Local analysis indexes and disposable probes
+.codegraph/
+/tmp/
+/tmp_*/
+/tmp_*.html
 
 # OS
 .DS_Store

@@ -59,7 +59,6 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.gzip import GZipMiddleware
 
 # Core imports
 from core.constants import (
@@ -67,7 +66,7 @@ from core.constants import (
     REQUEST_TIMEOUT, OPENAI_API_KEY, AUTH_FILE,
 )
 from core.database import SessionLocal, ApiToken
-from core.middleware import SecurityHeadersMiddleware, is_cors_preflight
+from core.middleware import SSESafeGZipMiddleware, SecurityHeadersMiddleware, is_cors_preflight
 from core.auth import AuthManager, normalize_known_username
 from core.exceptions import (
     SessionNotFoundError, InvalidFileUploadError,
@@ -148,12 +147,13 @@ app.add_middleware(
 # ========= RESPONSE COMPRESSION (gzip) =========
 # The frontend's text assets (style.css, index.html, the JS bundles) shipped
 # uncompressed on every cold load. gzip cuts CSS/JS/HTML by ~75-85% on the wire
-# with no behavioural change. Starlette's GZipMiddleware excludes
-# `text/event-stream` by default, so the SSE streams (chat, shell, research,
-# model-probe — all served with media_type="text/event-stream") are never
-# compressed or buffered; only complete bodies over minimum_size are. The
-# security-header middleware composes cleanly on top.
-app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+# with no behavioural change. Starlette 0.41's GZipMiddleware does NOT exclude
+# `text/event-stream` (the old comment here claimed it did): it gzips the SSE
+# streams too, and gzip buffers small writes until its internal buffer fills,
+# so chat/shell/research clients receive nothing until the stream ends — the
+# UI shows a spinner and then the whole reply appears at once. Use the
+# SSE-aware subclass so only complete bodies over minimum_size are compressed.
+app.add_middleware(SSESafeGZipMiddleware, minimum_size=1024, compresslevel=6)
 
 # ========= SECURITY HEADERS MIDDLEWARE =========
 app.add_middleware(SecurityHeadersMiddleware)

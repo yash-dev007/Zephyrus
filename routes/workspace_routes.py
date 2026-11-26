@@ -61,7 +61,8 @@ def setup_workspace_routes():
             "dirs": dirs_sorted[:_MAX_BROWSE_DIRS],
             "truncated": truncated,
             # Whether this directory may be bound as a workspace (filesystem
-            # roots and sensitive dirs may be browsed through but not chosen).
+            # roots, sensitive dirs, and unwritable dirs may be browsed through
+            # but not chosen).
             "selectable": vet_workspace(target) is not None,
         }
 
@@ -70,10 +71,11 @@ def setup_workspace_routes():
         """Validate a workspace path without binding it.
 
         The UI calls this before persisting a manually typed path (/workspace
-        set) so a typo, file path, deleted folder, sensitive dir, or filesystem
-        root is rejected up front with the canonical path returned on success,
-        instead of being stored client-side and silently dropped at chat time.
-        Admin-gated like /browse: it confirms path existence on the host.
+        set) so a typo, file path, deleted folder, sensitive dir, unwritable
+        dir, or filesystem root is rejected up front with the canonical path
+        returned on success, instead of being stored client-side and silently
+        dropped at chat time. Admin-gated like /browse: it confirms path
+        existence on the host.
         """
         owner = get_current_user(request)
         if not owner_is_admin_or_single_user(owner):

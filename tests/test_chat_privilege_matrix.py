@@ -315,7 +315,7 @@ def _drive_chat(monkeypatch, chat_request, *, privs, research_handler=None, llm_
 
     monkeypatch.setattr(chat_routes, "llm_call_async", fake_llm)
 
-    async def fake_memory(sess, message):
+    async def fake_memory(sess, message, owner=None):
         return None
 
     async def fake_ctx(*args, **kwargs):

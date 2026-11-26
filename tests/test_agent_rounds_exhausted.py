@@ -70,6 +70,26 @@ def test_no_rounds_exhausted_on_normal_finish(monkeypatch):
     assert not any(e.get("type") == "rounds_exhausted" for e in events), events
 
 
+def test_unlimited_rounds_continue_past_twenty_and_finish(monkeypatch):
+    _patch_common(monkeypatch)
+    calls = 0
+
+    async def stream(_candidates, messages, **kwargs):
+        nonlocal calls
+        calls += 1
+        reply = f"```bash\necho step{calls}\n```" if calls <= 21 else "The task is complete."
+        yield f'data: {json.dumps({"delta": reply})}\n\n'
+        yield "data: [DONE]\n\n"
+
+    monkeypatch.setattr(al, "stream_llm_with_fallback", stream)
+    events = _types(_collect(al.stream_agent_loop(
+        "http://x/v1", "m", [{"role": "user", "content": "do a multi-step task"}],
+        max_rounds=0, relevant_tools={"bash"},
+    )))
+    assert calls == 22
+    assert not any(e.get("type") == "rounds_exhausted" for e in events)
+
+
 def test_emits_intent_nudge_exhausted_when_cap_is_exhausted(monkeypatch):
     _patch_common(monkeypatch)
 

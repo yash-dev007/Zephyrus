@@ -254,8 +254,6 @@ async def manage_session(content: str, session_id: Optional[str] = None, owner: 
     if not _session_manager:
         return {"error": "Session manager not available"}
 
-    from src.database import SessionLocal, Session as DbSession
-
     # Accept BOTH the structured JSON args the tool schema advertises
     # ({action, session_id, value}) AND the legacy line-based format
     # (line1=action, line2=session_id, line3=value). Native function-calling
@@ -298,6 +296,10 @@ async def manage_session(content: str, session_id: Optional[str] = None, owner: 
     # first guess (every other manage_* tool has a `list` action) works.
     if action == "list":
         return await list_sessions(_list_filter, session_id, owner=owner)
+
+    # Only the mutating actions below need the ORM; importing it here keeps the
+    # read-only list path independent of DB import state.
+    from src.database import SessionLocal, Session as DbSession
 
     if not target_sid:
         return {"error": "Need a session_id (or 'current' for the active chat)"}

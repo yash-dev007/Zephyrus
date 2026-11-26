@@ -55,16 +55,10 @@
   --surface-4: #232323;
   --elevated: #2b2b2b;
 
-  --panel: #141c23;      /* 1.22:1 on --bg. Terminal's #0a0a0a was 1.06:1, i.e. no
-                             perceptible surface. Real terminals land 1.26-1.31:1. */
-  /* Second surface tier for nested surfaces — card inside card, composer inside
-     a modal, table header inside a panel. 1.30:1 on --bg and 1.15:1 on --panel,
-     so each step is legible. */
-  --panel-2: #1a2229;    /* 1.30:1 on --bg, 1.07:1 on --panel */
-  /* --panel / --panel-2 are the legacy two-tier pair, superseded by the ladder
-     above. They are deliberately left in place and still defined at their
-     measured values: 208 call sites read them (203 --panel, 5 --panel-2), and
-     remapping those to ladder steps is a later phase, not a token edit. */
+  --panel: var(--bg);    /* Legacy panel consumers follow the pure-black theme. */
+  --panel-2: var(--bg);
+  /* Legacy panels stay black; borders separate them. The neutral surface
+     ladder above remains available for hover and selected states. */
   --fg: #d2d2d2;         /* 13.93:1 on --bg, 11.42:1 on --panel */
   --fg-strong: #f1f1f1;  /* 18.55:1 on --bg */
   --fg-muted: #a3a3a3;   /* 8.36:1 on --bg */
@@ -143,11 +137,8 @@
      second green. */
   --green: var(--success);
 
-  /* Code surfaces. Terminal collapsed both of these to values indistinguishable
-     from --bg, so a 60-line function had no scannable floor. --code-bg reuses
-     the --panel-2 tier (1.30:1 on --bg) and --hl-bg follows it, so the contrast
-     figures quoted per syntax token stay true to the surface they sit on. */
-  --code-bg: #1a2229;
+  /* Code uses the black canvas; borders and headers define its bounds. */
+  --code-bg: var(--bg);
   --hl-bg: var(--code-bg);
   /* Unhighlighted code is body text, not a hue of its own: pointing --hl-fg at
      --fg frees the whole 175-235 deg band that body text used to occupy. */
@@ -459,28 +450,35 @@ pre, code, .hljs {
   line-height: 1.5;
 }
 
-/* Scrollbar styling */
+/* Neutral scrollbars on black surfaces, including nested tool output. */
+:root { --scroll-thumb:#505050; --scroll-thumb-hover:#777; }
+* { scrollbar-color:var(--scroll-thumb) transparent; scrollbar-width:thin; }
 @supports selector(::-webkit-scrollbar) {
+  /* Chromium's standard scrollbar properties override pseudo-elements.
+     Use the custom track here; Firefox retains the thin native treatment. */
+  * { scrollbar-width:auto; scrollbar-color:auto; }
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
   ::-webkit-scrollbar-track {
-    background: var(--surface-2);
+    background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background-color: var(--accent-ink);
-    border-radius: 4px;
-    border: 2px solid var(--surface-2);
+    background-color: var(--scroll-thumb);
+    background-clip: padding-box;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    min-height: 32px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background-color: color-mix(in srgb, var(--accent-ink) 80%, white);
+    background-color: var(--scroll-thumb-hover);
   }
+  ::-webkit-scrollbar-corner { background:transparent; }
+  ::-webkit-scrollbar-button { display:none; width:0; height:0; }
 }
-
-html {
-  scrollbar-color: var(--accent-ink) var(--surface-2);
-  scrollbar-width: thin;
+@media (forced-colors:active) {
+  * { scrollbar-color:auto; }
 }
 
 /* Utility */
@@ -40835,7 +40833,15 @@ input.cp-swatch-input::selection { background: transparent; }
   /* topo-dark.png is the source artwork, used directly per request.
      cover scales uniformly (no stretch) and crops excess — it never
      distorts. center keeps the survey centred on all viewports. */
-  background-image: url("/static/icons/topo-dark.png");
+  /* A black shadow sits over the survey so the contours read as a substrate
+     behind the prose instead of competing with it. Both layers share the
+     element's --field-opacity, so 72% black lands at roughly two thirds. */
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--bg) 72%, transparent),
+      color-mix(in srgb, var(--bg) 72%, transparent)
+    ),
+    url("/static/icons/topo-dark.png");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -41970,4 +41976,372 @@ select option {
   background-color: var(--surface-2);
   color: var(--fg);
   font-family: var(--font-ui);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Chat shell — v0  (prototype: docs/design/chat-shell-v0.html)
+
+   Overrides only. Behaviour, states, focus rings and the component rules
+   above still own everything; this block changes the shell's proportions
+   and surfaces to the reference layout: one 264px sidebar pane, a 680px
+   transcript column, and a composer that reads as a floating card.
+
+   Every value here is an existing token. No new hex, size or radius.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Sidebar ─────────────────────────────────────────────────────────── */
+.sidebar { width: 264px; }
+.sidebar-inner { padding: var(--space-1) var(--space-2) var(--space-2); }
+
+/* New Session is the sidebar's one filled control — everything else is a
+   quiet row. */
+#sidebar-new-chat-btn {
+  height: 38px;
+  margin: var(--space-2) 0 var(--space-3);
+  padding: 0 var(--space-3);
+  justify-content: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--fg-strong);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+#sidebar-new-chat-btn .grow { flex: 0 0 auto; }
+#sidebar-new-chat-btn:hover { background: var(--surface-3); }
+
+/* Section headers are labels, not filled bars. */
+.section-header-flex {
+  background: transparent;
+  box-shadow: none;
+  min-height: 24px;
+  margin: var(--space-4) 0 var(--space-1);
+  padding: 0 var(--space-2);
+}
+.section-header-flex:hover { background: transparent; }
+.section-header-flex .section-title {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--fg-subtle);
+}
+
+/* Rows: 32px, 10px inset, selection is a fill — the accent rule is spent
+   elsewhere, so the active row is just one ladder step. */
+#session-list .list-item,
+#tools-section .list-item {
+  height: 32px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+.list-item.active-session,
+.list-item.active { box-shadow: none; }
+
+/* User chip */
+.sidebar-user-bar { min-height: 0; padding: var(--space-1) var(--space-1) var(--space-2); }
+.user-bar-left { padding: var(--space-1) var(--space-2); border-radius: var(--radius-md); }
+.user-bar-avatar { width: 26px; height: 26px; }
+
+/* ── Transcript ──────────────────────────────────────────────────────── */
+.chat-container { margin-top: 0; padding: 0 var(--space-5) var(--space-4); }
+.chat-history { --chat-max: 680px; }
+
+/* Title sits left, like a document header, in the black session pill.
+   The Nobody-mode indicator is absolute at left:12px, so the pill steps
+   aside when it is visible. Specificity matches the top-bar pill rule
+   above (0,2,0). */
+.chat-top-bar { justify-content: flex-start; min-height: 52px; padding: 0; }
+.chat-top-bar .chat-meta-overlay {
+  margin: 0;
+  width: max-content;
+  max-width: min(60%, 420px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--fg);
+}
+.chat-top-bar .chat-meta-overlay #current-meta { color: var(--fg); }
+.chat-top-bar:has(#incognito-indicator:not([style*="display: none"])) .chat-meta-overlay {
+  margin-left: 36px;
+}
+
+/* Assistant turns are prose, not bubbles. The user turn keeps a bubble. */
+.msg { max-width: 100%; padding: 0; background: transparent; border: 0; border-radius: 0; }
+.msg-user {
+  align-items: flex-end;
+  margin: var(--space-2) 0 var(--space-6);
+  background: transparent;
+}
+.msg-user .body {
+  background: var(--surface-2);
+  border-radius: 18px;
+  padding: var(--space-2) var(--space-4);
+}
+.msg-user:not(.msg-user-queued) .role { display: none; }
+.msg-ai {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 var(--space-6);
+  background: transparent;
+}
+.msg-ai:hover { background: transparent; }
+.msg .body { font-size: var(--text-md); line-height: 1.7; }
+
+/* ── Composer ────────────────────────────────────────────────────────── */
+/* Specificity matches the ref-hero composer rule above (0,2,0). */
+.chat-container .chat-input-bar {
+  max-width: 760px;
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  transition: border-color var(--dur-base) var(--ease-out);
+}
+.chat-container .chat-input-bar:focus-within { border-color: var(--border); }
+.chat-input-bar textarea#message {
+  font-family: var(--font-ui);
+  padding: var(--space-1) 0;
+  padding-right: 168px;
+}
+.model-picker-btn { height: 24px; border-radius: var(--radius-sm); }
+
+/* ── Prose ───────────────────────────────────────────────────────────── */
+/* The transcript reads as prose in the UI sans; code keeps the monospace.
+   Same specificity as the rule that sets --font-content on the transcript,
+   so this block wins by order. */
+.chat-container > #chat-history,
+.msg-ai,
+.msg-user { font-family: var(--font-ui); }
+.msg pre,
+.msg code,
+.msg .hljs { font-family: var(--font-content); }
+
+/* ── Welcome ─────────────────────────────────────────────────────────── */
+#welcome-screen .welcome-logo { width: min(240px, 64vw); margin-bottom: var(--space-3); }
+
+/* The mobile shell keeps its 42px top inset for the hamburger; only the
+   side and bottom padding follow the new rhythm. */
+@media (max-width: 768px) {
+  .chat-container { padding: 42px var(--space-4) var(--space-3); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Agent transcript — compact tool rows, quiet thinking
+
+   The old thread was a timeline: an accent rail, a dot per node, a
+   travelling synapse pulse, a terminating glow dot, and an uppercase
+   monospace tool name with the word "done" beside it. Every one of those
+   was decoration competing with the one thing the row has to say — what
+   ran and whether it worked. This block keeps the row and drops the
+   scenery: status glyph, human tool name, one-line command preview,
+   chevron. The node is the disclosure, so its body shows the command and
+   output directly instead of nesting a second "Output" toggle.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* One model label per turn. The model lives in the top-bar pill; repeating
+   it above every round is noise. */
+.msg-ai .role { display: none; }
+
+/* ── Tool rows ─────────────────────────────────────────────────────── */
+.agent-thread {
+  margin: 2px 0 10px;
+  padding: 0;
+  max-width: 100%;
+}
+.agent-thread::before,
+.agent-thread::after { content: none; }
+.agent-thread-node { padding: 0; }
+.agent-thread-node + .agent-thread-node { margin-top: 1px; }
+.agent-thread-dot { display: none; }
+
+.agent-thread-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  margin: 0 calc(var(--space-2) * -1);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.agent-thread-header:hover { background: var(--surface-2); color: var(--fg); }
+
+.agent-thread-icon {
+  flex: 0 0 14px;
+  width: 14px;
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--fg-subtle);
+}
+.agent-thread-node.error .agent-thread-icon { color: var(--danger); }
+
+.agent-thread-tool {
+  flex: 0 0 auto;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.agent-thread-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-content);
+  font-size: var(--text-xs);
+  color: var(--fg-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-thread-exit {
+  flex: 0 0 auto;
+  font-family: var(--font-content);
+  font-size: var(--text-xs);
+  color: var(--danger);
+}
+
+.agent-thread-status { display: none; }
+
+.agent-thread-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--fg-subtle);
+  opacity: .35;
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-base) var(--ease-out);
+}
+.agent-thread-header:hover .agent-thread-chevron,
+.agent-thread-node.open .agent-thread-chevron { opacity: .7; }
+.agent-thread-node.open .agent-thread-chevron { transform: rotate(90deg); }
+
+.agent-thread-content { padding: 0; }
+.agent-thread-node.open .agent-thread-content { padding: 2px 0 var(--space-2); }
+
+/* Command line — a terminal prompt, not a card. */
+.agent-thread-cmd {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-content);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+}
+.agent-thread-cmd::before {
+  content: '$ ';
+  color: var(--fg-subtle);
+}
+
+/* Output — same well as the command, taller. */
+.agent-tool-output {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-content);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.agent-tool-shot {
+  display: block;
+  max-width: 100%;
+  margin: var(--space-2) 0;
+  border-radius: var(--radius-sm);
+}
+
+/* Diff — header row plus the existing coloured lines. */
+.agent-tool-diff {
+  margin: 0 0 var(--space-2);
+  background: var(--surface-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.agent-tool-diff-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-content);
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.agent-tool-diff-head .diff-summary-stats { margin-left: auto; }
+.agent-tool-diff .diff-pre { max-height: 320px; overflow: auto; }
+
+/* ── Thinking ──────────────────────────────────────────────────────── */
+/* A receipt line, not a control. Sentence case, one row, chevron on the
+   right. Collapsed by default; the reasoning is opt-in. */
+.thinking-section { margin: var(--space-2) 0; }
+.thinking-header {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  margin-left: calc(var(--space-2) * -1);
+  border-radius: var(--radius-sm);
+  color: var(--fg-subtle);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.thinking-header:hover { background: var(--surface-2); color: var(--fg-muted); }
+.thinking-header-left {
+  font-size: var(--text-sm);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: inherit;
+}
+.thinking-toggle {
+  font-size: var(--text-xs);
+  color: inherit;
+  opacity: .7;
+}
+.thinking-toggle::after { content: '\203A'; }  /* › */
+.thinking-toggle.expanded { transform: rotate(90deg); }
+.thinking-content.expanded {
+  max-height: 320px;
+  padding: var(--space-2) var(--space-3);
+  margin: var(--space-1) 0 var(--space-2);
+  background: var(--surface-1);
+  border-radius: var(--radius-sm);
+}
+.thinking-content-inner {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  line-height: 1.65;
+}
+
+/* ── Prose details ─────────────────────────────────────────────────── */
+/* The streaming rail was a 3px accent bar down the left edge of every
+   in-flight round. Once the text has settled it reads as a stray border
+   beside the paragraph, and the stop button plus the thinking row already
+   say "still working". */
+.msg.streaming::after { content: none; }
+
+/* Inline code is a chip, not syntax. The yellow --hl-string hue belongs
+   inside code blocks; in prose it made a filename look like a warning. */
+.msg code:not(pre code) {
+  color: var(--fg-strong);
+  background: var(--surface-3);
 }

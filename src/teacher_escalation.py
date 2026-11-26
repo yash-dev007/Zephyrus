@@ -562,6 +562,13 @@ async def run_teacher_inline(
     student_tool_events: List[Dict[str, Any]],
     student_reply: str,
     owner: Optional[str] = None,
+    disabled_tools=None,
+    tool_policy=None,
+    plan_mode: bool = False,
+    workspace: Optional[str] = None,
+    session_id: Optional[str] = None,
+    max_rounds: Optional[int] = None,
+    max_tool_calls: int = 0,
 ):
     """Async generator. Yields SSE event strings.
 
@@ -668,6 +675,13 @@ async def run_teacher_inline(
         headers=teacher_headers,
         owner=owner,
         _is_teacher_run=True,
+        disabled_tools=disabled_tools,
+        tool_policy=tool_policy,
+        plan_mode=plan_mode,
+        workspace=workspace,
+        session_id=session_id,
+        max_tool_calls=max_tool_calls,
+        **({"max_rounds": max_rounds} if max_rounds is not None else {}),
     ):
         # Swallow teacher's own [DONE] — outer loop emits the real one
         if "[DONE]" in evt_str:
@@ -706,6 +720,12 @@ async def run_teacher_inline(
                 "reason": t_reason,
             }) + '\n\n'
         )
+        return
+
+    # Automatic learning is a write and must obey the originating request's
+    # restrictions just like tools invoked by either model.
+    if (plan_mode or "manage_skills" in (disabled_tools or ())
+            or (tool_policy and tool_policy.blocks("manage_skills"))):
         return
 
     # Teacher succeeded — distill its successful trace into a skill

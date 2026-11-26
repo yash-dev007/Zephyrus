@@ -2498,6 +2498,7 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
     # ── OpenAI-compatible streaming ──
     # Accumulate native tool_calls across streaming chunks
     _tc_acc: Dict[int, Dict] = {}  # index -> {id, name, arguments}
+    _finish_reason = None
     _tc_last_idx = [-1]  # most-recently-touched slot, for providers that omit `index`
     # For thinking models: prepend <think> to first content delta so frontend
     # can detect thinking-in-progress (some models output </think> but no <think>)
@@ -2577,6 +2578,11 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                                         yield f'data: {json.dumps({"type": "model_actual", "requested_model": model, "model": _actual_model})}\n\n'
                                 # Usage chunk (from stream_options)
                                 _choices = j.get("choices") or []
+                                if _choices and isinstance(_choices[0], dict):
+                                    _finish_reason = _choices[0].get("finish_reason") or _finish_reason
+                                    if _finish_reason in ("length", "content_filter"):
+                                        yield f'event: error\ndata: {json.dumps({"error": "Model generation stopped: " + _finish_reason, "status": 502})}\n\n'
+                                        return
                                 _delta0 = _choices[0].get("delta") if (_choices and _choices[0] is not None) else None
                                 # Capture usage whenever the chunk carries it and
                                 # the delta has no actual output. Some gateways /
@@ -2763,6 +2769,11 @@ async def _stream_llm_inner(url: str, model: str, messages: List[Dict], temperat
                         continue
 
             # End of stream (no explicit [DONE] received)
+            # EOF alone is not evidence of a complete action batch. Some
+            # compatible servers omit DONE but still send finish_reason.
+            if not _finish_reason:
+                yield f'event: error\ndata: {json.dumps({"error": "Model stream ended before completion", "status": 502})}\n\n'
+                return
             for event in _format_routed_content(_harmony_router.flush()):
                 yield event
             tc_event = _emit_tool_calls()
@@ -2846,7 +2857,11 @@ async def stream_llm_with_fallback(candidates, messages, **kwargs):
                     event_data = json.loads(chunk[6:])
                 except Exception:
                     event_data = {}
-                if event_data.get("type") == "model_actual":
+                # Metadata does not commit a candidate. A gateway can send
+                # usage/model information before failing without any output.
+                # Keep fallback available until text or tool data is emitted.
+                if not (event_data.get("delta")
+                        or event_data.get("type") in ("tool_calls", "tool_call_delta")):
                     yield chunk
                     continue
                 # First real output from a NON-primary candidate: tell the client

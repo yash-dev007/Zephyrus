@@ -778,12 +778,24 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
         return result
 
     elif action == "get_toggles":
+        # Report the flags the server actually owns. Per-turn toggles (bash,
+        # web, incognito) are client-side and arrive with each request, so the
+        # authoritative answer for "can I write files this turn?" is the tool
+        # list the model was given — not a canned sentence claiming knowledge
+        # it does not have.
+        from src.settings import is_feature_enabled
+        flags = {
+            name: bool(is_feature_enabled(name))
+            for name in ("web_search", "document_editor", "rag", "deep_research")
+        }
         return {
             "results": (
-                "Toggle states are managed client-side in localStorage. "
-                "Available toggles: web, bash, rag, research, incognito, document_editor. "
-                "Use 'toggle <name> <on|off>' to change them."
-            )
+                "Server-side feature flags: "
+                + ", ".join(f"{k}={'on' if v else 'off'}" for k, v in flags.items())
+                + ". Per-turn toggles (bash, web, incognito) are client-side; "
+                "the tools you were given this turn are the tools you have."
+            ),
+            "feature_flags": flags,
         }
 
     else:
@@ -794,7 +806,7 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
 # Image generation
 # ---------------------------------------------------------------------------
 
-async def do_generate_image(content: str, session_id: Optional[str] = None, owner: Optional[str] = None) -> Dict:
+async def do_generate_image(content: str, session_id: Optional[str] = None, owner: Optional[str] = None, ephemeral: bool = False) -> Dict:
     """Generate an image using an image-capable model (e.g. gpt-image-1).
 
     Content format:
@@ -942,6 +954,8 @@ async def do_generate_image(content: str, session_id: Optional[str] = None, owne
 
             def _save_to_gallery(filename: str) -> str:
                 """Insert a GalleryImage row and return the new id (or '')."""
+                if ephemeral:
+                    return ""  # incognito: keep the file, never the DB row
                 try:
                     from src.database import SessionLocal as _GallerySL, GalleryImage
                     new_id = str(uuid.uuid4())

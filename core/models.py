@@ -74,6 +74,8 @@ class Session:
     owner: Optional[str] = None
     is_important: bool = False
     message_count: int = 0
+    # Incognito turns stay in memory for context but must never reach the DB.
+    incognito: bool = False
 
     def __post_init__(self):
         if self.headers is None:
@@ -102,8 +104,10 @@ class Session:
         self.history.append(message)
         self.message_count = len(self.history)
 
-        # Delegate to session manager for persistence
-        if _SESSION_MANAGER_INSTANCE:
+        # Delegate to session manager for persistence. Incognito sessions keep
+        # the message in memory only — persisting it would leave the private
+        # turn in chat_messages / the search index.
+        if _SESSION_MANAGER_INSTANCE and not self.incognito:
             _SESSION_MANAGER_INSTANCE._persist_message(self.id, message)
 
     def get_context_messages(self) -> List[Dict[str, Any]]:

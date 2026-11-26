@@ -79,7 +79,9 @@
       }, { once: true });
     })();
   </script>
-  <link rel="stylesheet" href="/static/style.css?v=20261008hero">
+  <link rel="stylesheet" href="/static/style.css?v=20261126geometry">
+  <link rel="stylesheet" href="/static/workbench.css?v=20261126geometry">
+  <link rel="stylesheet" href="/static/loader.css?v=20261126banter2">
   <link rel="modulepreload" href="/static/app.js?v=20261008hero">
   <link rel="modulepreload" href="/static/js/chat.js">
   <link rel="modulepreload" href="/static/js/ui.js">
@@ -371,14 +373,14 @@
       <button class="sidebar-hamburger sidebar-collapse-btn" id="sidebar-toggle-btn" title="Collapse sidebar" aria-label="Collapse sidebar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
     </div>
     <div class="sidebar-inner">
-      <div class="list-item" id="sidebar-new-chat-btn" title="New chat">
+      <button type="button" class="list-item" id="sidebar-new-chat-btn" title="New chat">
         <svg class="sidebar-action-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         <span class="grow">New Chat</span>
-      </div>
-      <div class="list-item" id="sidebar-search-btn" title="Search conversations (Ctrl+K)">
+      </button>
+      <button type="button" class="list-item" id="sidebar-search-btn" title="Search conversations (Ctrl+K)">
         <svg class="sidebar-action-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="10" cy="10" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
         <span class="grow">Search</span>
-      </div>
+      </button>
       <!-- Assistant sidebar entry removed — its log + settings live inside
            the Tasks modal (Activity + Settings tabs). The backend
            assistant session is still maintained for log_to_assistant()
@@ -617,6 +619,16 @@
     <div id="welcome-screen">
       <img class="welcome-logo" src="/static/icons/Zephyrus-Logo.png" width="780" height="210" alt="Zephyrus logo">
       <div class="welcome-tagline" aria-hidden="true">THINK&nbsp;&nbsp;·&nbsp;&nbsp;EXPLORE&nbsp;&nbsp;·&nbsp;&nbsp;CREATE&nbsp;&nbsp;·&nbsp;&nbsp;BEYOND</div>
+      <section class="workbench-intro" aria-labelledby="workbench-heading">
+        <h2 id="workbench-heading">What are we building?</h2>
+        <p>Explore a codebase, work through a bug, or ship a change. Keep the work and its results in one conversation.</p>
+        <div class="workbench-start"><button type="button" id="workbench-choose-folder">Choose project folder</button><span>Give the agent a place to work</span></div>
+        <div class="workbench-starters" aria-label="Prepare a coding task">
+          <button type="button" data-workbench-prompt="Explore this workspace. Explain the architecture, key entry points, and how to run its tests. Do not modify files yet."><b>Explore code</b><span>Find your way around the project</span><span aria-hidden="true">↗</span></button>
+          <button type="button" data-workbench-prompt="Help me diagnose and fix a bug. First inspect the relevant code and tests. The problem is: "><b>Fix a bug</b><span>Trace the cause and verify the fix</span><span aria-hidden="true">↗</span></button>
+          <button type="button" data-workbench-prompt="Review the current changes for bugs, regressions, and missing tests. Explain the findings before making edits."><b>Review changes</b><span>Check the work before it ships</span><span aria-hidden="true">↗</span></button>
+        </div>
+      </section>
       <div class="welcome-sub" id="welcome-sub">Welcome, <span class="setup-trigger-link" style="color:var(--accent,var(--red));font-weight:600;cursor:pointer;text-decoration:underline;" title="Click to launch setup">type /setup</span> to get started.</div>
       <div class="welcome-tip" id="welcome-tip"></div>
       <div id="welcome-setup" style="display:none"></div>
@@ -663,7 +675,7 @@
     <div class="chat-input-bar">
       <div class="chat-input-top">
         <div id="message-ghost" class="ghost-text-overlay" aria-hidden="true"></div>
-        <textarea id="message" placeholder="Message Zephyrus..." required autocomplete="off" aria-label="Message input" rows="1" autofocus></textarea>
+        <textarea id="message" placeholder="Describe a task, paste an error, or ask about your code…" required autocomplete="off" aria-label="Message input" rows="1" autofocus></textarea>
         <!-- Model picker (inside chatbox, top-right) -->
         <div class="model-picker-wrap" id="model-picker-wrap">
           <button type="button" class="model-picker-btn" id="model-picker-btn" title="Switch model"><span id="model-picker-label">Select model</span> <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg></button>
@@ -1925,10 +1937,6 @@
               <div class="settings-row">
                 <label class="settings-label">Tool call limit</label>
                 <input id="set-agentMaxTools" type="text" inputmode="numeric" placeholder="0 = unlimited" class="settings-select" style="width:120px;">
-              </div>
-              <div class="settings-row">
-                <label class="settings-label">Max steps per message</label>
-                <input id="set-agentMaxRounds" type="text" inputmode="numeric" placeholder="20" class="settings-select" style="width:120px;">
               </div>
               <div id="set-agentMsg" style="font-size:11px;color:color-mix(in srgb, var(--fg) 45%, transparent);"></div>
             </div>

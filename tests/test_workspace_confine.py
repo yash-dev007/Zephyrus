@@ -263,17 +263,25 @@ def _sent_tool_names(monkeypatch, *, workspace):
     return {t["function"]["name"] for t in schemas if isinstance(t, dict) and "function" in t}
 
 
-def test_low_signal_with_workspace_surfaces_readonly_file_tools(monkeypatch):
+def test_low_signal_with_workspace_keeps_write_and_shell_tools(monkeypatch):
+    """An active workspace is file work, even on a vague message.
+
+    This used to surface only the read-only half of the files domain, which
+    meant a follow-up like "improve it" lost write_file/bash and the agent
+    truthfully reported "no write access" while refusing to edit files it had
+    just created. The shell toggle still wins: a disabled bash is filtered
+    out of the schema list after this union.
+    """
     names = _sent_tool_names(monkeypatch, workspace="/tmp")
     # read-only nav tools surface so the agent can explore
     assert "read_file" in names
     assert "get_workspace" in names
     assert "grep" in names
-    # write/shell tools do NOT surface on a vague message
-    assert "write_file" not in names
-    assert "edit_file" not in names
-    assert "bash" not in names
-    assert "python" not in names
+    # ...and the write/shell half stays, because the workspace is the signal
+    assert "write_file" in names
+    assert "edit_file" in names
+    assert "bash" in names
+    assert "python" in names
 
 
 def test_low_signal_without_workspace_excludes_file_tools(monkeypatch):
@@ -333,6 +341,91 @@ def test_vet_workspace_rejects_filesystem_root():
     # collapsing confinement into host-wide file access.
     from src.tool_execution import vet_workspace
     assert vet_workspace("/") is None
+
+
+def test_vet_workspace_rejects_unwritable_dir(ws, monkeypatch):
+    # A directory can pass isdir() and still reject every write (read-only
+    # mount, cloud placeholder, ACL-only folder). Binding it confines the turn
+    # to a folder where write_file/bash fail, so the model retries until the
+    # round cap. The write probe must reject it up front.
+    import src.tool_execution as te
+
+    def _fail(*args, **kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(te.tempfile, "mkstemp", _fail)
+    assert te.vet_workspace(ws) is None
+
+
+def test_vet_workspace_write_probe_cleans_up(ws, monkeypatch):
+    # The probe creates a real temp file; it must delete it even on success so
+    # vetting a folder never leaves hidden .zeph-write-probe-* files behind.
+    import src.tool_execution as te
+
+    seen = []
+    real = te.tempfile.mkstemp
+
+    def _spy(*args, **kwargs):
+        fd, path = real(*args, **kwargs)
+        seen.append(path)
+        return fd, path
+
+    monkeypatch.setattr(te.tempfile, "mkstemp", _spy)
+    assert te.vet_workspace(ws) == os.path.realpath(ws)
+    assert seen, "write probe never ran"
+    assert all(not os.path.exists(p) for p in seen), "probe file leaked"
+
+
+def test_system_prompt_injects_active_workspace(ws):
+    # The model must be told the exact folder file tools are confined to.
+    # Without this it guesses a path from stale memory (e.g. ~/Desktop/...),
+    # the confinement rejects it, and it retries until the failure breaker
+    # stops the turn.
+    from src.agent_loop import _build_system_prompt
+
+    out, _ = _build_system_prompt(
+        [{"role": "user", "content": "build a page"}],
+        "m", None, None,
+        relevant_tools={"write_file"},
+        workspace=ws,
+    )
+    joined = "\n".join(
+        m.get("content", "") for m in out if isinstance(m.get("content"), str)
+    )
+    assert "ACTIVE WORKSPACE:" in joined
+    assert ws in joined
+    assert "CONFINED to this folder" in joined
+
+
+def test_browse_marks_unwritable_dir_unselectable(tmp_path, monkeypatch):
+    import routes.workspace_routes as wr
+    import src.tool_execution as te
+
+    parent = tmp_path / "parent"
+    locked = parent / "locked"
+    open_dir = parent / "open"
+    locked.mkdir(parents=True)
+    open_dir.mkdir()
+
+    real_mkstemp = te.tempfile.mkstemp
+    locked_real = os.path.realpath(str(locked))
+
+    def _mkstemp(*args, **kwargs):
+        if os.path.realpath(kwargs.get("dir") or "") == locked_real:
+            raise PermissionError(13, "Permission denied")
+        return real_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(te.tempfile, "mkstemp", _mkstemp)
+
+    router = wr.setup_workspace_routes()
+    browse = next(r.endpoint for r in router.routes if r.path == "/api/workspace/browse")
+    monkeypatch.setattr(wr, "get_current_user", lambda req: "admin")
+    monkeypatch.setattr(wr, "owner_is_admin_or_single_user", lambda owner: True)
+
+    # The locked folder can be browsed through but not chosen.
+    assert browse(request=object(), path=str(locked))["selectable"] is False
+    # Its writable parent is still selectable.
+    assert browse(request=object(), path=str(parent))["selectable"] is True
 
 
 def test_browse_marks_root_unselectable_and_vet_endpoint(monkeypatch):

@@ -1,4 +1,4 @@
-﻿#!/bin/sh
+#!/bin/sh
 # Entrypoint that fixes the #1 self-host footgun: a Docker container
 # that runs as root writes root-owned files into bind-mounted host
 # volumes, and the host user (or a non-root service user) then can't

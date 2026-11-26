@@ -27,6 +27,10 @@ from routes.research_routes import setup_research_routes
 from src.research_handler import ResearchHandler
 
 
+async def _no_memory(sess, message, owner=None):
+    return None
+
+
 # ── Part 1: chat_stream passes owner to start_research (executed) ────
 
 class _FakeSession:
@@ -174,7 +178,8 @@ def test_chat_stream_start_research_receives_caller_owner(monkeypatch):
     )
 
     router = chat_routes.setup_chat_routes(
-        _FakeSessionManager(), MagicMock(), MagicMock(), MagicMock(),
+        _FakeSessionManager(), SimpleNamespace(handle_memory_command=_no_memory),
+        MagicMock(), MagicMock(),
         research_handler, MagicMock(),
     )
     endpoint = _ep(router, "/api/chat_stream")
@@ -256,7 +261,8 @@ def test_chat_stream_research_privilege_deny_suppresses_start(monkeypatch):
     )
 
     router = chat_routes.setup_chat_routes(
-        _FakeSessionManager(), MagicMock(), MagicMock(), MagicMock(),
+        _FakeSessionManager(), SimpleNamespace(handle_memory_command=_no_memory),
+        MagicMock(), MagicMock(),
         research_handler, MagicMock(),
     )
     endpoint = _ep(router, "/api/chat_stream")

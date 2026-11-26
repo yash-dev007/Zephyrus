@@ -100,6 +100,40 @@ class EncryptedText(TypeDecorator):
         return decrypt(value)
 
 
+class EncryptedJSON(TypeDecorator):
+    """JSON column transparently encrypted at rest via src.secret_storage.
+
+    Same contract as EncryptedText, for dict/list payloads: the value is
+    JSON-serialised, then Fernet-encrypted (`enc:` prefix) on write, and
+    decrypted + parsed on read. Legacy plaintext JSON rows pass through
+    unchanged until their next write, so no migration is required.
+
+    Used for `sessions.headers`, which carries the provider
+    `Authorization: Bearer <key>` for the session's endpoint. Storing that in
+    a plain JSON column left the key readable in the SQLite file.
+    """
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        import json
+        from src.secret_storage import encrypt
+        return encrypt(json.dumps(value))
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        import json
+        from src.secret_storage import decrypt
+        raw = decrypt(value)
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+
+
 class Session(TimestampMixin, Base):
     """
     SQLAlchemy model for Session table.
@@ -123,8 +157,8 @@ class Session(TimestampMixin, Base):
     # Organization
     folder = Column(String, nullable=True, default=None)
     
-    # Headers stored as JSON
-    headers = Column(JSON, default=dict)
+    # Headers stored as JSON, encrypted at rest (carries the provider bearer)
+    headers = Column(EncryptedJSON, default=dict)
     
     # Timestamps are provided by TimestampMixin
     last_accessed = Column(DateTime, default=func.now(), onupdate=func.now())

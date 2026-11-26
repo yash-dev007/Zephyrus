@@ -222,6 +222,9 @@ class SessionManager:
 
     def _persist_message(self, session_id: str, message: ChatMessage):
         """Persist a single message to the database."""
+        session = self.sessions.get(session_id)
+        if session is not None and getattr(session, "incognito", False):
+            return
         db = SessionLocal()
         try:
             db_session = db.query(DbSession).filter(DbSession.id == session_id).first()

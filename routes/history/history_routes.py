@@ -477,26 +477,28 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
                         msg['metadata'].update(meta_update)
                     break
 
-            # Update in DB
-            db = SessionLocal()
-            try:
-                import json as _json
-                db_msg = (
-                    db.query(DbChatMessage)
-                    .filter(DbChatMessage.session_id == session_id, DbChatMessage.role == 'assistant')
-                    .order_by(DbChatMessage.timestamp.desc())
-                    .first()
-                )
-                if db_msg:
-                    meta = {}
-                    if db_msg.meta_data:
-                        try: meta = _json.loads(db_msg.meta_data)
-                        except (json.JSONDecodeError, ValueError): pass
-                    meta.update(meta_update)
-                    db_msg.meta_data = _json.dumps(meta)
-                    db.commit()
-            finally:
-                db.close()
+            # Update in DB (skip for incognito — the persisted row is not this
+            # turn's to touch).
+            if not getattr(session, "incognito", False):
+                db = SessionLocal()
+                try:
+                    import json as _json
+                    db_msg = (
+                        db.query(DbChatMessage)
+                        .filter(DbChatMessage.session_id == session_id, DbChatMessage.role == 'assistant')
+                        .order_by(DbChatMessage.timestamp.desc())
+                        .first()
+                    )
+                    if db_msg:
+                        meta = {}
+                        if db_msg.meta_data:
+                            try: meta = _json.loads(db_msg.meta_data)
+                            except (json.JSONDecodeError, ValueError): pass
+                        meta.update(meta_update)
+                        db_msg.meta_data = _json.dumps(meta)
+                        db.commit()
+                finally:
+                    db.close()
             session_manager.save_sessions()
             return {"status": "ok"}
         except KeyError:
@@ -558,34 +560,35 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
             for ri in sorted(remove_indices, reverse=True):
                 session.history.pop(ri)
 
-            # Update DB
-            db = SessionLocal()
-            try:
-                import json as _json
-                db_messages = (
-                    db.query(DbChatMessage)
-                    .filter(DbChatMessage.session_id == session_id)
-                    .order_by(DbChatMessage.timestamp)
-                    .all()
-                )
-                # Find last two assistant messages in DB
-                ai_db = [(i, m) for i, m in enumerate(db_messages) if m.role == 'assistant']
-                if len(ai_db) >= 2:
-                    (_, db1), (_, db2) = ai_db[-2], ai_db[-1]
-                    db1.content = merged_content
-                    db1.meta_data = _json.dumps(merged_meta)
+            # Update DB (skip for incognito — nothing was persisted to merge).
+            if not getattr(session, "incognito", False):
+                db = SessionLocal()
+                try:
+                    import json as _json
+                    db_messages = (
+                        db.query(DbChatMessage)
+                        .filter(DbChatMessage.session_id == session_id)
+                        .order_by(DbChatMessage.timestamp)
+                        .all()
+                    )
+                    # Find last two assistant messages in DB
+                    ai_db = [(i, m) for i, m in enumerate(db_messages) if m.role == 'assistant']
+                    if len(ai_db) >= 2:
+                        (_, db1), (_, db2) = ai_db[-2], ai_db[-1]
+                        db1.content = merged_content
+                        db1.meta_data = _json.dumps(merged_meta)
 
-                    # Mirror the in-memory deletion: remove the second assistant
-                    # message and ONLY the "continue" user message between them
-                    # (not arbitrary tool/system/user rows). The old
-                    # range-delete destroyed every row between the two assistant
-                    # messages, desyncing the DB from the in-memory history.
-                    for _row in _merge_continue_rows_to_delete(db_messages, db1, db2):
-                        db.delete(_row)
+                        # Mirror the in-memory deletion: remove the second assistant
+                        # message and ONLY the "continue" user message between them
+                        # (not arbitrary tool/system/user rows). The old
+                        # range-delete destroyed every row between the two assistant
+                        # messages, desyncing the DB from the in-memory history.
+                        for _row in _merge_continue_rows_to_delete(db_messages, db1, db2):
+                            db.delete(_row)
 
-                    db.commit()
-            finally:
-                db.close()
+                        db.commit()
+                finally:
+                    db.close()
             session_manager.save_sessions()
             return {"status": "ok", "merged": True}
         except KeyError:
@@ -602,10 +605,17 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
             body = await request.json()
             keep_count = body.get("keep_count", 0)
 
-            # Get the source session
-            source = session_manager.sessions.get(session_id)
-            if not source:
+            # Get the source session. Use get_session (not the RAM dict) so
+            # sessions beyond the boot-time 100-session cache still fork.
+            try:
+                source = session_manager.get_session(session_id)
+            except KeyError:
                 raise HTTPException(404, "Session not found")
+
+            # Forking an incognito chat would copy its private messages into a
+            # persisted session.
+            if getattr(source, "incognito", False):
+                raise HTTPException(400, "Cannot fork an incognito chat")
 
             # Create new session
             new_id = str(uuid.uuid4())
@@ -667,6 +677,9 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
         except KeyError:
             raise HTTPException(404, "Session not found")
         _reject_compact_during_active_run(session_id)
+
+        if getattr(session, "incognito", False):
+            raise HTTPException(400, "Cannot compact an incognito chat")
 
         try:
             from src.model_context import estimate_tokens, get_context_length

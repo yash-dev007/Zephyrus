@@ -16,6 +16,7 @@ import os
 import pathlib
 import re
 import sys
+import tempfile
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
@@ -34,8 +35,10 @@ from src.tool_utils import _truncate, get_mcp_manager
 # Persistent working directory for agent subprocesses.
 # Resolves to <repo_root>/data, which is the bind-mounted volume in Docker
 # (/app/data) and the local data directory for manual installs.
-# Using this as cwd and HOME prevents the agent from silently creating files
-# in ephemeral container layers that are lost on the next rebuild.
+# Used as the fallback cwd (when no workspace is set) and as the cache root,
+# so the agent's downloads and package caches land in the volume instead of
+# an ephemeral container layer. HOME is deliberately NOT overridden — see
+# _direct_fallback().
 _AGENT_WORKDIR = DATA_DIR
 
 
@@ -248,14 +251,55 @@ def get_active_workspace() -> Optional[str]:
     return _active_workspace.get()
 
 
+def _workspace_is_writable(path: str) -> bool:
+    """Best-effort write probe for a candidate workspace.
+
+    A directory can pass ``isdir()`` and still reject every write: read-only
+    mounts, cloud-sync placeholders, and ACL-only folders (a Windows "Music"
+    known folder redirected to a missing target is the classic case) all list
+    fine but fail on create. Binding one confines the entire turn to a folder
+    where write_file/edit_file/bash fail, so the model retries the same doomed
+    action until the round cap while the UI shows no answer.
+
+    Creating and deleting a uniquely named temp file is the only portable
+    check. Cleanup runs even on failure; a probe file is never left behind.
+    """
+    fd = None
+    probe = None
+    try:
+        fd, probe = tempfile.mkstemp(prefix=".zeph-write-probe-", dir=path)
+        os.close(fd)
+        fd = None
+        return True
+    except OSError:
+        return False
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if probe:
+            try:
+                os.unlink(probe)
+            except OSError:
+                pass
+
+
 def vet_workspace(raw: str) -> Optional[str]:
     """Validate a requested workspace path at bind time.
 
     Returns the canonical path, or None when it is unusable: not a real
-    directory, or itself a sensitive path (.ssh, .gnupg, ...). The in-workspace
-    resolver deny-lists sensitive paths *inside* the workspace, but the
-    empty-path search root is the workspace itself, so the root has to be
-    vetted before it is ever bound.
+    directory, itself a sensitive path (.ssh, .gnupg, ...), a filesystem root,
+    or a directory that rejects writes. The in-workspace resolver deny-lists
+    sensitive paths *inside* the workspace, but the empty-path search root is
+    the workspace itself, so the root has to be vetted before it is bound.
+
+    The write probe matters because confinement is only useful when the agent
+    can actually act inside the folder. An unwritable workspace binds cleanly,
+    then every write_file/bash call fails and the agent burns its rounds
+    retrying. Rejecting it up front lets the client clear the pill and pick a
+    usable folder (the ``workspace_rejected`` event).
     """
     raw = (raw or "").strip()
     if not raw:
@@ -268,6 +312,8 @@ def vet_workspace(raw: str) -> Optional[str]:
     # confinement into host-wide file access. A root is its own dirname, which
     # also covers C:\ and \\server\share without platform-specific lists.
     if os.path.dirname(resolved) == resolved:
+        return None
+    if not _workspace_is_writable(resolved):
         return None
     return resolved
 
@@ -523,6 +569,28 @@ def _split_bg_marker(content: str):
     return False, content
 
 
+def _agent_subproc_env() -> Dict[str, str]:
+    """Environment for agent subprocesses (bash/python/background jobs).
+
+    HOME stays the real home so `~` resolves where the user expects
+    (~/Desktop/project). The old override pointed HOME at the data dir, so
+    `~/Desktop/x` silently resolved to <data>/Desktop/x and every `ls ~/...`
+    check came back "No such file or directory" while the files existed.
+    The persistent-cache concern the override addressed is handled by pinning
+    the cache dirs to the data volume instead.
+    """
+    return {
+        **os.environ,
+        "TERM": "xterm-256color",
+        "COLUMNS": "120",
+        "LINES": "40",
+        "HOME": os.environ.get("HOME") or _AGENT_WORKDIR,
+        "XDG_CACHE_HOME": os.path.join(_AGENT_WORKDIR, ".cache"),
+        "PIP_CACHE_DIR": os.path.join(_AGENT_WORKDIR, ".cache", "pip"),
+        "HF_HOME": os.path.join(_AGENT_WORKDIR, ".cache", "huggingface"),
+    }
+
+
 async def _direct_fallback(
     tool: str,
     content: str,
@@ -530,13 +598,7 @@ async def _direct_fallback(
     session_id: Optional[str] = None,
     owner: Optional[str] = None,
 ) -> Optional[Dict]:
-    _subproc_env = {
-        **os.environ,
-        "TERM": "xterm-256color",
-        "COLUMNS": "120",
-        "LINES": "40",
-        "HOME": _AGENT_WORKDIR,
-    }
+    _subproc_env = _agent_subproc_env()
 
     try:
         ctx = {
@@ -989,7 +1051,7 @@ def format_tool_result(description: str, result: Dict) -> str:
     if "stdout" in result:
         if result["stdout"]:
             parts.append(f"**stdout:**\n```\n{result['stdout']}\n```")
-        if result["stderr"]:
+        if result.get("stderr"):
             parts.append(f"**stderr:**\n```\n{result['stderr']}\n```")
         parts.append(f"**exit_code:** {result.get('exit_code', 'unknown')}")
     elif "output" in result:
@@ -1004,25 +1066,30 @@ def format_tool_result(description: str, result: Dict) -> str:
         if model:
             parts.append(f"**{model} responded:**\n{result['response']}")
         else:
-            parts.append(result["response"])
+            parts.append(str(result["response"]))
     elif "results" in result:
-        parts.append(result["results"])
+        parts.append(str(result["results"]))
     elif "session_id" in result and "name" in result:
         parts.append(f"Session created: **{result['name']}** (id: `{result['session_id']}`, model: {result.get('model', 'unknown')})")
     elif "success" in result:
         if result["success"]:
-            parts.append(f"File written: {result['path']} ({result['size']} bytes)")
+            if "path" in result and "size" in result:
+                parts.append(f"File written: {result['path']} ({result['size']} bytes)")
+            else:
+                parts.append("Success")
         else:
             parts.append(f"Error: {result.get('error', 'unknown')}")
     elif "action" in result:
         action = result["action"]
         if action == "create":
-            parts.append(f"Document created: \"{result.get('title', '')}\" (id: {result['doc_id']}, v{result['version']})")
+            parts.append(f"Document created: \"{result.get('title', '')}\" (id: {result.get('doc_id', '?')}, v{result.get('version', '?')})")
         elif action == "update":
-            parts.append(f"Document updated: \"{result.get('title', '')}\" (v{result['version']})")
+            parts.append(f"Document updated: \"{result.get('title', '')}\" (v{result.get('version', '?')})")
         elif action == "edit":
             parts.append(f'Document edited: "{result.get("title", "")}" (v{result.get("version", "?")}, {result.get("applied", 0)} edit(s) applied)')
-    elif "error" in result:
+    # Errors can accompany partial stdout/content/results. They must remain
+    # visible to the model so a failed action cannot look like success.
+    if result.get("error"):
         parts.append(f"**Error:** {result['error']}")
 
     # Surface any additional structured payload (events, tasks, notes, calendars,

@@ -5,6 +5,7 @@
 // ============================================
 
 import uiModule from './ui.js';
+import { createIndicator } from './loadingIndicator.js';
 import { _diagnose, _showDiagnosis, _clearDiagnosis } from './cookbook-diagnosis.js';
 import { registerMenuDismiss } from './escMenuStack.js';
 import { computeProgressSignal } from './cookbookProgressSignal.js';
@@ -1148,26 +1149,7 @@ function _endpointUrlForTask(task, outputText = '') {
   return `http://${host}:${port}/v1`;
 }
 
-// ── Wave animation ──
-
-const _waveFrames = ['▁▂▃', '▂▃▄', '▃▄▅', '▄▅▆', '▅▆▅', '▆▅▄', '▅▄▃', '▄▃▂', '▃▂▁'];
-let _waveIdx = 0;
-let _waveTimer = null;
-const _waveEls = new Set();
-
-function _startWaveSync() {
-  if (_waveTimer) return;
-  _waveTimer = setInterval(() => {
-    _waveIdx = (_waveIdx + 1) % _waveFrames.length;
-    for (const el of _waveEls) {
-      if (!el.isConnected) { _waveEls.delete(el); continue; }
-      if (el.style.display !== 'none') el.textContent = _waveFrames[_waveIdx];
-    }
-    if (!_waveEls.size) { clearInterval(_waveTimer); _waveTimer = null; }
-  }, 200);
-}
-
-function _registerWaveEl(el) { _waveEls.add(el); _startWaveSync(); }
+function _registerWaveEl(el) { el.replaceChildren(createIndicator(12)); }
 
 // ── Notifications ──
 

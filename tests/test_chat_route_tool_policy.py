@@ -165,6 +165,7 @@ def drive_chat_stream(
     cap_count=0,
     session_id="sess-matrix",
     global_disabled=None,
+    session=None,
 ):
     """Call the REAL chat_stream route; capture stream_agent_loop kwargs.
 
@@ -248,9 +249,14 @@ def drive_chat_stream(
     research_handler.get_sources.return_value = None
     research_handler.get_raw_findings.return_value = None
 
+    async def _no_memory(sess, message, owner=None):
+        return None
+
+    chat_handler = SimpleNamespace(handle_memory_command=_no_memory)
+
     router = chat_routes.setup_chat_routes(
-        _FakeSessionManager(_FakeSession()),
-        MagicMock(),
+        _FakeSessionManager(session or _FakeSession()),
+        chat_handler,
         MagicMock(),
         MagicMock(),
         research_handler,
@@ -270,6 +276,15 @@ def drive_chat_stream(
 
 
 # ── Bash toggle matrix (issue #3229 + privilege fallback) ────────────
+
+def test_private_chat_stays_private_when_next_request_omits_flag(monkeypatch):
+    session = _FakeSession()
+    drive_chat_stream(monkeypatch, {"incognito": "true"}, session=session)
+    assert session.incognito is True
+    captured, _, _, _ = drive_chat_stream(monkeypatch, {}, session=session)
+    assert session.incognito is True
+    assert "manage_memory" in captured["disabled_tools"]
+
 
 def test_bash_unset_defers_to_privilege_grant(monkeypatch):
     """allow_bash unset + can_use_bash=True → bash NOT disabled (PASSES)."""

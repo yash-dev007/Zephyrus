@@ -11,7 +11,7 @@
 
 // ── Submodule imports ──
 import state from './state.js';
-import { EVAL_PROMPTS, WAVE_FRAMES,
+import { EVAL_PROMPTS,
   ICON_DICE, ICON_EXPAND, ICON_COLLAPSE, ICON_CLOSE,
   ICON_REROLL, ICON_COPY, ICON_PLAY, ICON_CODE,
   ICON_PARALLEL, ICON_SEQUENTIAL,

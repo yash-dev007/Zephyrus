@@ -1,24 +1,15 @@
-// static/js/spinner.js
+import { createIndicator } from './loadingIndicator.js';
 
 /**
- * ASCII Spinner Module for AI thinking/processing status
+ * Shared loading states. Legacy wave callers use the CSS box animation.
  */
 
 class Spinner {
-  constructor(message = "AI is processing", style = "right", animation = "spinner") {
-    // Different animation frames
-    this.animations = {
-      spinner: ['|', '/', '-', '\\'],
-      wave: ['▁▂▃', '▂▃▄', '▃▄▅', '▄▅▆', '▅▆▅', '▆▅▄', '▅▄▃', '▄▃▂', '▃▂▁']
-    };
-
-    this.animation = animation;
-    this.frames = this.animations[animation] || this.animations.spinner;
+  constructor(message = "AI is processing", style = "right", animation = "banter") {
+    this.animation = ['sinewave', 'whirlpool'].includes(animation) ? animation : 'banter';
     this.message = message;
     this.style = style; // "left", "right", or "clean"
     this.isRunning = false;
-    this.currentFrame = 0;
-    this.intervalId = null;
     this.rafId = null;
     this.element = null;
   }
@@ -34,8 +25,17 @@ class Spinner {
       return this._createWhirlpoolElement();
     }
     const span = document.createElement('span');
-    span.className = 'ai-spinner';
-    span.style.cssText = 'font-family: monospace; white-space: pre;';
+    span.className = 'ai-spinner ai-spinner-banter';
+    span.setAttribute('role', 'status');
+    span.setAttribute('aria-live', 'polite');
+    span.style.setProperty('--zeph-loader-play-state', this.isRunning ? 'running' : 'paused');
+    const indicator = createIndicator(12);
+    const label = document.createElement('span');
+    label.className = 'ai-spinner-banter__label';
+    this._msgSpan = label;
+    if (this.style === 'clean') span.appendChild(indicator);
+    else if (this.style === 'left') span.append(indicator, label);
+    else span.append(label, indicator);
     this.element = span;
     this.updateDisplay();
     return span;
@@ -265,24 +265,14 @@ class Spinner {
   updateDisplay() {
     if (!this.element) return;
 
-    const frame = this.frames[this.currentFrame % this.frames.length];
-
-    let display = '';
-    if (this.style === "left") {
-      display = `${frame} ${this.message}`;
-    } else if (this.style === "right") {
-      display = `${this.message} ${frame}`;
-    } else { // clean
-      display = this.message;
-    }
-
-    this.element.innerHTML = display;
+    if (this._msgSpan) this._msgSpan.textContent = this.message;
+    this.element.setAttribute('aria-label', this.message || 'Loading');
   }
 
   /**
    * Start the spinner animation
    */
-  start(speed = 150) {
+  start() {
     if (this.isRunning) return;
     this.isRunning = true;
 
@@ -298,11 +288,7 @@ class Spinner {
       return;
     }
 
-    this.currentFrame = 0;
-    this.intervalId = setInterval(() => {
-      this.currentFrame++;
-      this.updateDisplay();
-    }, speed);
+    if (this.element) this.element.style.setProperty('--zeph-loader-play-state', 'running');
   }
 
   /**
@@ -310,10 +296,7 @@ class Spinner {
    */
   stop() {
     this.isRunning = false;
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
-    }
+    if (this.element) this.element.style.setProperty('--zeph-loader-play-state', 'paused');
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
@@ -336,12 +319,7 @@ class Spinner {
    * Update the spinner label text
    */
   updateLabel(newMessage) {
-    this.message = newMessage;
-    if (this._msgSpan) {
-      this._msgSpan.textContent = newMessage;
-    } else {
-      this.updateDisplay();
-    }
+    this.updateMessage(newMessage);
   }
 
   /**
@@ -353,13 +331,14 @@ class Spinner {
       this.element.parentNode.removeChild(this.element);
     }
     this.element = null;
+    this._msgSpan = null;
   }
 }
 
 /**
  * Create a new spinner instance
  */
-export function create(message, style = "right", animation = "wave") {
+export function create(message, style = "right", animation = "banter") {
   return new Spinner(message, style, animation);
 }
 
@@ -508,7 +487,7 @@ export function createLoadingRow(text = 'Loading…', size = 16) {
   return row;
 }
 
-export { Spinner, ChipLoader };
+export { Spinner, ChipLoader, createIndicator };
 
-const spinnerModule = { create, createWhirlpool, createLoadingRow, createChipLoader, Spinner, ChipLoader };
+const spinnerModule = { create, createIndicator, createWhirlpool, createLoadingRow, createChipLoader, Spinner, ChipLoader };
 export default spinnerModule;

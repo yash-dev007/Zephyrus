@@ -5,7 +5,9 @@ import os
 import secrets
 
 from fastapi import HTTPException, Request
+from starlette.datastructures import Headers
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware, GZipResponder
 from starlette.responses import Response
 
 
@@ -54,6 +56,44 @@ def require_admin(request: Request):
     user = getattr(request.state, "current_user", None)
     if not user or not auth_mgr.is_admin(user):
         raise HTTPException(403, "Admin only")
+
+
+class _SSESafeGZipResponder(GZipResponder):
+    """GZipResponder that passes text/event-stream responses through untouched.
+
+    Starlette 0.41's GZipMiddleware compresses every response over
+    ``minimum_size`` — including SSE. Gzip buffers small writes until its
+    internal buffer fills, so an SSE client receives nothing until the stream
+    ends: the UI shows a spinner and then the whole reply appears at once.
+    Marking the response as already-encoded makes the responder skip gzip.
+    """
+
+    async def send_with_gzip(self, message):
+        is_start = message["type"] == "http.response.start"
+        skip = False
+        if is_start:
+            headers = Headers(raw=message["headers"])
+            skip = headers.get("content-type", "").startswith("text/event-stream")
+        await super().send_with_gzip(message)
+        if is_start and skip:
+            # The superclass just set this from the response headers; override
+            # it so the body branch below forwards each chunk immediately.
+            self.content_encoding_set = True
+
+
+class SSESafeGZipMiddleware(GZipMiddleware):
+    """GZipMiddleware that never compresses SSE streams."""
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = Headers(scope=scope)
+            if "gzip" in headers.get("accept-encoding", ""):
+                responder = _SSESafeGZipResponder(
+                    self.app, self.minimum_size, compresslevel=self.compresslevel
+                )
+                await responder(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

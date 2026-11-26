@@ -95,8 +95,10 @@ class MemoryManager:
             Tuple of (is_command, extracted_text) where is_command is True if 
             the message matches the memory command pattern
         """
-        # Pattern for memory commands: "remember: X", "memorize: X", "save: X", etc.
-        pattern = r'^(?:remember|memorize|save|note|store)[:\-]?\s+(.+)$'
+        # Pattern for memory commands: "remember: X", "memorize: X", "save: X".
+        # The separator is required — without it "Save the file as report.txt"
+        # was swallowed as a memory write instead of reaching the model.
+        pattern = r'^(?:remember|memorize|save|note|store)\s*(?::\s*|\s+-\s+)(.+)$'
         match = re.match(pattern, message.strip(), re.IGNORECASE)
         
         if match:
@@ -250,7 +252,7 @@ class MemoryManager:
             entries = self.load()
             
         text_lower = text.strip().lower()
-        return [entry for entry in entries if entry["text"].lower() == text_lower]
+        return [entry for entry in entries if entry.get("text", "").lower() == text_lower]
             
     def categorize_memory_by_relevance(self, message: str, memories: list):
         """Categorize memories by type and relevance"""

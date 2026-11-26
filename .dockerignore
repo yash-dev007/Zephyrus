@@ -9,7 +9,8 @@ __pycache__/
 dist/
 build/
 .env
-.env.bak.*
+.env.*
+!.env.example
 # Secrets: keep plaintext and every transient secrets.env variant out of
 # the build context. If an encrypted secrets.env is used, it is mounted
 # at runtime — never baked into the image. Mirrored in .gitignore.
@@ -26,6 +27,16 @@ secrets.env~
 .claude/
 .playwright-mcp/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage*
+htmlcov/
+playwright-report/
+test-results/
+.codegraph/
+/tmp/
+/tmp_*/
+/tmp_*.html
 .vscode/
 .idea/
 dev-docs/

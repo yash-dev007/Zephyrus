@@ -42,7 +42,7 @@ function _safeHref(url) {
   if (!url) return '#';
   try {
     var parsed = new URL(url, window.location.origin);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return uiModule.esc(url);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return uiModule.esc(parsed.href);
   } catch(e) { /* invalid URL */ }
   return '#';
 }
@@ -218,7 +218,7 @@ export function buildAttachCards(attachments) {
       // Non-image file card
       const card = document.createElement('div');
       card.className = 'attach-card';
-      card.dataset.name = att.name;
+      card.dataset.name = att.name || '';
       if (att.id) {
         card.dataset.fileId = att.id;
         card.style.cursor = 'pointer';
@@ -226,7 +226,7 @@ export function buildAttachCards(attachments) {
           // PDFs & text/code/markdown → open in the Documents viewer
           // (others fall back to the raw file).
           if (window.chatModule?.openAttachment) window.chatModule.openAttachment(att, false);
-          else window.open(`/api/upload/${att.id}`, '_blank');
+          else window.open(`/api/upload/${att.id}`, '_blank', 'noopener,noreferrer');
         });
       }
       const icon = _attachIcon(att.mime || att.name);
@@ -506,9 +506,13 @@ const DSML_STRAY_RE = /<\s*\/?\s*[｜|]+\s*DSML\s*[｜|]+[^>]*>/gi;
 const DSML_INVOKE_RE = /<\s*[｜|]+\s*DSML\s*[｜|]+\s*invoke\b[^>]*>[\s\S]*?(?:<\s*\/\s*[｜|]+\s*DSML\s*[｜|]+\s*invoke\s*>|$)/gi;
 const RAW_OPENAI_TOOL_JSON_RE = /(?:\[\s*)?\{\s*"function"\s*:\s*\{[\s\S]*?\}\s*,\s*"id"\s*:\s*"[^"]*"\s*,\s*"type"\s*:\s*"function"\s*\}\s*\]?/gi;
 const QWEN_ROLE_MARKER_RE = /<\/?\|(?:assistant|assistan|user|system|tool)\|>?|<\/\|end\|>?/gi;
-const QWEN_BARE_MARKER_RE = /(?:^|[\t\r\n ])(?:\|?end\|?|\/?\|end\|)(?=[\t\r\n ]|$)|(?:^|[\t\r\n ])assistan(?:t)?(?=[\t\r\n ]|$)/gi;
-// Self-narration about tool results (model echoing stdout/exit_code)
-const TOOL_NARRATION_RE = /(?:The (?:result|output) shows?:?\s*)?-?\s*(?:stdout|stderr|exit_code):\s*.+/gi;
+// Leaked Qwen role markers only ever occupy a whole line. Matching the bare
+// words anywhere (the old pattern) deleted "end" and "assistant" out of normal
+// prose — "Scroll to the end of the file" became "Scroll to the  of the file".
+const QWEN_BARE_MARKER_RE = /^[\t ]*(?:\|?end\|?|\/?\|end\|)[\t ]*$|^[\t ]*assistan(?:t)?[\t ]*$/gim;
+// Self-narration about tool results (model echoing stdout/exit_code). Anchored
+// to a whole line so "I set exit_code: 0" in prose is not truncated.
+const TOOL_NARRATION_RE = /^(?:The (?:result|output) shows?:?\s*)?-?\s*(?:stdout|stderr|exit_code):\s*.+$/gim;
 
 
 // Model pricing table — per million tokens
@@ -900,18 +904,12 @@ export function resetSessionCost(sessionId) {
 export function updateSessionCostUI() {
   const el = document.getElementById('session-cost-display');
   if (!el) return;
-  // Non-billable endpoint? Hide the badge and clear stale cost that a previous
-  // cloud-rate calculation may have left in localStorage for this session.
+  // Non-billable endpoint? Hide the badge. Do NOT delete the stored cost: this
+  // is a view function, and the user may switch back to a billable endpoint
+  // (or the endpoint may be temporarily unknown). The old code erased the
+  // session's accumulated cost here.
   const _url = _currentEndpointUrl();
   if (!isCostTrackedEndpoint(_url)) {
-    const sid = window.sessionModule && window.sessionModule.getCurrentSessionId();
-    if (sid && getSessionCost(sid) > 0) {
-      try {
-        const costs = JSON.parse(localStorage.getItem(_COST_KEY) || '{}');
-        delete costs[sid];
-        localStorage.setItem(_COST_KEY, JSON.stringify(costs));
-      } catch (_e) { /* ignore */ }
-    }
     el.style.display = 'none';
     return;
   }
@@ -942,6 +940,28 @@ export function roleTimestamp(when) {
 }
 
 /**
+ * Apply `fn` to the prose outside fenced code blocks only. Tool markup inside a
+ * fence is content the user asked to see (a tool-call format, a CI config), so
+ * stripping must never touch it. An unclosed fence (mid-stream) is treated as
+ * code to the end.
+ */
+function _mapOutsideFences(text, fn) {
+  const parts = text.split(/(```|~~~)/);
+  let inFence = false;
+  let fenceTok = '';
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p === '```' || p === '~~~') {
+      if (!inFence) { inFence = true; fenceTok = p; }
+      else if (p === fenceTok) { inFence = false; }
+      continue;
+    }
+    if (!inFence) parts[i] = fn(p);
+  }
+  return parts.join('');
+}
+
+/**
  * Strip tool invocation blocks from text before rendering.
  */
 export function stripToolBlocks(text) {
@@ -953,10 +973,13 @@ export function stripToolBlocks(text) {
   cleaned = cleaned.replace(XML_TOOL_CALL_RE, '');
   cleaned = cleaned.replace(XML_INVOKE_RE, '');
   cleaned = cleaned.replace(RAW_OPENAI_TOOL_JSON_RE, '');
-  cleaned = cleaned.replace(QWEN_ROLE_MARKER_RE, '');
-  cleaned = cleaned.replace(QWEN_BARE_MARKER_RE, ' ');
-  cleaned = cleaned.replace(TOOL_NARRATION_RE, '');
-  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+  // These three match ordinary words / narration, so only run them on prose.
+  cleaned = _mapOutsideFences(cleaned, (seg) => seg
+    .replace(QWEN_ROLE_MARKER_RE, '')
+    .replace(QWEN_BARE_MARKER_RE, '')
+    .replace(TOOL_NARRATION_RE, ''));
+  // Collapse blank runs in prose only — code fences keep their blank lines.
+  cleaned = _mapOutsideFences(cleaned, (seg) => seg.replace(/\n{3,}/g, '\n\n'));
   return cleaned.trim();
 }
 
@@ -1028,11 +1051,40 @@ export function buildRagSourcesBox(sources) {
 }
 
 /**
+ * Human labels for tool names. The transcript shows "Bash", not "bash" or
+ * "BASH" — the raw identifier is an implementation detail.
+ */
+var TOOL_LABELS = {
+  bash: 'Bash', python: 'Python', read_file: 'Read', write_file: 'Write',
+  edit_file: 'Edit', grep: 'Search', glob: 'Find files', ls: 'List',
+  get_workspace: 'Workspace', web_search: 'Web search', web_fetch: 'Fetch',
+  manage_skills: 'Skills', manage_memory: 'Memory', manage_documents: 'Documents',
+  create_document: 'New document', edit_document: 'Edit document',
+  update_document: 'Update document', suggest_document: 'Suggest document',
+  ui_control: 'Interface', ask_user: 'Question', update_plan: 'Plan',
+  manage_notes: 'Notes', manage_calendar: 'Calendar', manage_tasks: 'Tasks',
+  manage_settings: 'Settings', generate_image: 'Image', edit_image: 'Edit image',
+  bulk_email: 'Email', mark_email_read: 'Email', list_emails: 'Email',
+  read_email: 'Email', send_email: 'Email', reply_to_email: 'Email',
+  search_chats: 'Chats', manage_bg_jobs: 'Jobs', api_call: 'API',
+};
+
+function toolLabel(name) {
+  var key = String(name || '').toLowerCase();
+  if (TOOL_LABELS[key]) return TOOL_LABELS[key];
+  var words = key.replace(/^mcp__/, '').replace(/__/g, ' ').replace(/_/g, ' ');
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Tool';
+}
+
+/**
  * Canonical tool-thread node HTML \u2014 single source for the live stream
- * (chat.js tool_output) and history restore (addMessage below): Output
- * <details>, screenshot <details>, and file-write diff <details> with
- * diff-stat rows. All model-controlled strings are esc()'d; screenshots
- * pass safeToolScreenshotSrc (data:image/png|jpg|gif|webp only).
+ * (chat.js tool_output) and history restore (addMessage below).
+ *
+ * One compact row per call: status glyph, human tool name, a one-line
+ * command preview, and a chevron. The node itself is the disclosure, so the
+ * expanded body shows the command, output and diff directly instead of
+ * nesting a second "Output" toggle inside it. All model-controlled strings
+ * are esc()'d; screenshots pass safeToolScreenshotSrc (data:image/png|jpg|gif|webp only).
  * @param {{tool, command, output, exit_code, diff, screenshot}} ev
  * @returns {string} inner HTML for an .agent-thread-node element
  */
@@ -1040,17 +1092,24 @@ export function buildToolNodeInnerHtml(ev) {
   var esc = uiModule.esc;
   ev = ev || {};
   var ok = (ev.exit_code === 0 || ev.exit_code == null);
+
   var outHtml = '';
   if (ev.output && ev.output.trim()) {
-    outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${esc(ev.output)}</pre></details>`;
+    // A text read of an image can return decoded binary. Do not flood the
+    // transcript with control characters; valid screenshots render below.
+    const isBinary = /\u0000/.test(ev.output) || /^[\s\S]{0,1}PNG\r?\n/.test(ev.output);
+    outHtml = isBinary
+      ? '<p class="agent-tool-output-note">Binary file returned. Text preview unavailable.</p>'
+      : `<div class="agent-output-heading"><span>Output</span><button type="button" class="agent-output-copy" aria-label="Copy tool output">Copy output</button></div><pre class="agent-tool-output">${esc(ev.output)}</pre>`;
   }
   var screenshotSrc = safeToolScreenshotSrc(ev.screenshot);
   if (screenshotSrc) {
-    outHtml += `<details class="agent-tool-output"><summary>Screenshot</summary><img src="${esc(screenshotSrc)}" style="max-width:100%;border-radius:6px;margin-top:6px;border:1px solid var(--border)" /></details>`;
+    outHtml += `<img class="agent-tool-shot" src="${esc(screenshotSrc)}" alt="Tool screenshot" />`;
   }
-  // File-write/edit diff: collapsed summary (filename + +adds/-dels) plus
-  // per-row spans (row colour encodes add/del; the +/-/space marker is
-  // dropped so it never doubles up with markdown "- " bullets).
+
+  // File-write/edit diff: header row (filename + +adds/-dels) plus per-row
+  // spans (row colour encodes add/del; the +/-/space marker is dropped so it
+  // never doubles up with markdown "- " bullets).
   var diffHtml = '';
   if (ev.diff && ev.diff.text) {
     var d = ev.diff;
@@ -1068,11 +1127,28 @@ export function buildToolNodeInnerHtml(ev) {
       else if (line.startsWith(' ')) { text = line.slice(1); }
       return `<span class="${cls}">${esc(text) || '&nbsp;'}</span>`;
     }).join('');  // spans are display:block - a literal \n would double-space the diff
-    diffHtml = `<details class="agent-tool-output agent-tool-diff"><summary><span class="diff-file">${esc(d.file || 'diff')}</span> <span class="diff-summary-stats">${stat}</span></summary><pre class="diff-pre">${rows}</pre></details>`;
+    diffHtml = `<div class="agent-tool-diff"><div class="agent-tool-diff-head"><span class="diff-file">${esc(d.file || 'diff')}</span> <span class="diff-summary-stats">${stat}</span></div><pre class="diff-pre">${rows}</pre></div>`;
   }
+
   // Hide the raw JSON command when a diff says it better.
-  var cmdHtml = (ev.command && !(ev.diff && ev.diff.text)) ? `<pre class="agent-thread-cmd">${esc(ev.command)}</pre>` : '';
-  return `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${ok ? '\u2713' : '\u2717'}</span><span class="agent-thread-tool">${esc(ev.tool)}</span><span class="agent-thread-status">${ok ? 'done' : 'failed'}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${cmdHtml}${outHtml}${diffHtml}</div>`;
+  var cmdHtml = (ev.command && !(ev.diff && ev.diff.text)) ? `<div class="agent-tool-label">${['bash', 'python'].includes(ev.tool) ? 'Command' : 'Input'}</div><pre class="agent-thread-cmd">${esc(ev.command)}</pre>` : '';
+
+  var preview = '';
+  if (ev.command) {
+    var firstLine = String(ev.command).split('\n')[0].trim();
+    if (['read_file', 'write_file', 'edit_file'].includes(ev.tool)) {
+      try {
+        const input = JSON.parse(ev.command);
+        const path = input?.path || input?.file_path;
+        if (typeof path === 'string') firstLine = path;
+      } catch (_) { /* Plain-text file commands already start with the path. */ }
+    }
+    if (firstLine) preview = `<span class="agent-thread-preview">${esc(firstLine)}</span>`;
+  }
+  var exitHtml = (typeof ev.exit_code === 'number' && ev.exit_code !== 0)
+    ? `<span class="agent-thread-exit">exit ${ev.exit_code}</span>` : '';
+
+  return `<button type="button" class="agent-thread-header" aria-expanded="${!ok}"><span class="agent-thread-icon" aria-hidden="true">${ok ? '\u2713' : '\u2717'}</span><span class="agent-thread-tool">${esc(toolLabel(ev.tool))}</span>${preview}<span class="agent-thread-status">${ok ? 'Finished' : 'Failed'}</span>${exitHtml}<span class="agent-thread-chevron" aria-hidden="true">\u203A</span></button><div class="agent-thread-content">${cmdHtml}${outHtml}${diffHtml}</div>`;
 }
 
 /**
@@ -1145,7 +1221,7 @@ function _appendReportButton(container, sessionId) {
 
   var reportUrl = apiBase + '/api/research/report/' + sessionId;
   btn.addEventListener('click', function() {
-    window.open(reportUrl, '_blank');
+    window.open(reportUrl, '_blank', 'noopener,noreferrer');
   });
   wrap.appendChild(btn);
 
@@ -1977,7 +2053,7 @@ export function displayMetrics(messageElement, metrics) {
     popup.className = 'ctx-popup';
     popup.innerHTML = `
       <div style="font-weight:600;margin-bottom:6px;color:var(--fg);">Message Stats</div>
-      <div><span class="ctx-label">Model</span> ${model.split('/').pop()}</div>
+      <div><span class="ctx-label">Model</span> ${uiModule.esc(model.split('/').pop())}</div>
       <div><span class="ctx-label">Input</span> ${inputTokens.toLocaleString()} tokens${isReal ? '' : '~'}</div>
       <div><span class="ctx-label">Output</span> ${outputTokens.toLocaleString()} tokens${isReal ? '' : '~'}</div>
       <div><span class="ctx-label">Total</span> ${totalTok.toLocaleString()} tokens</div>
@@ -2063,7 +2139,7 @@ export function displayMetrics(messageElement, metrics) {
           <span>${fmtNum(totalCtx)} total</span>
         </div>
         <div style="margin-top:8px;font-size:0.8rem;">
-          <div><span class="ctx-label">Model</span> ${modelShort}</div>
+          <div><span class="ctx-label">Model</span> ${uiModule.esc(modelShort)}</div>
           <div><span class="ctx-label">Usage</span> <span style="color:${ctxColor};font-weight:600;">${ctxPct}%</span></div>
           <div><span class="ctx-label">Window</span> ${fmtNum(totalCtx)} tokens</div>
         </div>
@@ -2088,27 +2164,20 @@ export function displayMetrics(messageElement, metrics) {
           compactRole.textContent = 'Zephyrus';
           const compactBody = document.createElement('div');
           compactBody.className = 'body';
-          compactBody.innerHTML = 'Compacting context <span class="compact-wave">▁▂▃▅▂▁</span>';
+          const compactSpinner = spinnerModule.create('Compacting context');
+          compactBody.appendChild(compactSpinner.createElement());
+          compactSpinner.start();
           compactMsg.appendChild(compactRole);
           compactMsg.appendChild(compactBody);
           chatBox.appendChild(compactMsg);
           chatBox.scrollTop = chatBox.scrollHeight;
-
-          // Animate the wave
-          const waveFrames = ['▁▂▃▅▂▁', '▂▃▅▃▂▁', '▃▅▃▂▁▂', '▅▃▂▁▂▃', '▃▂▁▂▃▅', '▂▁▂▃▅▃'];
-          let frame = 0;
-          const waveEl = compactBody.querySelector('.compact-wave');
-          const waveInterval = setInterval(() => {
-            frame = (frame + 1) % waveFrames.length;
-            if (waveEl) waveEl.textContent = waveFrames[frame];
-          }, 150);
 
           try {
             const res = await fetch(window.location.origin + '/api/session/' + sid + '/compact', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
             });
-            clearInterval(waveInterval);
+            compactSpinner.destroy();
             if (res.ok) {
               const data = await res.json();
               // Reload session — the compacted history will show
@@ -2133,9 +2202,9 @@ export function displayMetrics(messageElement, metrics) {
               compactBody.style.color = 'var(--red)';
             }
           } catch (err) {
-            clearInterval(waveInterval);
+            compactSpinner.destroy();
             console.warn('compact failed:', err);
-            compactBody.innerHTML = '<span style="color:var(--red);">Compaction failed: ' + err.message + '</span>';
+            compactBody.innerHTML = '<span style="color:var(--red);">Compaction failed: ' + uiModule.esc(err.message) + '</span>';
           }
         });
       }
@@ -2370,7 +2439,7 @@ export function addMessage(role, content, modelName, metadata) {
 
     // --- Agent multi-bubble reconstruction from saved metadata ---
     if (role === 'assistant' && metadata && metadata.tool_events && metadata.tool_events.length > 0) {
-      const roundTexts = metadata.round_texts || [];
+      const roundTexts = [...(metadata.round_texts || [])];
       const toolEvents = metadata.tool_events;
       let pendingAskUser = null;
       let lastWrap = null;
@@ -2384,6 +2453,19 @@ export function addMessage(role, content, modelName, metadata) {
         toolsByRound[r].push(ev);
       }
 
+      // Older sessions may have tool receipts without per-round text.
+      if (!roundTexts.some(text => text.trim()) && textRaw) {
+        roundTexts[Math.max(...Object.keys(toolsByRound).map(Number))] = textRaw;
+      }
+      // Thinking is stored separately from round_texts. Keep it available on
+      // reload without inventing which tool round the aggregate belongs to.
+      if (metadata.thinking && !roundTexts.some(text => /<think(?:ing)?[\s>]/i.test(text))) {
+        const thinking = document.createElement('div');
+        thinking.className = 'agent-thinking-summary';
+        thinking.innerHTML = markdownModule.createCollapsible(metadata.thinking, 'thinking');
+        box.appendChild(thinking);
+      }
+
       const maxRound = Math.max(...Object.keys(toolsByRound).map(Number), roundTexts.length);
 
       for (let r = 0; r < maxRound; r++) {
@@ -2392,7 +2474,7 @@ export function addMessage(role, content, modelName, metadata) {
 
         if (txt) {
           const wrap = document.createElement('div');
-          wrap.className = 'msg msg-ai' + (r > 0 ? ' msg-continuation' : '');
+          wrap.className = 'msg msg-ai' + (firstMsgAi ? ' msg-continuation' : '');
           const roleEl = document.createElement('div');
           roleEl.className = 'role';
           const pair = replyModelPair(modelName, metadata);
@@ -2402,7 +2484,7 @@ export function addMessage(role, content, modelName, metadata) {
             roleEl.title = pair.requestedModel + ' -> ' + contModel;
           }
           applyModelColor(roleEl, contModel);
-          if (r === 0) roleEl.appendChild(roleTimestamp(metadata?.timestamp));
+          if (!firstMsgAi) roleEl.appendChild(roleTimestamp(metadata?.timestamp));
           wrap.appendChild(roleEl);
           const body = document.createElement('div');
           body.className = 'body';
@@ -2452,7 +2534,9 @@ export function addMessage(role, content, modelName, metadata) {
             if (ev.ask_user) pendingAskUser = ev.ask_user;
             const ok = (ev.exit_code === 0 || ev.exit_code == null);
             const node = document.createElement('div');
-            node.className = 'agent-thread-node' + (ok ? '' : ' error');
+            // A failed call opens itself: the error is the thing the user
+            // needs to see, not something to click for.
+            node.className = 'agent-thread-node' + (ok ? '' : ' error open');
             // Canonical tool/diff renderer (also used by the live stream).
             node.innerHTML = buildToolNodeInnerHtml(ev);
             // Click handling is delegated globally \u2014 see chat.js init.

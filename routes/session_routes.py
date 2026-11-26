@@ -212,6 +212,11 @@ def setup_session_routes(
 ):
     """Setup session routes with the provided manager and config"""
 
+    # Fresh router per call: the module-level one is shared, so calling this
+    # twice (tests, re-init) used to register duplicate routes and the first
+    # registration — with its captured session_manager — won every lookup.
+    router = APIRouter(prefix="/api", tags=["sessions"])
+
     REQUEST_TIMEOUT = config.get("REQUEST_TIMEOUT", 20)
     SESSION_MODEL_VALIDATION_TIMEOUT = min(float(REQUEST_TIMEOUT or 20), 3.0)
     OPENAI_API_KEY = config.get("OPENAI_API_KEY")
@@ -235,18 +240,20 @@ def setup_session_routes(
             _purge_db = SessionLocal()
             try:
                 from core.database import ChatMessage as _DbMsg
+                # Only empty, DB-only ghosts. A session with messages may be a
+                # real chat the user renamed to "Nobody"; a session still in RAM
+                # is live (its empty row is harmless and deleting it would drop
+                # the in-memory incognito chat).
                 _ghosts = _purge_db.query(DbSession).filter(
                     DbSession.name.in_(("Nobody", "Incognito")),
                     DbSession.created_at < _cutoff,
+                    DbSession.message_count == 0,
                 ).all()
                 for _g in _ghosts:
+                    if _g.id in session_manager.sessions:
+                        continue
                     _purge_db.query(_DbMsg).filter(_DbMsg.session_id == _g.id).delete()
                     _purge_db.delete(_g)
-                    if hasattr(session_manager, "delete_session"):
-                        try:
-                            session_manager.delete_session(_g.id)
-                        except Exception:
-                            pass
                 if _ghosts:
                     _purge_db.commit()
             finally:
@@ -265,10 +272,18 @@ def setup_session_routes(
             last_msg_map = {}
             mode_map = {}
             msg_count_map = {}
-            q = db.query(DbSession.id, DbSession.folder, DbSession.total_input_tokens, DbSession.total_output_tokens, DbSession.is_important, DbSession.created_at, DbSession.updated_at, DbSession.last_message_at, DbSession.mode, DbSession.message_count).filter(DbSession.archived == False)
-            q = owner_filter(q, DbSession, user)
+            row_map = {}
+            q = db.query(
+                DbSession.id, DbSession.name, DbSession.model, DbSession.endpoint_url,
+                DbSession.rag, DbSession.folder, DbSession.total_input_tokens,
+                DbSession.total_output_tokens, DbSession.is_important,
+                DbSession.created_at, DbSession.updated_at, DbSession.last_message_at,
+                DbSession.mode, DbSession.message_count,
+            ).filter(DbSession.archived == False)
+            q = owner_filter(q, DbSession, user, include_shared=False)
             rows = q.all()
             for row in rows:
+                row_map[row.id] = row
                 folder_map[row.id] = row.folder
                 token_map[row.id] = (row.total_input_tokens or 0) + (row.total_output_tokens or 0)
                 important_map[row.id] = row.is_important or False
@@ -304,22 +319,49 @@ def setup_session_routes(
         finally:
             db.close()
 
-        sessions = [{"id": s.id, "name": s.name, "model": _public_model(s.name, s.model),
-                     "endpoint_url": s.endpoint_url, "rag": s.rag,
-                     "archived": s.archived, "folder": folder_map.get(s.id),
-                     "total_tokens": token_map.get(s.id, 0),
-                     "is_important": important_map.get(s.id, False),
-                     "created_at": created_map.get(s.id),
-                     "updated_at": updated_map.get(s.id),
-                     "last_message_at": last_msg_map.get(s.id),
-                     "has_documents": s.id in doc_session_ids,
-                     "has_images": s.id in img_session_ids,
-                     "mode": mode_map.get(s.id),
-                     "message_count": msg_count_map.get(s.id, 0)}
-                    for s in user_sessions.values()
-                    if not s.archived
-                    and (s.name or "").strip() not in ("Nobody", "Incognito")
-                    and (s.name or "").strip() not in _HIDDEN_SYSTEM_SESSION_NAMES]
+        # List from the DB, not just the boot-time RAM cache: load_sessions only
+        # loads the newest 100, so older chats used to disappear from the
+        # sidebar after a restart. RAM-only ghosts (no DB row yet) still show.
+        candidate_ids = set(user_sessions) | {
+            sid for sid, row in row_map.items()
+            if (row.message_count or 0) > 0 or sid in session_manager.sessions
+        }
+        sessions = []
+        for sid in candidate_ids:
+            # Prefer the owner-scoped RAM view; a DB-only session has no
+            # in-memory object and is described entirely by its row.
+            s = user_sessions.get(sid)
+            row = row_map.get(sid)
+            if row is None and s is not None and getattr(s, "archived", False):
+                continue
+            name = ((row.name if row else None) or (getattr(s, "name", "") if s else "") or "").strip()
+            if name in ("Nobody", "Incognito") or name in _HIDDEN_SYSTEM_SESSION_NAMES:
+                continue
+            model = (row.model if row else None) or (getattr(s, "model", "") if s else "") or ""
+            endpoint_url = (row.endpoint_url if row else None) or (getattr(s, "endpoint_url", "") if s else "") or ""
+            rag = bool(row.rag) if row else bool(getattr(s, "rag", False))
+            sessions.append({
+                "id": sid,
+                "name": name,
+                "model": _public_model(name, model),
+                "endpoint_url": endpoint_url,
+                "rag": rag,
+                "archived": False,
+                "folder": folder_map.get(sid),
+                "total_tokens": token_map.get(sid, 0),
+                "is_important": important_map.get(sid, False),
+                "created_at": created_map.get(sid),
+                "updated_at": updated_map.get(sid),
+                "last_message_at": last_msg_map.get(sid),
+                "has_documents": sid in doc_session_ids,
+                "has_images": sid in img_session_ids,
+                "mode": mode_map.get(sid),
+                "message_count": msg_count_map.get(sid, 0),
+            })
+        sessions.sort(
+            key=lambda x: x.get("last_message_at") or x.get("updated_at") or x.get("created_at") or "",
+            reverse=True,
+        )
 
         return sessions
     
@@ -579,6 +621,7 @@ def setup_session_routes(
         except Exception:
             ids = []
         deleted_count = 0
+        from src import agent_runs
         for sid in ids:
             try:
                 _verify_session_owner(request, sid, session_manager)
@@ -592,6 +635,8 @@ def setup_session_routes(
                 finally:
                     db.close()
 
+                # Stop a detached run before its session disappears.
+                agent_runs.stop(sid)
                 if session_manager.delete_session(sid):
                     deleted_count += 1
             except Exception:
@@ -614,6 +659,11 @@ def setup_session_routes(
                     )
             finally:
                 db.close()
+
+            # Stop any detached run first; otherwise it keeps streaming (and
+            # burning tokens) against a session that no longer exists.
+            from src import agent_runs
+            agent_runs.stop(sid)
 
             # Delete the session and all its messages
             if session_manager.delete_session(sid):
@@ -946,6 +996,9 @@ def setup_session_routes(
             raise HTTPException(404, f"Session {session_id} not found")
         _reject_compact_during_active_run(session_id)
 
+        if getattr(session, "incognito", False):
+            raise HTTPException(400, "Cannot compact an incognito chat")
+
         history = list(session.history or [])
         if len(history) < 6:
             raise HTTPException(400, "Not enough messages to compact")
@@ -1067,13 +1120,16 @@ def setup_session_routes(
                 # Never delete important sessions
                 if getattr(row, 'is_important', False):
                     continue
-                # Always delete incognito sessions during cleanup
+                # Incognito sessions are ephemeral, but only empty DB-only ghosts
+                # may be deleted — never the live in-memory chat or a real chat
+                # the user renamed to "Incognito".
                 if (row.name or "").strip() == "Incognito":
-                    should_delete = True
-                    deleted_throwaway += 1
-                    db.delete(row)
-                    if hasattr(session_manager, 'delete_session'):
-                        session_manager.delete_session(row.id)
+                    if (row.message_count or 0) == 0 and row.id not in session_manager.sessions:
+                        should_delete = True
+                        deleted_throwaway += 1
+                        db.delete(row)
+                        if hasattr(session_manager, 'delete_session'):
+                            session_manager.delete_session(row.id)
                     continue
                 if is_session_recently_active(row, now=cleanup_now):
                     continue

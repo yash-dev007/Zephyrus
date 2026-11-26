@@ -68,10 +68,13 @@ def _screenshot_helpers_source() -> str:
 def _tool_node_source() -> str:
     """The canonical tool-thread renderer (pure: string in → string out)."""
     renderer = (_REPO / "static" / "js" / "chatRenderer.js").read_text(encoding="utf-8")
-    return _extract(
+    labels = _extract(r"var TOOL_LABELS = \{.*?\n\};", renderer, "TOOL_LABELS")
+    helper = _extract(r"function toolLabel\(name\) \{.*?\n\}", renderer, "toolLabel")
+    fn = _extract(
         r"export function buildToolNodeInnerHtml\(ev\) \{.*?\n\}",
         renderer, "buildToolNodeInnerHtml",
     )
+    return "\n".join([labels, helper, fn])
 
 
 def _markdown_source() -> str:
@@ -109,7 +112,7 @@ console.log(JSON.stringify(cases.map((c) => APPLY(c))));
         env["ZEPHYRUS_CASES"] = json.dumps(cases)
     proc = subprocess.run(
         ["node", "--input-type=module"], input=prog,
-        capture_output=True, text=True, cwd=str(_REPO), timeout=30, env=env,
+        capture_output=True, text=True, encoding="utf-8", cwd=str(_REPO), timeout=30, env=env,
     )
     assert proc.returncode == 0, f"node failed: {proc.stderr[:2000]}"
     return json.loads(proc.stdout.strip())
@@ -133,6 +136,33 @@ def _toolnode(cases) -> list:
 const APPLY = (c) => buildToolNodeInnerHtml(c);
 """
     return _run_js(body, cases)
+
+
+@needs_node
+def test_binary_tool_output_is_explained_without_rendering_control_characters():
+    html = _toolnode([{"tool": "read_file", "command": "shot.png", "output": "\u0089PNG\r\n\x00binary", "exit_code": 0}])[0]
+    assert "Binary file returned. Text preview unavailable." in html
+    assert "\x00" not in html
+    assert "Copy output" not in html
+
+
+@needs_node
+def test_edit_preview_shows_escaped_path_and_preserves_full_input():
+    command = json.dumps({"path": '<img src=x onerror=alert(1)>.html', "old_text": "old", "new_text": "new"})
+    html = _toolnode([{"tool": "edit_file", "command": command, "output": "Saved", "exit_code": 0}])[0]
+    preview = re.search(r'class="agent-thread-preview">(.*?)</span>', html).group(1)
+    assert preview == '&lt;img src=x onerror=alert(1)&gt;.html'
+    assert "old_text" in html
+    assert '<img src=x' not in html
+    assert 'aria-expanded="false"' in html
+
+
+@needs_node
+def test_failed_tool_keeps_error_visible_and_readable():
+    html = _toolnode([{"tool": "bash", "command": "mkdir example", "output": "The syntax is incorrect.", "exit_code": 1}])[0]
+    assert 'aria-expanded="true"' in html
+    assert "The syntax is incorrect." in html
+    assert "Failed" in html
 
 
 def _esc(run_arg_cases) -> list:
@@ -285,7 +315,7 @@ def test_markdown_body_still_renders_legit_content():
     assert "<strong>world</strong>" in outs[0]
     assert "https://example.com/guide" in outs[1]
     assert "<a " not in outs[1] or "javascript:" not in outs[1].lower()
-    assert "<pre><code" in outs[2] and "console.log(1)" in outs[2]
+    assert re.search(r'<pre\b[^>]*><code\b', outs[2]) and "console.log(1)" in outs[2]
 
 
 @needs_node
@@ -320,7 +350,7 @@ def test_tool_node_screenshot_javascript_dropped_valid_png_kept():
         {"tool": "camera", "screenshot": _VALID_PNG, "exit_code": 0},
     ])
     assert "<img" not in outs[0], outs[0]
-    assert f'<img src="{_VALID_PNG}"' in outs[1], outs[1]
+    assert f'<img class="agent-tool-shot" src="{_VALID_PNG}"' in outs[1], outs[1]
 
 
 @needs_node
@@ -344,5 +374,5 @@ def test_live_tool_sink_wired_through_canonical_renderer_smoke():
 def test_canonical_renderer_screens_screenshot_and_escapes_output_smoke():
     renderer = (_REPO / "static" / "js" / "chatRenderer.js").read_text(encoding="utf-8")
     assert "var screenshotSrc = safeToolScreenshotSrc(ev.screenshot);" in renderer
-    assert '<pre>${esc(ev.output)}</pre>' in renderer
-    assert '<span class="agent-thread-tool">${esc(ev.tool)}</span>' in renderer
+    assert '<pre class="agent-tool-output">${esc(ev.output)}</pre>' in renderer
+    assert '<span class="agent-thread-tool">${esc(toolLabel(ev.tool))}</span>' in renderer

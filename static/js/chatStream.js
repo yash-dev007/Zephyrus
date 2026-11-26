@@ -29,20 +29,25 @@ function _resolveHighlightTarget(uiData) {
  */
 export function handleUIControl(uiData) {
   var uiEvent = uiData.ui_event || uiData;
-  var esc = uiModule.esc;
 
   try {
     if (uiEvent === 'toggle' || uiData.ui_event === 'toggle') {
+      // Incognito is deliberately absent: a model-originated event must not be
+      // able to turn persistence off (or on) for the user's next message.
       var toggleMap = {
         web: 'web-toggle', bash: 'bash-toggle', rag: 'rag-toggle',
-        research: 'research-toggle', incognito: 'incognito-toggle',
+        research: 'research-toggle',
       };
       var btnMap = {
         web: 'web-toggle-btn', bash: 'bash-toggle-btn', rag: 'rag-indicator-btn',
       };
-      var chkId = toggleMap[uiData.toggle_name];
-      var btnId = btnMap[uiData.toggle_name];
-      if (uiData.toggle_name === 'rag' && window._syncRagIndicator) {
+      // Allowlist: a model-originated event must not write arbitrary keys into
+      // the persisted toggle store (e.g. toggle_name: "mode").
+      var toggleName = String(uiData.toggle_name || '');
+      if (!Object.prototype.hasOwnProperty.call(toggleMap, toggleName)) return;
+      var chkId = toggleMap[toggleName];
+      var btnId = btnMap[toggleName];
+      if (toggleName === 'rag' && window._syncRagIndicator) {
         window._syncRagIndicator(!!uiData.state);
       } else {
         if (chkId) {
@@ -55,11 +60,13 @@ export function handleUIControl(uiData) {
         }
       }
       var ts = Storage.getJSON(Storage.KEYS.TOGGLES, {});
-      ts[uiData.toggle_name] = !!uiData.state;
+      ts[toggleName] = !!uiData.state;
       Storage.setJSON(Storage.KEYS.TOGGLES, ts);
 
     } else if (uiEvent === 'set_mode' || uiData.ui_event === 'set_mode') {
-      var modeVal = uiData.mode;
+      // Only the two real modes; never persist an arbitrary model-supplied value.
+      var modeVal = uiData.mode === 'agent' ? 'agent' : (uiData.mode === 'chat' ? 'chat' : null);
+      if (!modeVal) return;
       var agentBtn = document.getElementById('mode-agent-btn');
       var chatBtn = document.getElementById('mode-chat-btn');
       if (agentBtn && chatBtn) {
@@ -159,8 +166,8 @@ export function handleUIControl(uiData) {
         var activeCtx = documentModule && documentModule.getActiveEmailComposerContext
           ? documentModule.getActiveEmailComposerContext()
           : null;
-        var sameActiveDraft = activeCtx
-          && String(activeCtx.sourceUid || '') === String(uiData.uid || '')
+        var sameActiveDraft = activeCtx && uiData.uid
+          && String(activeCtx.sourceUid || '') === String(uiData.uid)
           && String(activeCtx.sourceFolder || 'INBOX') === String(uiData.folder || 'INBOX');
         var existingDocId = sameActiveDraft && activeCtx.docId
           ? activeCtx.docId
@@ -169,7 +176,10 @@ export function handleUIControl(uiData) {
             : null);
         if (existingDocId && documentModule.replaceEmailReplyBody) {
           if (documentModule.loadDocument) documentModule.loadDocument(existingDocId);
-          documentModule.replaceEmailReplyBody(existingDocId, uiData.body || '', { force: true });
+          // No `force`: a model-originated event must not overwrite a draft the
+          // user has edited. replaceEmailReplyBody keeps the user's text and
+          // shows a toast instead.
+          documentModule.replaceEmailReplyBody(existingDocId, uiData.body || '');
           if (uiModule && uiModule.showToast) uiModule.showToast('Wrote reply into the open email');
           return;
         }

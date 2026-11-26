@@ -55,6 +55,19 @@ def test_no_fallback_event_when_primary_succeeds(monkeypatch):
     assert not any('"fallback"' in c for c in chunks)
 
 
+def test_usage_metadata_does_not_prevent_precontent_fallback(monkeypatch):
+    def per_model(model):
+        if model == "primary":
+            return ['data: {"type":"usage","data":{"input_tokens":10}}\n\n',
+                    'event: error\ndata: {"error":"unavailable"}\n\n']
+        return ['data: {"delta":"recovered"}\n\n', 'data: [DONE]\n\n']
+
+    chunks = _run_fallback(monkeypatch, per_model)
+    assert any('"fallback"' in chunk for chunk in chunks)
+    assert any('"recovered"' in chunk for chunk in chunks)
+    assert not any(chunk.startswith("event: error") for chunk in chunks)
+
+
 def test_dedupe_candidates_keeps_first_of_each_route():
     """(url, model) is the route key; later repeats are dropped, order preserved,
     the first tuple (with its headers) kept, malformed entries filtered."""

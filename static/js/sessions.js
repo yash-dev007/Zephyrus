@@ -14,7 +14,7 @@ const API_BASE = window.location.origin;
 let sessions = [];
 let currentSessionId = null;
 let _sessionNavToken = 0;
-let _skipAutoSelect = false;
+let _sessionsInitialized = false;
 let _suppressNextSessionLoading = false;
 // In-flight loadSessions() run. A concurrent caller awaits it and then
 // returns without re-running — the owning run already fetched, rendered,
@@ -874,7 +874,6 @@ function createSessionItem(s) {
     }
     _deselectCurrentSession(s.id);
     _removeSessionFromLocalState(s.id);
-    _skipAutoSelect = true;
     // Clean up persistent chat mapping
     try {
       const pm = await import('./presets.js');
@@ -1642,25 +1641,10 @@ export async function loadSessions() {
     }
 
     const activeSessions = sessions.filter(s => !s.archived);
-    // "Transient" sessions = the singleton Assistant chat + any task-output
-    // session. Treat them as not-restorable so coming back to the app lands
-    // on the user's last actual conversation, not whichever check-in task
-    // most recently appended a message.
-    const _isTransient = (s) => !!s && (s.folder === 'Assistant' || s.folder === 'Tasks');
-    const _realSessions = activeSessions.filter(s => !_isTransient(s));
     let hashId = window.location.hash.replace('#', '');
-    if (/^(document|note|image|email|event|task|skill|research)-/.test(hashId) || /^open=notes&note=/.test(hashId)) {
+    const hasResourceLink = /^(document|note|image|email|event|task|skill|research)-/.test(hashId) || /^open=notes&note=/.test(hashId);
+    if (hasResourceLink) {
       hashId = '';
-    }
-    let savedId = Storage.get('lastSessionId');
-    // If the persisted lastSessionId points to a transient session (legacy
-    // state from before the persistence-guard was added), drop it.
-    if (savedId) {
-      const _saved = activeSessions.find(s => s.id === savedId);
-      if (_saved && _isTransient(_saved)) {
-        Storage.remove('lastSessionId');
-        savedId = null;
-      }
     }
     const hasPendingChat = !!_pendingChat;
     let targetId = null;
@@ -1677,54 +1661,26 @@ export async function loadSessions() {
     } else if (currentSessionId) {
       // Session was just created but may not be in the list yet — keep it
       targetId = currentSessionId;
-    } else if (savedId && activeSessions.some(s => s.id === savedId)) {
-      targetId = savedId;
-    } else if (!_skipAutoSelect && _realSessions.length > 0) {
-      // Most-recent NON-transient session — skip Assistant / Tasks so the
-      // auto-firing assistant doesn't become the apparent default chat.
-      targetId = _realSessions[0].id;
-    } else if (!_skipAutoSelect && activeSessions.length > 0) {
-      // Only transient sessions exist (brand-new account) — fall through to
-      // the original behaviour so we don't leave the user with nothing.
-      targetId = activeSessions[0].id;
     }
-    _skipAutoSelect = false;
 
-    // Fresh login: prefer a default-model session so a brand-new user lands
-    // ready to chat. CRITICAL: only do this when there's NO session to return
-    // to (no hash / lastSessionId / existing chat resolved into targetId).
-    // Otherwise a fresh page load — which a server restart triggers — would
-    // spin up a new empty default-model chat and shadow the user's last
-    // conversation, making it look like the chat "lost its context" (and the
-    // picker would still show the old model's name from cached state). See
-    // the targetId resolution above (hash → currentSession → lastSessionId →
-    // most-recent).
-    const _isFirstLoad = !sessionStorage.getItem('ody-session-active');
+    // Each page launch starts fresh unless a chat link explicitly selects
+    // history. A draft is only persisted when the first message is sent.
+    const _isFirstLoad = !_sessionsInitialized;
+    _sessionsInitialized = true;
     if (_isFirstLoad) {
-      sessionStorage.setItem('ody-session-active', '1');
-      if (!targetId) {
+      if (!targetId && !hasPendingChat && !hasResourceLink) {
         try {
           const dcRes = await fetch(`${API_BASE}/api/default-chat`);
           const dc = await dcRes.json();
+          // A user can select history or a model while this request runs.
+          if (currentSessionId || _pendingChat) return;
           if (dc.endpoint_url && dc.model) {
-            // Check if there's already an empty session with this model we can reuse.
-            // last_message_at is NULL until the first message persists
-            // (DB default None; set only on message persist), so the extra
-            // predicate only excludes sessions that had messages deleted.
-            const emptyDefault = activeSessions.find(s =>
-              s.model === dc.model && s.message_count === 0 && !s.last_message_at
-            );
-            if (emptyDefault) {
-              targetId = emptyDefault.id;
-            } else {
-              await createDirectChat(dc.endpoint_url, dc.model, dc.endpoint_id);
-              // On mobile, hide sidebar so user lands directly in chat
-              if (window.innerWidth < 768) {
-                const sb = document.getElementById('sidebar');
-                if (sb) sb.classList.add('hidden');
-              }
-              return; // createDirectChat handles selectSession internally
+            await createDirectChat(dc.endpoint_url, dc.model, dc.endpoint_id);
+            if (window.innerWidth < 768) {
+              const sb = document.getElementById('sidebar');
+              if (sb) sb.classList.add('hidden');
             }
+            return;
           }
         } catch (_) { /* no default model configured */ }
       }
@@ -1755,7 +1711,7 @@ export async function loadSessions() {
       }
       updateModelPicker();
       // Only auto-create if there are truly zero sessions (not just unselected)
-      if (activeSessions.length === 0 && !_autoCreateInProgress) {
+      if (activeSessions.length === 0 && !_autoCreateInProgress && !hasResourceLink && !_isFirstLoad) {
         _autoCreateInProgress = true;
         try {
           const dcRes = await fetch(`${API_BASE}/api/default-chat`);
@@ -2120,7 +2076,6 @@ export function createDirectChat(url, modelId, endpointId) {
 
   // Don't hit the API — just store the model info and prepare the UI
   _pendingChat = { url, modelId, endpointId };
-  _skipAutoSelect = true;
   _suppressNextSessionLoading = true;
   currentSessionId = null;
   Storage.remove('lastSessionId');

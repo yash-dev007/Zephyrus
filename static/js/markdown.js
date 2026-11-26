@@ -334,18 +334,15 @@ export function extractThinkingBlocks(text) {
  */
 function createThinkingSection(thinkingContent, index = 0, thinkingTime = null) {
   const id = `thinking-${Date.now()}-${index}`;
-  const timeHtml = thinkingTime ? `<span style="font-size:11px;opacity:0.4;font-variant-numeric:tabular-nums;">${thinkingTime}s</span>` : '';
+  // One quiet receipt line. "Thought for 12s" tells the user reasoning
+  // happened without making them read it; the disclosure is opt-in.
+  const label = thinkingTime ? `Thought for ${thinkingTime}s` : 'Thought for a while';
   return `
     <div class="thinking-section">
-      <div class="thinking-header" data-thinking-id="${id}">
-        <div class="thinking-header-left">
-          <span>View thinking process</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          ${timeHtml}
-          <span class="thinking-toggle" id="${id}-toggle"></span>
-        </div>
-      </div>
+      <button type="button" class="thinking-header" data-thinking-id="${id}" aria-controls="${id}" aria-expanded="false">
+        <span class="thinking-header-left"><span>${label}</span></span>
+        <span class="thinking-toggle" id="${id}-toggle"></span>
+      </button>
       <div class="thinking-content" id="${id}">
         <div class="thinking-content-inner">
           ${mdToHtml(thinkingContent)}
@@ -449,10 +446,10 @@ export function createCollapsible(contentMarkdown, label = 'details') {
   const safeLabel = escapeHtml(label);
   return `
     <div class="thinking-section">
-      <div class="thinking-header" data-thinking-id="${id}">
-        <div class="thinking-header-left"><span data-label="${safeLabel}">View ${safeLabel}</span></div>
-        <div style="display:flex;align-items:center;gap:6px;"><span class="thinking-toggle" id="${id}-toggle"></span></div>
-      </div>
+      <button type="button" class="thinking-header" data-thinking-id="${id}" aria-controls="${id}" aria-expanded="false">
+        <span class="thinking-header-left"><span data-label="${safeLabel}">View ${safeLabel}</span></span>
+        <span class="thinking-toggle" id="${id}-toggle"></span>
+      </button>
       <div class="thinking-content" id="${id}"><div class="thinking-content-inner">${mdToHtml(contentMarkdown)}</div></div>
     </div>`;
 }
@@ -522,7 +519,7 @@ export function mdToHtml(src, opts) {
       ? `<button type="button" class="run-code" data-code="${escapeHtml(escaped)}" data-lang="${lang}" title="Run code"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>`
       : '';
     const editBtn = `<button type="button" class="edit-code" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`;
-    codeBlocks.push(`<pre><code${langClass} data-lang="${lang || ''}">${escapeHtml(escaped)}</code>${runBtn}${editBtn}<button type="button" class="copy-code" data-code="${escapeHtml(escaped)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></pre>`);
+    codeBlocks.push(`<pre class="chat-code-block" data-language="${lang || 'text'}"><code${langClass} data-lang="${lang || ''}">${escapeHtml(escaped)}</code>${runBtn}${editBtn}<button type="button" class="copy-code" aria-label="Copy code" title="Copy code" data-code="${escapeHtml(escaped)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></pre>`);
 
     return placeholder;
   });
@@ -901,9 +898,10 @@ function _setThinkingExpanded(content, toggle, header, expanded) {
   if (!content || !toggle) return;
   content.classList.toggle('expanded', expanded);
   toggle.classList.toggle('expanded', expanded);
+  header?.setAttribute('aria-expanded', String(expanded));
   const label_el = header?.querySelector('.thinking-header-left span');
-  if (label_el) {
-    const label = label_el.dataset.label || 'thinking process';
+  if (label_el?.dataset.label) {
+    const label = label_el.dataset.label;
     label_el.textContent = expanded ? `Hide ${label}` : `View ${label}`;
   }
 }

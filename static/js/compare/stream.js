@@ -1,15 +1,13 @@
 // compare/stream.js — SSE streaming to panes
 import state from './state.js';
 import { addFinishBadge } from './vote.js';
-import { getModelCost, safeDisplayImageSrc } from '../chatRenderer.js';
+import { getModelCost, safeDisplayImageSrc, buildToolNodeInnerHtml } from '../chatRenderer.js';
 import markdownModule from '../markdown.js';
 import spinnerModule from '../spinner.js';
 import uiModule from '../ui.js';
 import presetsModule from '../presets.js';
 
 var escapeHtml = uiModule.esc;
-
-const WAVE_FRAMES = ['▁▂▃', '▂▃▄', '▃▄▅', '▄▅▆', '▅▆▇', '▆▅▄', '▅▄▃', '▄▃▂'];
 
 function _safeHttpHref(raw) {
   try {
@@ -357,15 +355,9 @@ async function streamToPane(paneIdx, sessionId, message, aiMsgEl, opts) {
               const cmdHtml = cmd ? `<pre class="agent-thread-cmd">${escapeHtml(cmd)}</pre>` : '';
               const node = document.createElement('div');
               node.className = 'agent-thread-node running';
-              node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">\u25B6</span><span class="agent-thread-tool">${escapeHtml(toolLabel)}</span><span class="agent-thread-wave">▁▂▃</span></div><div class="agent-thread-content">${cmdHtml}</div>`;
-              node.querySelector('.agent-thread-header').addEventListener('click', () => node.classList.toggle('open'));
-              // Animate wave
+              node.innerHTML = `<button type="button" class="agent-thread-header" aria-expanded="false"><span class="agent-thread-icon">\u25B6</span><span class="agent-thread-tool">${escapeHtml(toolLabel)}</span><span class="agent-thread-status">Running</span><span class="agent-thread-wave"></span></button><div class="agent-thread-content">${cmdHtml}</div>`;
               const waveEl = node.querySelector('.agent-thread-wave');
-              if (waveEl) {
-                const waveFrames = WAVE_FRAMES;
-                let waveIdx = 0;
-                node._waveInterval = setInterval(() => { waveIdx = (waveIdx + 1) % waveFrames.length; waveEl.textContent = waveFrames[waveIdx]; }, 100);
-              }
+              waveEl.appendChild(spinnerModule.createIndicator(12));
               aiBody.appendChild(node);
               currentToolBlock = node;
             }
@@ -404,20 +396,11 @@ async function streamToPane(paneIdx, sessionId, message, aiMsgEl, opts) {
                 aiMsgEl._imageData = { url: safeImageUrl, prompt: json.image_prompt, model: json.image_model, size: json.image_size, quality: json.image_quality };
               }
             } else if (currentToolBlock) {
-              // Stop wave animation
-              if (currentToolBlock._waveInterval) { clearInterval(currentToolBlock._waveInterval); currentToolBlock._waveInterval = null; }
               const ok = (json.exit_code === 0 || json.exit_code == null);
-              const cmd = json.command || '';
-              const _toolLabels2 = { bash: 'Terminal', python: 'Python', web_search: 'Web Search', read_file: 'Read File', write_file: 'Write File' };
-              const tLabel = _toolLabels2[(json.tool || '').toLowerCase()] || json.tool || '';
-              let outHtml = '';
-              if (json.output && json.output.trim()) {
-                outHtml = `<details class="agent-tool-output"><summary>Output</summary><pre>${escapeHtml(json.output)}</pre></details>`;
-              }
-              const cmdHtml = cmd ? `<pre class="agent-thread-cmd">${escapeHtml(cmd)}</pre>` : '';
-              currentToolBlock.className = 'agent-thread-node' + (ok ? '' : ' error');
-              currentToolBlock.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-icon">${ok ? '\u2713' : '\u2717'}</span><span class="agent-thread-tool">${escapeHtml(tLabel)}</span><span class="agent-thread-status">${ok ? 'done' : 'failed'}</span><span class="agent-thread-chevron">\u25B6</span></div><div class="agent-thread-content">${cmdHtml}${outHtml}</div>`;
-              currentToolBlock.querySelector('.agent-thread-header').addEventListener('click', () => currentToolBlock.classList.toggle('open'));
+              const wasOpen = currentToolBlock.classList.contains('open');
+              currentToolBlock.className = 'agent-thread-node' + (ok ? '' : ' error') + (!ok || wasOpen ? ' open' : '');
+              currentToolBlock.innerHTML = buildToolNodeInnerHtml(json);
+              currentToolBlock.querySelector('.agent-thread-header').setAttribute('aria-expanded', String(!ok || wasOpen));
               currentToolBlock = null;
               // Reset text element so next deltas create a fresh container
               aiMsgEl._textEl = null;
@@ -632,11 +615,11 @@ async function streamToPane(paneIdx, sessionId, message, aiMsgEl, opts) {
     }
   } finally {
     clearTimeout(timeoutId);
-    // An aborted/timed-out tool leaves its wave interval spinning —
-    // tool_output (the normal stop) never arrives. Clear it here.
-    if (currentToolBlock && currentToolBlock._waveInterval) {
-      clearInterval(currentToolBlock._waveInterval);
-      currentToolBlock._waveInterval = null;
+    if (currentToolBlock) {
+      currentToolBlock.classList.remove('running');
+      currentToolBlock.querySelector('.agent-thread-wave')?.remove();
+      const status = currentToolBlock.querySelector('.agent-thread-status');
+      if (status) status.textContent = 'Interrupted';
     }
     _timerDone = true;
     cancelAnimationFrame(_rafId);

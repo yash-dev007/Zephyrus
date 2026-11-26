@@ -9,6 +9,7 @@ corrupting — its arguments) and must preserve extra_content per call.
 """
 import json
 import asyncio
+import pytest
 
 from src import llm_core
 
@@ -75,6 +76,28 @@ def _drive(monkeypatch, lines, model="gemini-3.1-pro-preview-customtools"):
 
 def _sse(delta):
     return "data: " + json.dumps({"choices": [{"delta": delta}]})
+
+
+@pytest.mark.parametrize("ending", [None, "length", "content_filter"])
+def test_incomplete_generation_does_not_emit_tool_calls(monkeypatch, ending):
+    lines = [_sse({"tool_calls": [{"index": 0, "id": "a",
+        "function": {"name": "bash", "arguments": '{"command":"echo hi"}'}}]})]
+    if ending:
+        lines += ['data: ' + json.dumps({"choices": [{"delta": {}, "finish_reason": ending}]}),
+                  "data: [DONE]"]
+    events = _drive(monkeypatch, lines)
+    assert any(event.get("error") for event in events)
+    assert not any(event.get("type") == "tool_calls" for event in events)
+
+
+def test_finish_reason_allows_provider_without_done(monkeypatch):
+    lines = [_sse({"tool_calls": [{"index": 0, "id": "a",
+        "function": {"name": "read_file", "arguments": '{"path":"README.md"}'}}]}),
+        'data: ' + json.dumps({"choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+                              "usage": {"completion_tokens": 10}})]
+    events = _drive(monkeypatch, lines)
+    assert not any(event.get("error") for event in events)
+    assert len(next(event["calls"] for event in events if event.get("type") == "tool_calls")) == 1
 
 
 def test_parallel_calls_with_null_index_do_not_collide(monkeypatch):

@@ -1,12 +1,11 @@
 // compare/probe.js — model probe/check system
 import state from './state.js';
-import { WAVE_FRAMES } from './icons.js';
 import uiModule from '../ui.js';
 import spinnerModule from '../spinner.js';
 
 function _clearProbeWaves() {
   const rows = document.querySelectorAll('.compare-probe-row');
-  rows.forEach(r => { if (r._waveInterval) { clearInterval(r._waveInterval); r._waveInterval = null; } });
+  rows.forEach(r => r.querySelectorAll('.zeph-banter-loader').forEach(loader => loader.remove()));
 }
 
 async function _checkUnprobed() {

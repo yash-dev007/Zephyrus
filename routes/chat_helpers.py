@@ -1308,16 +1308,18 @@ def run_post_response_tasks(
         _spawn_bg(_run_extraction_jobs_sequentially(session_id, _extraction_jobs))
 
     # Token accumulation
-    if last_metrics:
+    if last_metrics and not incognito:
         accumulate_token_usage(session_id, last_metrics)
 
-    # Webhook
-    if webhook_manager and not compare_mode:
+    # Webhook — never fire for an incognito turn: it would ship the private
+    # message and reply to an external URL.
+    if webhook_manager and not compare_mode and not incognito:
         webhook_manager.fire_and_forget("chat.completed", {
             "session_id": session_id, "model": sess.model,
             "user_message": message, "response": full_response[:2000],
         })
 
-    # Auto-name
-    if needs_auto_name(sess.name):
+    # Auto-name — derives a DB title from the first user message, so skip it
+    # in incognito too.
+    if not incognito and needs_auto_name(sess.name):
         _spawn_bg(auto_name_session(session_manager, sess))
