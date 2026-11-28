@@ -7,7 +7,7 @@ function clearFreshComposerRestore() {
   const msgInput = document.getElementById('message');
   if (!msgInput) return;
   const hash = window.location.hash || '';
-  const isEntityHash = /^#(?:document|note|image|email|event|task|skill|research)-/.test(hash)
+  const isEntityHash = /^#(?:document|note|image|event|task|skill|research)-/.test(hash)
     || /^#open=notes&note=/.test(hash);
   const hasSessionTarget = !!((hash && !isEntityHash) || Storage.get('lastSessionId'));
   if (hasSessionTarget) return;
@@ -213,10 +213,11 @@ window.addEventListener('pageshow', clearFreshComposerRestore);
   const MIN_WIDTH = 200;
   const MAX_WIDTH = 700;
   const COLLAPSE_THRESHOLD = 150;
+  const DEFAULT_WIDTH = 288;
 
   function getSavedWidth() {
-    const w = parseInt(Storage.get(STORAGE_KEY, '340'), 10);
-    return (w >= MIN_WIDTH && w <= MAX_WIDTH) ? w : 340;
+    const w = parseInt(Storage.get(STORAGE_KEY, String(DEFAULT_WIDTH)), 10);
+    return (w >= MIN_WIDTH && w <= MAX_WIDTH) ? w : DEFAULT_WIDTH;
   }
 
   // Restore saved width

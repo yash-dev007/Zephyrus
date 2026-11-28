@@ -186,6 +186,11 @@ def find_source_upload_id(content: str) -> Optional[str]:
     return upload_id
 
 
+def is_form_backed_document(content: str) -> bool:
+    """True only for a valid fillable-PDF marker, not a plain PDF import."""
+    return bool(_FRONT_MATTER_RE.search(content or "") and find_source_upload_id(content))
+
+
 def render_plain_pdf_markdown(upload_id: str, title: str, body_text: Optional[str] = None) -> str:
     """Build the markdown wrapper for a non-form PDF imported into the editor.
 

@@ -15,9 +15,6 @@ def _usage() -> int:
     print("  zephyrus_api.py capabilities", file=sys.stderr)
     print("  zephyrus_api.py todos list", file=sys.stderr)
     print("  zephyrus_api.py todos add TITLE", file=sys.stderr)
-    print("  zephyrus_api.py emails list [limit]", file=sys.stderr)
-    print("  zephyrus_api.py emails read UID", file=sys.stderr)
-    print("  zephyrus_api.py emails draft-doc JSON_PAYLOAD", file=sys.stderr)
     print("  zephyrus_api.py documents list [limit]", file=sys.stderr)
     print("  zephyrus_api.py documents read DOC_ID", file=sys.stderr)
     print("  zephyrus_api.py documents create JSON_PAYLOAD", file=sys.stderr)
@@ -69,25 +66,6 @@ def main() -> int:
         elif action == "add" and len(sys.argv) >= 4:
             method = "POST"
             body = json.dumps({"action": "add", "title": " ".join(sys.argv[3:])})
-        else:
-            return _usage()
-    elif command == "emails":
-        if len(sys.argv) < 3:
-            return _usage()
-        action = sys.argv[2].lower()
-        if action == "list":
-            method = "GET"
-            limit = sys.argv[3] if len(sys.argv) >= 4 else "10"
-            path = f"/api/codex/emails?folder=INBOX&limit={limit}&offset=0&filter=all"
-            body = None
-        elif action == "read" and len(sys.argv) >= 4:
-            method = "GET"
-            path = f"/api/codex/emails/{sys.argv[3]}"
-            body = None
-        elif action in ("draft-doc", "draft_document") and len(sys.argv) >= 4:
-            method = "POST"
-            path = "/api/codex/emails/draft-document"
-            body = " ".join(sys.argv[3:])
         else:
             return _usage()
     elif command in ("documents", "docs"):

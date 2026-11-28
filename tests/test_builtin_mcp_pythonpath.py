@@ -11,12 +11,13 @@ def test_builtin_python_env_preserves_existing_pythonpath(monkeypatch):
 
     env = builtin_python_env("/app")
 
-    assert env == {
-        "PYTHONPATH": os.pathsep.join(["/app", "/app/venv/lib/python3.13/site-packages", "/extra"])
-    }
+    assert env["PYTHONPATH"] == os.pathsep.join(["/app", "/app/venv/lib/python3.13/site-packages", "/extra"])
 
 
 def test_builtin_python_env_uses_app_root_without_existing_pythonpath(monkeypatch):
     monkeypatch.delenv("PYTHONPATH", raising=False)
 
-    assert builtin_python_env("/srv/zephyrus") == {"PYTHONPATH": "/srv/zephyrus"}
+    monkeypatch.setenv("ZEPHYRUS_DATA_DIR", "/srv/data")
+    env = builtin_python_env("/srv/zephyrus")
+    assert env["PYTHONPATH"] == "/srv/zephyrus"
+    assert env["ZEPHYRUS_DATA_DIR"] == "/srv/data"

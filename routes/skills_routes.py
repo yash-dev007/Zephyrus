@@ -14,10 +14,11 @@ from typing import List, Optional
 import httpx
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictStr
 
 from services.memory.skills import SkillsManager
 from src.auth_helpers import get_current_user
+from src.prompt_security import untrusted_context_message
 from core.middleware import require_admin
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,10 @@ class SkillAddRequest(BaseModel):
 
 class SkillImportUrlRequest(BaseModel):
     url: str = Field(..., min_length=8, max_length=2000)
+
+
+class SkillInvokeRequest(BaseModel):
+    request: Optional[StrictStr] = None
 
 
 class SkillUpdateRequest(BaseModel):
@@ -1148,6 +1153,8 @@ def setup_skills_routes(skills_manager: SkillsManager) -> APIRouter:
                 "usage": f"/{name} <request>",
                 "uses": int(full.get("uses") or 0),
                 "last_used": full.get("last_used"),
+                "matched": int(full.get("matched") or 0),
+                "last_matched": full.get("last_matched"),
             })
         entries.sort(key=lambda row: row["name"])
         return {"skills": entries, "count": len(entries)}
@@ -1316,18 +1323,14 @@ def setup_skills_routes(skills_manager: SkillsManager) -> APIRouter:
         return {"ok": True, "deduped": bool(entry.get("_deduped")), "skill": entry}
 
     @router.post("/{skill_id}/invoke")
-    async def invoke_skill(request: Request, skill_id: str):
+    async def invoke_skill(request: Request, skill_id: str, body: Optional[SkillInvokeRequest] = None):
         """Build a skill-pinned prompt for slash-command invocation.
 
         This is intentionally server-side so availability, ownership, and usage
         accounting use the same rules as the SkillsManager.
         """
         user = _owner(request)
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        request_text = (body.get("request") or "").strip() if isinstance(body, dict) else ""
+        request_text = (body.request or "").strip() if body else ""
 
         invokable = {
             s.get("name"): s for s in skills_manager.index_for(owner=user)
@@ -1343,9 +1346,10 @@ def setup_skills_routes(skills_manager: SkillsManager) -> APIRouter:
             raise HTTPException(404, "Skill source unavailable")
 
         skills_manager.record_use(name, owner=user)
+        reference = untrusted_context_message("selected skill", md)["content"]
         message = (
-            "Apply the skill below to my request, following its Procedure / Pitfalls / Verification.\n\n"
-            f"--- BEGIN SKILL ---\n{md}\n--- END SKILL ---\n\n"
+            "Use the selected skill as reference material for my request.\n\n"
+            f"{reference}\n\n"
             + (f"Request: {request_text}" if request_text else "Request: (use the skill as appropriate)")
         )
         return {

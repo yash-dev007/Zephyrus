@@ -31,7 +31,7 @@ def test_plan_mode_blocks_mutating_tools():
     disabled = plan_mode_disabled_tools()
     # A representative spread of mutating/external tools must be blocked.
     for name in (
-        "write_file", "send_email", "reply_to_email", "manage_memory",
+        "write_file", "manage_memory",
         "manage_settings", "create_document", "edit_document", "download_model",
         "generate_image", "trigger_research",
     ):
@@ -64,6 +64,7 @@ def test_mcp_readonly_classification():
     assert ro({"name": "zap", "annotations": {"readOnlyHint": True}}) is True
     assert ro({"name": "list_things", "annotations": {"readOnlyHint": False}}) is False
     assert ro({"name": "get_x", "annotations": {"destructiveHint": True}}) is False
+    assert ro({"name": "get_x", "annotations": {"destructiveHint": True, "readOnlyHint": True}}) is False
     # No hint → leading-verb heuristic, fail closed for ambiguous names.
     assert ro({"name": "list_files"}) is True
     assert ro({"name": "search_docs"}) is True
@@ -86,7 +87,6 @@ def test_fail_closed_fallback_blocks_mutations(monkeypatch):
     disabled = ts.plan_mode_disabled_tools()
     assert disabled, "plan mode must never fail open (empty disabled set)"
     assert "write_file" in disabled
-    assert "send_email" in disabled
     assert disabled == set(_PLAN_MODE_KNOWN_MUTATORS)
 
 

@@ -13,7 +13,6 @@ Welcome to the comprehensive documentation index for Zephyrus.
 ### 2. User & Feature Guides (`docs/guides/`)
 - [Deep Research Subsystem](guides/research.md): Autonomous multi-round web research pipeline, iteration planning, extraction, and reporting.
 - [Backup and Restore Runbook](guides/backup-restore.md): Data persistence, snapshots, disaster recovery, and vault export.
-- [Email & Outlook Setup](guides/email-outlook.md): CalDAV/IMAP configuration, app passwords, and inbox synchronization.
 
 ### 3. Setup & Deployment (`docs/setup/`)
 - [Installation & Quickstart Guide](setup/setup.md): Environment requirements, GPU configuration (NVIDIA CUDA / AMD ROCm), and Docker deployment.

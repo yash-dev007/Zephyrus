@@ -1,8 +1,8 @@
 """Foreground activity gate for background work.
 
 Background tasks are allowed to run only after normal UI/API traffic has
-settled. This keeps scheduled jobs and email pollers from competing with the
-user opening Zephyrus, Cookbook, email, documents, notes, or other panels.
+settled. This keeps scheduled jobs from competing with the user opening
+Zephyrus, Cookbook, documents, notes, or other panels.
 """
 
 from __future__ import annotations
@@ -64,7 +64,6 @@ _PASSIVE_EXACT_PATHS = {
     "/api/client-perf",
     "/api/tasks/notifications",
     "/api/research/active",
-    "/api/email/urgency-state",
 }
 
 _PASSIVE_PREFIXES = (
@@ -127,8 +126,8 @@ def _has_active_chat_stream() -> bool:
 
     Chat/agent streams are detached from the browser SSE so a stream can keep
     running after the request that started it has returned. Background LLM
-    tasks must still wait for those runs; otherwise helpers like email
-    auto-translate compete with the user's active chat on the same local model.
+    tasks must still wait for those runs; otherwise helpers compete with the
+    user's active chat on the same local model.
     """
     try:
         from routes import chat_routes as _chat_routes

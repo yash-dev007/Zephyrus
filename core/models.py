@@ -73,6 +73,7 @@ class Session:
     history: List[ChatMessage] = None
     owner: Optional[str] = None
     is_important: bool = False
+    workspace: Optional[str] = None
     message_count: int = 0
     # Incognito turns stay in memory for context but must never reach the DB.
     incognito: bool = False

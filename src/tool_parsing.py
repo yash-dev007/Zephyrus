@@ -13,7 +13,6 @@ import re
 from typing import List, Optional, Tuple
 
 from src.agent_tools import ToolBlock, TOOL_TAGS
-from src.tool_security import BUILTIN_EMAIL_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Pattern 1: ```bash ... ``` fenced code blocks. The tag may be followed by a
 # newline (classic form) or by inline JSON args on the same line
-# (```list_email_accounts {}). The same-line part is captured separately
+# (```manage_notes {}). The same-line part is captured separately
 # (group 2) and judged by _fenced_tool_call below — the regex alone only
 # requires it to start with { or [; anything else after the tag is a Markdown
 # info string (```python title="example.py") and the fence never matches.
@@ -338,11 +337,11 @@ _RAW_WEB_JSON_ALLOWED_KEYS = {"query", "queries", "time_filter", "freshness", "m
 
 # Narrow rescue for models that ignore native tool calling and print the UI
 # command as plain text. Keep this intentionally tiny: open-panel is a harmless
-# frontend event, while broad plain-text parsing of shell/doc/email tools would
-# be unsafe.
+# frontend event, while broad plain-text parsing of shell/doc tools would be
+# unsafe.
 _PLAIN_UI_OPEN_PANEL_RE = re.compile(
     r"(?im)^\s*(?:`{1,3})?\s*ui_control\s+open_panel\s+"
-    r"(documents?|library|gallery|images?|email|inbox|mail|sessions?|chats?|history|"
+    r"(documents?|library|gallery|images?|sessions?|chats?|history|"
     r"notes?|brain|memor(?:y|ies)|skills?|settings|preferences|cookbook|models?)"
     r"\s*(?:`{1,3})?\s*$"
 )
@@ -629,8 +628,6 @@ def _raw_openai_tool_call_to_block(value) -> Optional[ToolBlock]:
 
     if tool_type.startswith("mcp__"):
         return ToolBlock(tool_type, json.dumps(args) if args else "{}")
-    if name in BUILTIN_EMAIL_TOOLS:
-        return ToolBlock(f"mcp__email__{name}", json.dumps(args) if args else "{}")
     if tool_type not in TOOL_TAGS:
         return None
 
@@ -860,7 +857,7 @@ def _parse_xml_invoke(name, body) -> Optional[ToolBlock]:
 
     Delegates content-shaping to function_call_to_tool_block — the SAME
     converter used for native function calls — so the full tool set (every
-    name in TOOL_TAGS, plus email + MCP tools) and the correct per-tool
+    name in TOOL_TAGS, plus MCP tools) and the correct per-tool
     content format are handled in ONE place. The previous version duplicated
     a partial, hand-maintained tool-name map plus a `key: value` serializer:
     any tool missing from that map (e.g. `manage_calendar`) was silently
@@ -1270,15 +1267,7 @@ def parse_tool_blocks(text: str, skip_fenced: bool = False) -> List[ToolBlock]:
                 continue
             tag, content = call
             if not content:
-                # An empty fence is still an unambiguous call for the email
-                # tools — ```list_email_accounts``` with no body is a shape
-                # local models really emit for no-arg tools. Dispatch with
-                # empty args and let the tool's own validation answer;
-                # silently dropping the call left models concluding email was
-                # broken. Other tags (bash, python, ...) keep skipping: empty
-                # content is nothing to run.
-                if tag in BUILTIN_EMAIL_TOOLS:
-                    blocks.append(ToolBlock(tag, ""))
+                # Empty fences are not executable: there is nothing to run.
                 continue
             # If a code block's content is an <invoke> XML call (some models wrap
             # tool calls in ```python or ```xml fences), parse the invoke instead.

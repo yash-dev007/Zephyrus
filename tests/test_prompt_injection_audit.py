@@ -72,64 +72,10 @@ def _patch_email_style(monkeypatch, style_text: str):
     _bust_prompt_cache()
 
 
-def test_email_style_not_in_system_role(monkeypatch):
-    """A malicious email_writing_style value must not reach the system role."""
-    _patch_email_style(monkeypatch, MALICIOUS_PAYLOAD)
-
-    from src.agent_loop import _build_system_prompt
-
-    messages = [{"role": "user", "content": "write an email to my boss"}]
-    out, _ = _build_system_prompt(
-        messages=messages, model="test-model",
-        active_document=None, mcp_mgr=None, owner=None,
-        relevant_tools={"send_email"},
-    )
-
-    assert MALICIOUS_PAYLOAD not in _sys_role_text(out), (
-        "SECURITY: email_writing_style content was concatenated into the "
-        "trusted system role. It must be wrapped in untrusted_context_message."
-    )
 
 
-def test_email_style_lands_in_untrusted_message(monkeypatch):
-    """A non-empty email_writing_style must appear in an untrusted user message."""
-    style = "Sign off as: Best, Alice"
-    _patch_email_style(monkeypatch, style)
-
-    from src.agent_loop import _build_system_prompt
-
-    messages = [{"role": "user", "content": "reply to this email"}]
-    out, _ = _build_system_prompt(
-        messages=messages, model="test-model",
-        active_document=None, mcp_mgr=None, owner=None,
-        relevant_tools={"reply_to_email"},
-    )
-
-    found = [m for m in _untrusted_messages(out) if style in (m.get("content") or "")]
-    assert found, (
-        "Expected the email writing style to appear in an untrusted user-role "
-        "message; got none."
-    )
-    assert found[0]["role"] == "user"
 
 
-def test_email_style_hardcoded_rules_stay_in_system_role(monkeypatch):
-    """The hardcoded identity/style rules must still be in the system prompt."""
-    _patch_email_style(monkeypatch, "Sign off as: Cheers, Bob")
-
-    from src.agent_loop import _build_system_prompt
-
-    messages = [{"role": "user", "content": "draft an email"}]
-    out, _ = _build_system_prompt(
-        messages=messages, model="test-model",
-        active_document=None, mcp_mgr=None, owner=None,
-        relevant_tools={"send_email"},
-    )
-
-    sys_text = _sys_role_text(out)
-    assert "Hard identity rule" in sys_text, (
-        "Hardcoded identity rules must remain in the trusted system prompt."
-    )
 
 
 # ── 2. Integration descriptions ─────────────────────────────────────────────

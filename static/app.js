@@ -167,7 +167,6 @@ function initRailHoverLabels() {
     'rail-compare': 'Compare',
     'rail-cookbook': 'Cookbook',
     'rail-research': 'Research',
-    'rail-email': 'Email',
     'rail-gallery': 'Gallery',
     'rail-archive': 'Library',
     'rail-memory': 'Brain',
@@ -352,7 +351,7 @@ function initializeEventListeners() {
     const _updateMsgCount = () => {
       _countScheduled = false;
       const n = _chatHistEl.querySelectorAll(':scope > .msg').length;
-      _metaCountEl.textContent = n ? `· ${n} msg${n === 1 ? '' : 's'}` : '';
+      _metaCountEl.textContent = n ? `${n} msg${n === 1 ? '' : 's'}` : '';
     };
     const _scheduleCount = () => {
       if (_countScheduled) return;
@@ -413,7 +412,7 @@ function initializeEventListeners() {
       '.export-dropdown-menu.open, .overflow-menu.open, .model-picker-menu.open, .doc-overflow-menu.open'
     ).forEach(m => { if (m !== except) m.classList.remove('open'); });
     document.querySelectorAll(
-      '.skill-kebab-menu, .note-reminder-menu, .task-dropdown, .doclib-card-dropdown, .email-card-dropdown, .msg-overflow-menu'
+      '.skill-kebab-menu, .note-reminder-menu, .task-dropdown, .doclib-card-dropdown, .msg-overflow-menu'
     ).forEach(m => { if (m !== except) m.remove(); });
   };
   // Window-opening / nav controls (rail buttons, sidebar tool rows + session
@@ -736,7 +735,7 @@ function initializeEventListeners() {
       };
 
       // Dynamic modals (removed from DOM on close)
-      const dynamicModals = ['library-modal', 'archive-modal', 'doclib-modal', 'gallery-modal', 'tasks-modal', 'email-lib-modal'];
+      const dynamicModals = ['library-modal', 'archive-modal', 'doclib-modal', 'gallery-modal', 'tasks-modal'];
       for (const id of dynamicModals) {
         const m = document.getElementById(id);
         if (id === 'gallery-modal') {
@@ -1108,9 +1107,9 @@ function initializeEventListeners() {
   };
   // Collapse the wide sidebar so the icon rail (48px mini sidebar) shows
   // in its place. The two are mutually exclusive — sidebar-layout.js:57
-  // only displays the rail when `.sidebar.hidden` is set. Used by /email
-  // and /notes route openers so those fullscreen views keep the rail
-  // visible as the user's navigation strip. Records the prior state on
+  // only displays the rail when `.sidebar.hidden` is set. Used by the
+  // /notes route opener so that fullscreen view keeps the rail visible as
+  // the user's navigation strip. Records the prior state on
   // body so a paired close-handler can restore it without overriding a
   // manual toggle the user did in between.
   const _collapseSidebarToRail = () => {
@@ -1139,8 +1138,8 @@ function initializeEventListeners() {
     sb.classList.remove('hidden');
     try { window.syncRailSide && window.syncRailSide(); } catch (_) {}
   };
-  // Expose so closeEmailLibrary / notes close can call this without
-  // needing to import app.js directly.
+  // Expose so the notes close handler can call this without needing to
+  // import app.js directly.
   window._restoreSidebarIfRouteCollapsed = _restoreSidebarIfRouteCollapsed;
   // Clear the marker the moment the sidebar becomes visible again (user
   // hamburger click, or our own _restoreSidebarIfRouteCollapsed call —
@@ -1179,39 +1178,6 @@ function initializeEventListeners() {
     },
     '/calendar': () => calendarModule && calendarModule.openCalendar(),
     '/cookbook': () => document.getElementById('tool-cookbook-btn')?.click(),
-    '/email':    () => {
-      // Collapse the wide sidebar → icon rail (48px) so the user keeps
-      // navigation visible alongside the fullscreen email view.
-      _collapseSidebarToRail();
-      // Spawn a fresh chat first so a reply (or any AI work the user
-      // chains off the email) lives in its own session instead of grafting
-      // onto whatever was last open. The rail button has the full
-      // default-chat / fallback-model resolution logic baked in, so just
-      // delegate to it.
-      try { document.getElementById('rail-new-session')?.click(); } catch (_) {}
-      // The email library is opened by clicking the email section's HEADER
-      // row (.section-header-flex), not the title span. Trigger that, then
-      // snap the modal to fullscreen on the next frame.
-      const hdr = document.querySelector('#email-section .section-header-flex');
-      if (hdr) hdr.click();
-      // The modal is built synchronously inside openEmailLibrary, so a
-      // single frame later it's in the DOM and ready to be flagged.
-      // Fullscreen leaves the icon-rail visible on the left so navigation
-      // stays one click away (per #93). Width = viewport minus rail.
-      // Just add the class — the CSS rule for .email-lib-fullscreen .modal-content
-      // owns all the positioning (with !important so it beats openEmailLibrary's
-      // post-mount centering rAF) and reads the rail width from --icon-rail-w.
-      const _goFullscreen = () => {
-        const modal = document.getElementById('email-lib-modal');
-        if (!modal) return false;
-        modal.classList.add('email-lib-fullscreen');
-        return true;
-      };
-      _goFullscreen();
-      requestAnimationFrame(_goFullscreen);
-      setTimeout(_goFullscreen, 50);
-      setTimeout(_goFullscreen, 200);
-    },
     '/memory':   () => document.getElementById('tool-memory-btn')?.click(),
     '/gallery':  () => document.getElementById('tool-gallery-btn')?.click(),
     '/tasks':    () => document.getElementById('tool-tasks-btn')?.click(),
@@ -1219,10 +1185,10 @@ function initializeEventListeners() {
   };
   const _opener = _routeOpen[urlPath];
   // Defer the opener — at this point in init, the modules whose handlers
-  // we trigger (#rail-new-session click handler, the email-section header
-  // click handler in emailInbox, sessionModule's loaded session list) are
-  // still being wired up further down in this same function. Stash the
-  // opener so it runs from sessionModule.loadSessions().finally() below.
+  // we trigger (#rail-new-session click handler, sessionModule's loaded
+  // session list) are still being wired up further down in this same
+  // function. Stash the opener so it runs from
+  // sessionModule.loadSessions().finally() below.
   if (_opener) window._zephyrusRouteOpener = _opener;
 
   // Archive browser tool button
@@ -1234,8 +1200,8 @@ function initializeEventListeners() {
   }
 
   // "+" on the Library row → create a new blank document and open it in the
-  // editor (mirrors the email section's compose "+"). stopPropagation so it
-  // doesn't also fire the row's open-library click.
+  // editor. stopPropagation so it doesn't also fire the row's open-library
+  // click.
   const libraryNewDocBtn = el('library-new-doc-btn');
   if (libraryNewDocBtn) {
     libraryNewDocBtn.addEventListener('click', async (e) => {
@@ -1849,29 +1815,10 @@ function initializeEventListeners() {
   initWorkbench(workspaceModule);
 
   // Document editor toggle (special: uses module panel, not a checkbox)
-  function bringOpenDocumentToFrontOnMobile() {
-    if (window.innerWidth > 768) return false;
-    if (!documentModule || !documentModule.isPanelOpen || !documentModule.isPanelOpen()) return false;
-    if (!document.body.classList.contains('email-front')) return false;
-    document.body.classList.remove('email-front', 'email-doc-split-active');
-    document.documentElement.style.removeProperty('--email-doc-split-left-x');
-    document.documentElement.style.removeProperty('--email-doc-split-email-w');
-    document.documentElement.style.removeProperty('--email-doc-split-right-x');
-    const docPane = document.getElementById('doc-editor-pane');
-    if (docPane) docPane.style.setProperty('z-index', '10010', 'important');
-    const overflow = el('overflow-doc-btn');
-    if (overflow) overflow.classList.add('active');
-    const indicator = el('doc-indicator-btn');
-    if (indicator) indicator.classList.add('active');
-    const st = loadToggleState(); st.doc = true; saveToggleState(st);
-    return true;
-  }
-
   const overflowDocBtn = el('overflow-doc-btn');
   if (overflowDocBtn) {
     overflowDocBtn.addEventListener('click', async () => {
       if (!documentModule) return;
-      if (bringOpenDocumentToFrontOnMobile()) return;
       if (documentModule.isPanelOpen()) {
         documentModule.closePanel();
         overflowDocBtn.classList.remove('active');
@@ -2573,7 +2520,6 @@ function initializeEventListeners() {
     'sidebar-new-chat':    '#sidebar-new-chat-btn',
     'sidebar-search':      '#sidebar-search-btn',
     'sessions-section':    '#sessions-section',
-    'email-section':       '#email-section',
     'models-section':      '#models-section',
     'tools-section':       '#tools-section',
     // Per-tool visibility — fine-grained control over which entries show
@@ -3029,7 +2975,6 @@ function initializeEventListeners() {
       // Modals managed by the new modalManager (Modals.register) get their own
       // .modal-minimize-btn and chips via the .minimized-dock-chip system.
       // Skip them entirely so we don't double-up minimize buttons or chips.
-      if (modal.id && /^email-reader-/.test(modal.id)) return;
       if (modal.id && window.Modals && window.Modals.isRegistered && window.Modals.isRegistered(modal.id)) return;
       const header = modal.querySelector('.modal-header');
       if (!header) return;
@@ -3125,7 +3070,7 @@ function initializeEventListeners() {
       ['.admin-tabs', '.admin-tab'],
     ];
     const _IGNORE = 'input, textarea, select, [contenteditable="true"], .preset-range, ' +
-      '.note-cl-row, .minimized-dock-chip, canvas, .email-card-reader';
+      '.note-cl-row, .minimized-dock-chip, canvas';
     let sx = 0, sy = 0, tracking = false;
 
     document.addEventListener('touchstart', (e) => {
@@ -3240,24 +3185,31 @@ function initializeEventListeners() {
     });
   }
 
-  // Logo click → toggle sidebar. The dragon mark (#sidebar-brand-btn) replaces
-  // the old three-line hamburger as the sidebar toggle: clicking it opens /
-  // closes the sidebar on exactly the same code path as the hamburger button.
-  // (New chats start from the "New Chat" row, same as every other affordance.)
-  const sidebarBrandBtn = el('sidebar-brand-btn');
-  if (sidebarBrandBtn) {
-    sidebarBrandBtn.addEventListener('click', (e) => {
-      if (e) { e.preventDefault(); e.stopPropagation(); }
-      const hamburgerBtn = document.getElementById('hamburger-btn');
-      if (hamburgerBtn) hamburgerBtn.click();
-    });
-  }
+  // The brand is a static logo/wordmark. The sidebar toggle is the dedicated
+  // collapse button in the sidebar header (#sidebar-toggle-btn), so clicking
+  // the Zephyrus mark must not toggle the sidebar.
 
   const sidebarNewChatBtn = el('sidebar-new-chat-btn');
   if (sidebarNewChatBtn) {
     sidebarNewChatBtn.addEventListener('click', async (e) => {
       if (e) { e.preventDefault(); e.stopImmediatePropagation(); }
       await _handleNewChatAction();
+    });
+  }
+
+  // Compact Chats-header actions (design-v1 shell).
+  const chatsNewBtn = el('chats-new-btn');
+  if (chatsNewBtn) {
+    chatsNewBtn.addEventListener('click', async (e) => {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      await _handleNewChatAction();
+    });
+  }
+  const chatsSearchBtn = el('chats-search-btn');
+  if (chatsSearchBtn) {
+    chatsSearchBtn.addEventListener('click', (e) => {
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      el('sidebar-search-btn')?.click();
     });
   }
 
@@ -3629,7 +3581,6 @@ function startZephyrusApp() {
     'rail-calendar':  'tool-calendar-btn',
     'rail-notes':     'tool-notes-btn',
     'rail-memory':    'tool-memory-btn',
-    'rail-email':     'email-section-title',
   };
   Object.entries(_railToolMap).forEach(([railId, toolId]) => {
     const railBtn = el(railId);
@@ -3689,8 +3640,8 @@ function startZephyrusApp() {
   }
 
   // Sync the contextual rail icons. Tool launchers (calendar/compare/cookbook/
-  // research/gallery/tasks/archive/memory/notes/email) are now
-  // always-visible launchers, so only the doc + background-chat indicators
+  // research/gallery/tasks/archive/memory/notes) are now always-visible
+  // launchers, so only the doc + background-chat indicators
   // are shown/hidden dynamically here.
   function _syncRailDynamic() {
     // Show doc icon if panel is open OR session has documents

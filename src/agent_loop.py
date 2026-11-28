@@ -136,7 +136,6 @@ When referencing app entities by id, use clickable markdown anchors:
 - Sessions: `[Name](#session-<id>)`
 - Documents: `[Title](#document-<id>)`
 - Notes: `[Title](#note-<id>)`
-- Emails: `[Subject](#email-<uid>)`
 - Calendar events: `[Summary](#event-<uid>)`
 - Tasks: `[Task name](#task-<id>)`
 - Skills: `[skill-name](#skill-<name>)`
@@ -155,13 +154,6 @@ _DOMAIN_RULES = {
 - If an active document is open, "fix this", "add X", "change Y", etc. usually refers to that document.
 - Use `edit_document` for targeted changes. Use `update_document` only for genuine full rewrites.
 - For feedback/review/suggestions on an open document, use `suggest_document`.""",
-    "email": """\
-## Email rules
-- Email UIDs are the values after `UID:` in tool output, never list row numbers.
-- For latest/newest email, list with `max_results: 1`, `unread_only: false`, then read the returned UID if needed.
-- For named mailboxes/accounts, call `list_email_accounts` if needed and pass the exact `account` value.
-- Bulk email actions use `bulk_email` once with explicit UIDs; do not loop one message at a time.
-- "Write/draft a reply saying X" means open a pre-filled draft via `ui_control open_email_reply ... <body>` / structured `body`; only `reply_to_email` when the user clearly wants to send now.""",
     "cookbook": """\
 ## Cookbook/model-serving rules
 - Cookbook is the LLM-serving subsystem.
@@ -200,7 +192,7 @@ _DOMAIN_RULES = {
 - `app_api` is only for safe UI/API actions without a named tool; do not use it for shell, package installs, engine rebuilds, or sensitive auth/admin paths.""",
     "contacts": """\
 ## Contacts rules
-- Use `resolve_contact` to look up a contact's email or phone number by name. Searches the CardDAV address book and sent email history.
+- Use `resolve_contact` to look up a contact's email or phone number by name. Searches the CardDAV address book.
 - Use `manage_contact` to list, add, update, or delete contacts in the address book.
 - Do NOT use `manage_memory` for contact lookups — contact details live in the address book, not memory.""",
     "integrations": """\
@@ -212,7 +204,6 @@ _DOMAIN_RULES = {
 _DOMAIN_TOOL_MAP = {
     "web": set(WEB_TOOL_NAMES),
     "documents": {"create_document", "edit_document", "update_document", "suggest_document", "manage_documents"},
-    "email": {"list_email_accounts", "list_emails", "read_email", "send_email", "reply_to_email", "bulk_email", "archive_email", "delete_email", "mark_email_read", "resolve_contact", "manage_contact"},
     "cookbook": {"download_model", "serve_model", "serve_preset", "list_serve_presets", "list_served_models", "stop_served_model", "tail_serve_output", "list_downloads", "cancel_download", "search_hf_models", "list_cached_models", "list_cookbook_servers", "adopt_served_model"},
     "notes_calendar_tasks": {"manage_notes", "manage_calendar", "manage_tasks"},
     "ui": {"ui_control"},
@@ -386,42 +377,13 @@ Generate an image. Line 1 = description, line 2 = model name, line 3 = WxH (e.g.
     "manage_tokens": "- ```manage_tokens``` — Generate or revoke API access tokens for external integrations. Args (JSON): {\"action\": \"list|create|delete\", ...}",
     "manage_documents": "- ```manage_documents``` — List, read/open, delete, or tidy documents in the editor panel. Args (JSON): {\"action\": \"list|read|delete|tidy\", ...}. `list` returns rows like `[Title](#document-<id>) — lang, size, updated 5m ago` sorted MOST-RECENT FIRST; the user clicks the anchor to open. `read` (aliases: view/open/get) takes `document_id` and returns the content. When the user asks \"open/show/read my notes\" or \"what documents do I have\", use this — do NOT shell out, do NOT curl.",
     "manage_research": "- ```manage_research``` — List, read/open, or delete saved DEEP RESEARCH results from the Library. Args (JSON): {\"action\": \"list|read|delete\", \"id\": \"<id>\", \"search\": \"...\"}. `list` returns rows like `[query](#research-<id>) — N sources` MOST-RECENT FIRST; the user clicks to open. `read` (aliases: open/view/get) takes `id` and returns the report text + sources. Use when the user says \"open/read/find/delete my research\" or \"that report\". This IS how you read a finished report: when the user refers to a just-completed deep-research job (\"check it out\", \"read that report\", \"summarize the research\") WITHOUT giving an id, call `manage_research` with `action:list` to get the most-recent id, then `action:read` with that id, and answer from the returned text. Do NOT `web_fetch`/`app_api` the `/api/research/report/{id}` URL — that endpoint renders HTML for the browser, not clean text — and do NOT start a fresh `web_search`/`trigger_research` just to read an existing report. To START new research, use trigger_research instead.",
-    "manage_settings": "- ```manage_settings``` — View/change the REAL app settings (same ones the Settings panel writes) AND turn tools on/off. Change a setting: `{\"action\":\"set\",\"key\":\"...\",\"value\":\"...\"}` — keys accept friendly aliases, e.g. voice→tts_voice, \"search engine\"→search_provider, \"default model\"→default_model, \"teacher model\"→teacher_model, \"task/background model\"→task_model, \"image quality\"→image_quality, \"reminder channel\"→reminder_channel (browser|email|ntfy), \"agent timeout\"/\"max tool calls\"/\"token budget\". Read: `{\"action\":\"get\",\"key\":\"...\"}`; see all: `{\"action\":\"list\"}`; reset one: `{\"action\":\"reset\",\"key\":\"...\"}`. Use this when the user asks to change ANY preference instead of making them open Settings. Secrets/API keys are read-only (tell them to set those in the panel). Tool toggles: `{\"action\":\"disable_tool|enable_tool\",\"tool\":\"shell\"}` (aliases: shell/search/browser/documents/memory/skills/images/tasks/notes/calendar/email), list disabled: `{\"action\":\"list_tools\"}`.",
+    "manage_settings": "- ```manage_settings``` — View/change the REAL app settings (same ones the Settings panel writes) AND turn tools on/off. Change a setting: `{\"action\":\"set\",\"key\":\"...\",\"value\":\"...\"}` — keys accept friendly aliases, e.g. voice→tts_voice, \"search engine\"→search_provider, \"default model\"→default_model, \"teacher model\"→teacher_model, \"task/background model\"→task_model, \"image quality\"→image_quality, \"reminder channel\"→reminder_channel (browser|ntfy), \"agent timeout\"/\"max tool calls\"/\"token budget\". Read: `{\"action\":\"get\",\"key\":\"...\"}`; see all: `{\"action\":\"list\"}`; reset one: `{\"action\":\"reset\",\"key\":\"...\"}`. Use this when the user asks to change ANY preference instead of making them open Settings. Secrets/API keys are read-only (tell them to set those in the panel). Tool toggles: `{\"action\":\"disable_tool|enable_tool\",\"tool\":\"shell\"}` (aliases: shell/search/browser/documents/memory/skills/images/tasks/notes/calendar), list disabled: `{\"action\":\"list_tools\"}`.",
     "manage_notes": """\
 ```manage_notes
 {"action": "add", "title": "<short todo>", "due_date": "<natural language or ISO datetime>"}
 ```
 Notes, checklists, AND user reminders. Use this for "create/add/write a note", todos, checklists, and "remind me to X at <time>" — never use memory for note content. For reminders, pair a short `title` (what to do) with a `due_date` (when). `due_date` accepts natural language ("tomorrow at 1pm", "in 2 hours", "next monday 9am") or ISO ("2026-05-12T13:00:00"). Actions: `list`, `add` (title, content OR items:[{text,done}], note_type, color, label, due_date), `update`, `delete`, `toggle_item`.""",
-    "list_email_accounts": "- ```list_email_accounts``` — List configured email accounts. Use this before reading/sending when the user says Gmail, work mail, custom domain mail, or any non-default mailbox; pass the returned account name/email/id as `account` to email tools.",
-    "send_email": """\
-```send_email
-{"to": "recipient@example.com", "subject": "Re: Your question", "body": "Hi, ...", "account": "gmail"}
-```
-Send a new email via SMTP. Use `resolve_contact` first if you only have a name. If multiple email accounts exist, call `list_email_accounts` first and pass the chosen `account`.
-
-CRITICAL — signatures: DO NOT invent a sign-off name. End the body with just `Thanks,` or similar — never type a person's name unless the user explicitly told you what to sign as. When `agent_email_confirm` is on (default), the tool returns `{pending: true, pending_id: ...}` and stages the email for the user to approve in the chat UI instead of SMTPing immediately.""",
-    "list_emails": """\
-```list_emails
-{"folder": "INBOX", "max_results": 20, "unread_only": false, "account": "gmail"}
-```
-List recent emails from a folder, newest first, including read messages by default. Use `list_email_accounts` first when the user names a mailbox/account, then pass `account`. For "last/latest/newest email", call with `max_results: 1` and `unread_only: false`.""",
-    "read_email": "- ```read_email``` — Read a specific email by UID. Args (JSON): {\"uid\": \"...\", \"folder\": \"INBOX\", \"account\": \"gmail\"}. Include `account` when the UID came from a named/non-default mailbox.",
-    "reply_to_email": """\
-```reply_to_email
-{"uid": "1234", "body": "Sounds good — talk Friday.", "account": "gmail"}
-```
-SEND a reply email immediately by UID. Do not use this for "write/draft a reply", "open a reply", or "start a reply" — those should use `ui_control` with `open_email_reply <uid> <folder> reply <body>` (or structured `body`) to open the email draft document. Only use this when the user explicitly says to send now. Never invent UID `1`. Threads automatically (In-Reply-To/References handled).
-
-CRITICAL — signatures: DO NOT invent a sign-off name. End the body with just `Thanks,` or similar — never type a person's name unless the user explicitly told you what to sign as. When `agent_email_confirm` is on (default), the tool returns `{pending: true, pending_id: ...}` and stages the email for the user to approve in the chat UI instead of SMTPing immediately.""",
-    "bulk_email": """\
-```bulk_email
-{"action": "delete", "uids": ["10997", "10998"], "folder": "INBOX", "account": "Gmail"}
-```
-Bulk delete/archive/mark emails. Use this for "delete all those" after listing emails. Pass the exact UIDs and the same account from the list result, then report only the tool result.""",
-    "delete_email": "- ```delete_email``` — Delete one email by UID. Args (JSON): {\"uid\":\"...\", \"folder\":\"INBOX\", \"account\":\"Gmail\"}. For multiple messages use bulk_email.",
-    "archive_email": "- ```archive_email``` — Archive one email by UID. Args (JSON): {\"uid\":\"...\", \"folder\":\"INBOX\", \"account\":\"Gmail\"}. For multiple messages use bulk_email.",
-    "mark_email_read": "- ```mark_email_read``` — Mark one email read/unread. Args (JSON): {\"uid\":\"...\", \"read\":true, \"folder\":\"INBOX\", \"account\":\"Gmail\"}. For multiple messages use bulk_email.",
-    "resolve_contact": "- ```resolve_contact``` — Look up a contact's email by name. Searches CardDAV address book + sent email history. Args (JSON): {\"name\": \"...\"}. Use BEFORE send_email when the user gives only a name.",
+    "resolve_contact": "- ```resolve_contact``` — Look up a contact's email or phone number by name. Searches the CardDAV address book. Args (JSON): {\"name\": \"...\"}.",
     "manage_contact": "- ```manage_contact``` — Create/update/delete/list CardDAV contacts. Args (JSON): {\"action\": \"list|add|update|delete\", \"name\": \"...\", \"email\": \"...\", \"phones\": [...], \"address\": \"...\", \"uid\": \"...\"}. Use for info about another person: email, phone, postal address. For 'save this for <person>' / address paste / phone next to a name, use this — NOT manage_memory. Do NOT use for user identity facts ('my name is X'); those are manage_memory. For update/delete, call action=list first for the uid.",
     "manage_calendar": """\
 ```manage_calendar
@@ -441,7 +403,7 @@ If the user asks for a reminder/alarm before the event, pass `reminder_minutes` 
     "send_to_session": "- ```send_to_session``` — Send a message to another session. Line 1 = session_id, rest = message. Use for orchestrating work across sessions.",
     "search_chats": "- ```search_chats``` — Search past session transcripts for direct conversation evidence. Use when user asks 'did we discuss X?', 'find the conversation about Y', or when prior chat context is more appropriate than persistent memory.",
     "pipeline": "- ```pipeline``` — Run a multi-step AI pipeline. Args (JSON) with ordered steps, each specifying a model and prompt. Use for complex workflows.",
-    "ui_control": "- ```ui_control``` — Control the UI: toggle tools on/off, OPEN PANELS, open email reply drafts, switch models. Commands: `toggle <name> on/off` (names: bash/shell, web/search, research, incognito, document_editor/documents), `open_panel <name>` (panels: documents, gallery, email, sessions, notes, memories/brain, skills, settings, cookbook), `open_email_reply <uid> <folder> <reply|reply-all|ai-reply> <body text>` (opens an email compose document pre-filled with body, DOES NOT send; use this for normal “write/draft a reply saying X” requests), `set_mode agent/chat`, `switch_model <name>`. \"open documents\" / \"open library\" / \"show gallery\" / \"open inbox\" / \"open notes\" / \"open cookbook\" all map to `open_panel <name>`.",
+    "ui_control": "Control the UI: toggle tools, open panels (documents, gallery, sessions, notes, memories, skills, settings, cookbook), set mode, or switch models.",
     "ask_user": "- ```ask_user``` — Ask the user a multiple-choice question when the task is genuinely ambiguous and the answer changes what you do next (pick an approach, confirm an assumption, choose a target). Args (JSON): {\"question\": \"...\", \"options\": [{\"label\": \"...\", \"description\": \"...\"?}, ...], \"multi\": false?}. 2-6 options. The user gets clickable buttons; calling this ENDS your turn and their choice comes back as your next message. Prefer sensible defaults — only ask when you truly can't proceed well without their input.",
     "update_plan": "- ```update_plan``` — While executing an approved plan, write the plan back: tick steps done or revise them. Args (JSON): {\"plan\": \"- [x] done step\\n- [ ] next step\"}. Always pass the COMPLETE checklist, not a diff. Call it after finishing each step (mark it `- [x]`) and whenever the user asks to change the plan. The user's docked plan window updates live. Does nothing if there's no active plan.",
     "list_served_models": "- ```list_served_models``` — Show what the Cookbook (LLM-serving subsystem) is currently running. NO args. Use this for ANY 'what's running' / 'what's serving' / 'show my cookbook' / 'is anything up' query. DO NOT shell out (`ps aux`, `docker ps`, etc.) — this tool is the source of truth. Failed serve tasks include recent logs plus diagnosis/retry suggestions; use those suggestions to call `serve_model` again with an adjusted command when appropriate.",
@@ -473,15 +435,14 @@ GENERIC LOOPBACK to allowed Zephyrus internal endpoints. Use this whenever the u
 - Settings: `/api/settings`, `/api/prefs/{key}`
 - Research: `/api/research/start` (note: `/api/research/report/{id}` renders HTML — to READ a report's text use the `manage_research` tool with `action:read`, not this endpoint)
 - Compare: `/api/compare/sessions`, `/api/compare/start`
-- Email: use named email tools (`list_email_accounts`, `list_emails`, `read_email`, `send_email`, `reply_to_email`). Do NOT use `/api/email/accounts`; it is owner-filtered in tool context and may falsely return empty.
 - Endpoints (model providers): `/api/endpoints`, `/api/endpoints/{id}`
 - Shell: do NOT use `app_api` for `/api/shell/*`; use named command tooling instead.
 
 Body for POST/PUT/PATCH goes in `body` (object). Query params in `query` (object). Returns the parsed JSON of the response.
 
-**When to prefer named tools over app_api:** if a named wrapper exists (list_email_accounts, list_emails, read_email, manage_calendar, manage_notes, list_served_models, etc.) USE IT — it has nicer output formatting and clearer schema. Reach for `app_api` only when there's no wrapper for what you need.
+**When to prefer named tools over app_api:** if a named wrapper exists (manage_calendar, manage_notes, list_served_models, etc.) USE IT — it has nicer output formatting and clearer schema. Reach for `app_api` only when there's no wrapper for what you need.
 
-Blocked paths/routes (refused for safety): /api/auth/, /api/users/, /api/tokens/, /api/admin/, /api/shell/, /api/backup/restore, /api/email/accounts, POST /api/cookbook/packages/install, POST /api/cookbook/rebuild-engine, POST /api/cookbook/kill-pid.""",
+Blocked paths/routes (refused for safety): /api/auth/, /api/users/, /api/tokens/, /api/admin/, /api/shell/, /api/backup/restore, POST /api/cookbook/packages/install, POST /api/cookbook/rebuild-engine, POST /api/cookbook/kill-pid.""",
 }
 
 def get_builtin_overrides() -> dict:
@@ -872,7 +833,7 @@ def _assistant_requested_followup(messages: List[Dict]) -> bool:
 
     This allows natural replies like "buy milk" after "What would you like on
     your to-do list?" to inherit the prior domain, without letting random
-    greetings inherit stale Cookbook/email/document context.
+    greetings inherit stale Cookbook/document context.
     """
     seen_latest_user = False
     for msg in reversed(messages):
@@ -892,7 +853,7 @@ def _assistant_requested_followup(messages: List[Dict]) -> bool:
             return False
         return bool(re.search(
             r"\b(what would you like|what should|what do you want|which one|which model|"
-            r"what.+(?:todo|to-do|list|document|email|model|server|item)|"
+            r"what.+(?:todo|to-do|list|document|model|server|item)|"
             r"any specific|give me|tell me)\b",
             text,
         ))
@@ -902,7 +863,7 @@ def _assistant_requested_followup(messages: List[Dict]) -> bool:
 def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, object]:
     """Classify only whether this turn deserves domain tool retrieval.
 
-    Normal chat should not inherit old Cookbook/email/document context. Recent
+    Normal chat should not inherit old Cookbook/document context. Recent
     context is used only for explicit continuations ("yes", "do it", "1").
     This function does not inject tools directly; selected tools later decide
     which domain rule packs get appended to the system prompt.
@@ -928,8 +889,6 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
 
     if has(r"\b(cookbook|serve|serving|served|launch|start|preset|vllm|sglang|llama\.?cpp|ollama|download|downloading|pull|cached models?|running models?|model servers?|models? (?:are )?running|what models?|model picker|gpu box|kierkegaard|zephyrus|ajax|qwen|gemma|llama|mistral|minimax)\b"):
         domains.add("cookbook")
-    if has(r"\b(emails?|mails?|gmail|inbox|reply|forward|cc|bcc|send email|compose email|draft email|message chris|message him|message her)\b"):
-        domains.add("email")
     if has(r"\b(notes?|todos?|to-dos?|checklists?|task list|remind me|reminders?|buy|pickup|pick up)\b"):
         domains.add("notes_calendar_tasks")
     if has(r"\b(every day|every morning|every evening|recurring|automatically|cron|scheduled task|background task)\b"):
@@ -1018,25 +977,11 @@ def _turn_targets_active_document(intent: Dict[str, object], last_user: str, act
         return False
     raw_doc = getattr(active_document, "current_content", "") or ""
     title_l = (getattr(active_document, "title", "") or "").strip().lower()
-    is_email_doc = (
-        getattr(active_document, "language", None) == "email"
-        or title_l in {"new email", "new mail", "new message"}
-        or ("To:" in raw_doc[:400] and "Subject:" in raw_doc[:400] and "\n---\n" in raw_doc)
-    )
     if "documents" in (intent.get("domains") or set()):
         return True
     text = str(last_user or "").strip().lower()
     if not text:
         return False
-    if is_email_doc and re.search(
-        r"\b("
-        r"email|mail|reply|respond|response|draft|compose|send|"
-        r"tell them|tell her|tell him|say|write|make it say|"
-        r"japanese|japan|polite|formal|tone|style"
-        r")\b",
-        text,
-    ):
-        return True
     if re.search(
         r"\b(?:make|change|update|fix|edit|rewrite|rework|revise|replace|remove|delete|add|append|insert|set|turn)\b"
         r".{0,80}\b(?:day\s*\d+|row|rows|column|columns|table|section|chapter|part|paragraph|line|lines|"
@@ -1071,19 +1016,6 @@ def _turn_targets_active_document(intent: Dict[str, object], last_user: str, act
         r")\b",
         text,
     ))
-
-
-def _is_email_document_obj(active_document) -> bool:
-    if active_document is None:
-        return False
-    raw_doc = getattr(active_document, "current_content", "") or ""
-    title_l = (getattr(active_document, "title", "") or "").strip().lower()
-    return (
-        getattr(active_document, "language", None) == "email"
-        or title_l in {"new email", "new mail", "new message"}
-        or ("To:" in raw_doc[:400] and "Subject:" in raw_doc[:400] and "\n---\n" in raw_doc)
-    )
-
 
 def _minimal_saved_memory_message(messages: List[Dict]) -> Optional[Dict]:
     facts: List[str] = []
@@ -1129,42 +1061,6 @@ def _minimal_saved_memory_message(messages: List[Dict]) -> Optional[Dict]:
             + "\n".join(f"- {fact}" for fact in facts)
         ),
     }
-
-
-def _compact_email_draft_context(raw: str, *, max_own_chars: int = 1200, max_history_chars: int = 1200) -> str:
-    """Compact an email compose document for prompt injection.
-
-    The editor/backend preserve quoted history mechanically, so the model only
-    needs enough of the previous message to understand what to answer.
-    """
-    text = raw or ""
-    if "\n---\n" not in text:
-        return text[:3500] + ("\n...[truncated]" if len(text) > 3500 else "")
-    header, body = text.split("\n---\n", 1)
-    literal = "---------- Previous message ----------"
-    idx = body.find(literal)
-    if idx >= 0:
-        own = body[:idx].strip()
-        history = body[idx:].strip()
-    else:
-        own = body.strip()
-        history = ""
-    if len(own) > max_own_chars:
-        own = own[:max_own_chars].rstrip() + "\n...[draft body truncated]"
-    if len(history) > max_history_chars:
-        history = history[:max_history_chars].rstrip() + "\n...[quoted history truncated; full history is preserved by Zephyrus]"
-    if history:
-        body_out = (
-            f"{own}\n\n" if own else ""
-        ) + (
-            "QUOTED HISTORY EXCERPT FOR CONTEXT ONLY -- do not rewrite or include this excerpt in your tool output; "
-            "Zephyrus preserves the full quoted thread below the reply automatically.\n"
-            f"{history}"
-        )
-    else:
-        body_out = own
-    return header.rstrip() + "\n---\n" + body_out.strip()
-
 
 def _minimal_zephyrus_doc_messages(messages: List[Dict], active_document, stream_create: bool = False) -> List[Dict]:
     """Tiny prompt path for the Zephyrus document LoRA.
@@ -1452,13 +1348,20 @@ def _build_system_prompt(
     owner: Optional[str] = None,
     suppress_local_context: bool = False,
     suppress_skills: bool = False,
-    active_email: Optional[Dict[str, str]] = None,
     workspace: Optional[str] = None,
 ) -> List[Dict]:
     """Build agent system prompt, inject MCP/document context, merge consecutive system msgs."""
     global _cached_base_prompt, _cached_base_prompt_key
     if suppress_local_context:
         active_document = None
+
+    # Skill context is only actionable when the model can actually call the
+    # registry. Callers disable manage_skills for incognito, revoked memory
+    # privileges, explicit web-only turns, and similar cases; without this the
+    # matched procedures and the catalogue still reach the prompt even though
+    # the tool they tell the model to call is gone.
+    if "manage_skills" in (disabled_tools or set()):
+        suppress_skills = True
 
     # With RAG tools, cache key includes the selected tools
     _rt_key = frozenset(relevant_tools) if relevant_tools else None
@@ -1556,10 +1459,8 @@ def _build_system_prompt(
     # the trusted system role. Bound up front so the insert block below can
     # always check it.
     _skills_message = None
-    _email_style_message = None
     _integ_message = None
     _mcp_desc_message = None
-    _active_doc_is_email_doc = False
     if active_document:
         set_active_document(active_document.id)
         _doc_raw = active_document.current_content or ""
@@ -1570,114 +1471,86 @@ def _build_system_prompt(
         except Exception:
             _document_writing_style = ""
         _doc_title_l = (active_document.title or "").strip().lower()
-        _is_email_doc = (
-            active_document.language == "email"
-            or _doc_title_l in {"new email", "new mail", "new message"}
-            or ("To:" in _doc_raw[:400] and "Subject:" in _doc_raw[:400] and "\n---\n" in _doc_raw)
-        )
-        _active_doc_is_email_doc = _is_email_doc
-        if _is_email_doc:
-            _email_prompt_doc = _compact_email_draft_context(_doc_raw)
+        _is_form_backed = False
+        try:
+            from src.pdf_form_doc import is_form_backed_document
+            _is_form_backed = is_form_backed_document(active_document.current_content or "")
+        except Exception as e:
+            logger.warning("Failed to detect if document is form-backed, assuming plain", exc_info=e)
+
+        if _is_form_backed:
             doc_ctx = (
-                f'ACTIVE EMAIL DRAFT (open in editor — the user is looking at this right now)\n'
+                f'ACTIVE PDF FORM (open in editor — the user is looking at this right now)\n'
                 f'Title: "{active_document.title}"\n'
-                f'```\n{_email_prompt_doc}\n```\n\n'
-                f'This is the current email compose window, not a normal document library item. If the user says "write", "draft", "reply", "make it say", or "write the email" without naming another target, edit THIS email draft.\n\n'
-                f'When the user asks you to write, reply to, or improve this email:\n'
-                f'1. Use `update_document` to update this email draft — keep all header lines (To, Subject, In-Reply-To, References, X-Source-UID, X-Source-Folder, X-Attachments) and the `---` separator EXACTLY as they are.\n'
-                f'2. Replace ONLY the new reply text above `---------- Previous message ----------`. You may omit the quoted history from your tool output; Zephyrus preserves everything from that separator downward automatically.\n'
-                f'3. Write the reply body above the quoted original. Use the saved email writing style when present.\n'
-                f'4. Identity is critical: write as the logged-in user / mailbox owner only. NEVER sign as the recipient, original sender, quoted sender, spouse, assistant, company, or any third party. If adding a signature, use only the name/signature implied by the saved email writing style.\n'
-                f'5. Mechanical style is critical: never use em dash/en dash; use --. Never use curly apostrophes. For English emails, use Hi/Hiya from the saved style rather than Hey unless the user explicitly asks for Hey.\n'
-                f'6. Do NOT use create_document — the email is already open, you must update it.\n'
-                f'7. Do NOT call read_email/list_emails for this turn. The open email draft above is the source of truth, and the quoted history excerpt is enough context for a reply.\n'
-                f'8. After a successful tool call, answer with a brief confirmation only. Do not paste the full email back into chat unless the user asks.\n\n'
-                f'Do NOT ask the user to paste or share the email — you already have it above.'
+                f'```\n{active_document.current_content}\n```\n\n'
+                f'The ENTIRE form is in the markdown above. Every field, on every '
+                f'page, is a bullet line you can see now.\n\n'
+                f'DO NOT try to "read the file", "open the PDF", or call '
+                f'filesystem / read_file / mcp__filesystem__read_file / any '
+                f'file-reading tool. The form IS the document above. Just edit it.\n\n'
+                f'DO NOT ask the user to upload, share, or re-attach. The form is '
+                f'already loaded.\n\n'
+                f'TO EDIT: call `edit_document` with FIND/REPLACE matching whole '
+                f'bullet lines. The trailing HTML comment '
+                f'`<!-- field=NAME type=TYPE -->` is the ground truth anchor — '
+                f'match it to pick the correct bullet.\n\n'
+                f'RULES:\n'
+                f'1. FIND the WHOLE bullet line including the trailing comment. '
+                f'REPLACE keeps the bullet structure and the comment exactly; '
+                f'only the value text after the label changes.\n'
+                f'2. Text bullets — `- **label:** value <!--field=NAME-->` — '
+                f'replace `value`.\n'
+                f'3. Choice bullets — `- **label** [opt1 / opt2 / opt3]: value <!--field=NAME-->` — '
+                f'replace `value` with one of the listed options verbatim.\n'
+                f'4. Checkbox bullets — `- [ ] **label** <!--field=NAME-->` — '
+                f'toggle `[ ]` ↔ `[x]`.\n'
+                f'5. NEVER invent values. If the user gives no value, ASK. Never '
+                f'write fake names, addresses, emails, or "NaN"/"N/A"/"TBD".\n'
+                f'6. NEVER edit the front-matter `<!-- pdf_form_source ... -->` '
+                f'or the `## Page N` section headers.\n'
+                f'7. NEVER touch signature fields (type=signature) — the user '
+                f'signs those by clicking on the rendered PDF.\n'
+                f'8. Bulk requests are scoped by field type. "All included" means '
+                f'every choice field with that option. Do NOT touch text fields.\n'
+                f'9. The user has an Export button — do NOT try to export.'
             )
         else:
-            # Branch on whether the active doc is a form-backed PDF (via the
-            # front-matter pointer). Form-backed docs get a focused FORM MODE
-            # prompt; everything else gets the regular generic doc context.
-            _is_form_backed = False
-            try:
-                from src.pdf_form_doc import find_source_upload_id
-                _is_form_backed = bool(find_source_upload_id(active_document.current_content or ""))
-            except Exception as e:
-                logger.warning("Failed to detect if document is form-backed, assuming plain", exc_info=e)
-
-            if _is_form_backed:
-                doc_ctx = (
-                    f'ACTIVE PDF FORM (open in editor — the user is looking at this right now)\n'
-                    f'Title: "{active_document.title}"\n'
-                    f'```\n{active_document.current_content}\n```\n\n'
-                    f'The ENTIRE form is in the markdown above. Every field, on every '
-                    f'page, is a bullet line you can see now.\n\n'
-                    f'DO NOT try to "read the file", "open the PDF", or call '
-                    f'filesystem / read_file / mcp__filesystem__read_file / any '
-                    f'file-reading tool. The form IS the document above. Just edit it.\n\n'
-                    f'DO NOT ask the user to upload, share, or re-attach. The form is '
-                    f'already loaded.\n\n'
-                    f'TO EDIT: call `edit_document` with FIND/REPLACE matching whole '
-                    f'bullet lines. The trailing HTML comment '
-                    f'`<!-- field=NAME type=TYPE -->` is the ground truth anchor — '
-                    f'match it to pick the correct bullet.\n\n'
-                    f'RULES:\n'
-                    f'1. FIND the WHOLE bullet line including the trailing comment. '
-                    f'REPLACE keeps the bullet structure and the comment exactly; '
-                    f'only the value text after the label changes.\n'
-                    f'2. Text bullets — `- **label:** value <!--field=NAME-->` — '
-                    f'replace `value`.\n'
-                    f'3. Choice bullets — `- **label** [opt1 / opt2 / opt3]: value <!--field=NAME-->` — '
-                    f'replace `value` with one of the listed options verbatim.\n'
-                    f'4. Checkbox bullets — `- [ ] **label** <!--field=NAME-->` — '
-                    f'toggle `[ ]` ↔ `[x]`.\n'
-                    f'5. NEVER invent values. If the user gives no value, ASK. Never '
-                    f'write fake names, addresses, emails, or "NaN"/"N/A"/"TBD".\n'
-                    f'6. NEVER edit the front-matter `<!-- pdf_form_source ... -->` '
-                    f'or the `## Page N` section headers.\n'
-                    f'7. NEVER touch signature fields (type=signature) — the user '
-                    f'signs those by clicking on the rendered PDF.\n'
-                    f'8. Bulk requests are scoped by field type. "All included" means '
-                    f'every choice field with that option. Do NOT touch text fields.\n'
-                    f'9. The user has an Export button — do NOT try to export.'
+            _doc_raw = active_document.current_content or ""
+            _doc_numbered = "\n".join(
+                f"{_i}\t{_ln}" for _i, _ln in enumerate(_doc_raw.split("\n"), 1)
+            )
+            doc_ctx = (
+                f'ACTIVE DOCUMENT (open in the editor — the user is looking at it right now)\n'
+                f'Title: "{active_document.title}" | Language: {active_document.language or "text"}\n'
+                f'Below is the full text. Each line is prefixed with its line number and a TAB, '
+                f'purely so you can locate references like "[Doc edit: L25]" — the number and tab '
+                f'are NOT part of the document.\n'
+                f'```\n{_doc_numbered}\n```\n'
+                f'You ALREADY HAVE this document — it is right above. Do NOT ask the user to paste '
+                f'it, and do NOT use read_file, bash, cat, or any tool to fetch it: it lives in the '
+                f'editor, NOT on disk, so those attempts will fail. Every request is about THIS '
+                f'document unless the user clearly says otherwise.\n'
+                f'A "[Doc edit: L25]" prefix means the user is pointing at that line — use the '
+                f'numbers above to find the text they mean.\n'
+                f'To edit: use edit_document with <<<FIND>>>...<<<REPLACE>>>...<<<END>>>. The FIND '
+                f'text must match the document EXACTLY and must NOT include the leading line-number '
+                f'or tab (those are reference-only). To rewrite entirely: update_document.'
+            )
+            if _document_writing_style:
+                doc_ctx += (
+                    "\n\nDOCUMENT WRITING STYLE — use only for normal prose writing/revision in this "
+                    "document, not for code/data/JSON and not for greetings or signatures:\n"
+                    f"{_document_writing_style}"
                 )
             else:
-                _doc_raw = active_document.current_content or ""
-                _doc_numbered = "\n".join(
-                    f"{_i}\t{_ln}" for _i, _ln in enumerate(_doc_raw.split("\n"), 1)
+                doc_ctx += (
+                    "\n\nStyle safety: if the user asks to write/rewrite this document \"in my style\" "
+                    "or \"as my style\", do NOT infer that style from memories, identity, public persona, "
+                    "creator/channel references, or biographical facts. There is no saved document writing "
+                    "style. Ask the user for a style sample or a document writing style description before "
+                    "rewriting for style. You may still make ordinary requested edits that do not depend on "
+                    "knowing the user's personal style."
                 )
-                doc_ctx = (
-                    f'ACTIVE DOCUMENT (open in the editor — the user is looking at it right now)\n'
-                    f'Title: "{active_document.title}" | Language: {active_document.language or "text"}\n'
-                    f'Below is the full text. Each line is prefixed with its line number and a TAB, '
-                    f'purely so you can locate references like "[Doc edit: L25]" — the number and tab '
-                    f'are NOT part of the document.\n'
-                    f'```\n{_doc_numbered}\n```\n'
-                    f'You ALREADY HAVE this document — it is right above. Do NOT ask the user to paste '
-                    f'it, and do NOT use read_file, bash, cat, or any tool to fetch it: it lives in the '
-                    f'editor, NOT on disk, so those attempts will fail. Every request is about THIS '
-                    f'document unless the user clearly says otherwise.\n'
-                    f'A "[Doc edit: L25]" prefix means the user is pointing at that line — use the '
-                    f'numbers above to find the text they mean.\n'
-                    f'To edit: use edit_document with <<<FIND>>>...<<<REPLACE>>>...<<<END>>>. The FIND '
-                    f'text must match the document EXACTLY and must NOT include the leading line-number '
-                    f'or tab (those are reference-only). To rewrite entirely: update_document.'
-                )
-                if _document_writing_style:
-                    doc_ctx += (
-                        "\n\nDOCUMENT WRITING STYLE — use only for normal prose writing/revision in this "
-                        "document, not for code/data/JSON and not for email-specific greetings or signatures:\n"
-                        f"{_document_writing_style}"
-                    )
-                else:
-                    doc_ctx += (
-                        "\n\nStyle safety: if the user asks to write/rewrite this document \"in my style\" "
-                        "or \"as my style\", do NOT infer that style from memories, identity, public persona, "
-                        "creator/channel references, or biographical facts. There is no saved document writing "
-                        "style. Ask the user for a style sample or a document writing style description before "
-                        "rewriting for style. You may still make ordinary requested edits that do not depend on "
-                        "knowing the user's personal style."
-                    )
         _doc_message = untrusted_context_message("active editor document", doc_ctx)
         _doc_message["_protected"] = True
 
@@ -1699,135 +1572,6 @@ def _build_system_prompt(
             )
     else:
         set_active_document(None)
-
-    # Active email reader — frontend told us the user has an email open.
-    # Inject a context block so "reply", "summarize this", "what does it say"
-    # resolve to the real UID instead of the agent inventing a fresh .md
-    # draft with fake headers. This is the email equivalent of _doc_message.
-    _email_message = None
-    if active_email and active_email.get("uid") and not _active_doc_is_email_doc:
-        _em_uid = active_email.get("uid", "")
-        _em_folder = active_email.get("folder", "INBOX")
-        _em_account = active_email.get("account", "")
-        _em_subject = active_email.get("subject", "") or "(no subject)"
-        _em_from = active_email.get("from", "") or "(unknown sender)"
-        _em_preview = (active_email.get("body_preview", "") or "").strip()
-        _preview_block = f"\nBody preview:\n```\n{_em_preview[:1800]}\n```" if _em_preview else ""
-        _acct_arg = f" {_em_account}" if _em_account else ""
-        email_ctx = (
-            f"ACTIVE EMAIL OPEN (the user has this email open in a reader window right now)\n"
-            f"UID: {_em_uid}\n"
-            f"Folder: {_em_folder}\n"
-            f"Account: {_em_account or '(default)'}\n"
-            f"From: {_em_from}\n"
-            f"Subject: {_em_subject}{_preview_block}\n\n"
-            f"CRITICAL DEFAULT — every request about email this turn refers to "
-            f"THIS email unless the user names a DIFFERENT specific recipient "
-            f"(a name, an email address, or another thread). Examples that "
-            f"ALL mean reply-to-the-open-email:\n"
-            f"  • 'reply' / 'reply to this' / 'respond'\n"
-            f"  • 'write email saying X' / 'send email saying X' / 'draft something'\n"
-            f"  • 'tell them X' / 'say hi' / 'thanks' / 'ack' / 'lmk'\n"
-            f"  • 'summarize it' / 'what does it say' / 'tldr'\n"
-            f"  • 'forward this' / 'forward to <addr>'\n"
-            f"DO NOT ASK THE USER 'who do you want to send this to?' — the "
-            f"answer is ALWAYS the sender of the open email (above) unless they "
-            f"named someone else. Asking that is the wrong move every time.\n\n"
-            f"RULES for the open email:\n"
-            f"1. DRAFT a reply (default for any 'write/reply/tell them' "
-            f"request without a different recipient): call `ui_control` with "
-            f"`action=\"open_email_reply\"`, `uid=\"{_em_uid}\"`, "
-            f"`folder=\"{_em_folder}\"`, `mode=\"reply\"`, and `body` set to "
-            f"the reply text you wrote. This opens the proper reply doc with To/Subject/"
-            f"In-Reply-To pre-filled by the backend. The user will see and edit "
-            f"it before sending. DO NOT `create_document` a markdown file with "
-            f"hand-written `To:` / `Subject:` / `In-Reply-To:` headers — that "
-            f"is wrong every time.\n"
-            f"2. SEND a reply immediately (skip the draft): call "
-            f"`reply_to_email` with the UID above. Only do this when the user "
-            f"explicitly says 'send' / 'send the reply' / 'reply and send'.\n"
-            f"3. READ the full body (the preview above may be truncated): "
-            f"call `read_email` with the UID/folder/account above.\n"
-            f"4. SUMMARIZE / answer questions about it: read it first, then "
-            f"answer in chat. Don't create a document for a summary unless "
-            f"the user explicitly asks for one.\n"
-            f"5. Never ask the user to paste the email or 'share it with you' "
-            f"— you already have its identity above and can read the full body.\n"
-            f"6. The ONLY time you ask 'who to send to?' is when the user "
-            f"explicitly says 'send a NEW email to someone else' or names a "
-            f"recipient you can't identify. A bare 'send email saying X' = the "
-            f"open email's sender.\n"
-        )
-        _email_message = untrusted_context_message("active email reader", email_ctx)
-        _email_message["_protected"] = True
-
-    # Inject writing style for any email writing path. This is deliberately
-    # broader than read/list: models may compose via send_email, reply_to_email,
-    # or ui_control open_email_reply after the first tool round.
-    _inject_style = False
-    _EMAIL_TOOL_HINTS = {
-        "list_email_accounts", "send_email", "reply_to_email", "list_emails", "read_email",
-        "bulk_email", "archive_email", "delete_email", "mark_email_read",
-        "resolve_contact", "ui_control",
-        "mcp__email__list_email_accounts",
-        "mcp__email__send_email", "mcp__email__reply_to_email",
-        "mcp__email__list_emails", "mcp__email__read_email",
-        "mcp__email__bulk_email", "mcp__email__archive_email",
-        "mcp__email__delete_email", "mcp__email__mark_email_read",
-    }
-    if active_document and active_document.language == "email":
-        _inject_style = True
-    elif relevant_tools and (_EMAIL_TOOL_HINTS & set(relevant_tools)):
-        # Avoid adding email style for unrelated UI-only requests unless the
-        # user's words are email-ish.
-        _last_user_text = ""
-        for _msg in reversed(messages):
-            if _msg.get("role") == "user":
-                _c = _msg.get("content", "")
-                if isinstance(_c, list):
-                    _c = " ".join(b.get("text", "") for b in _c if isinstance(b, dict))
-                _last_user_text = str(_c).lower()
-                break
-        _inject_style = any(tok in _last_user_text for tok in ("email", "mail", "reply", "send", "inbox"))
-    if _inject_style and not suppress_local_context:
-        try:
-            from src.settings import load_settings as _load_settings
-            _style = (_load_settings().get("email_writing_style", "") or "").strip()
-            if _style:
-                # Hardcoded identity/style rules stay in the trusted system prompt.
-                agent_prompt += (
-                    "\n\n"
-                    "Hard identity rule: write as the user/mailbox owner only. Do not sign as, speak as, "
-                    "or imply you are the recipient, original sender, quoted sender, spouse, assistant, "
-                    "company, or any other third party. If a signature is needed, use only the name/signature "
-                    "from the saved writing style. Never copy a name from the quoted thread into the sign-off.\n"
-                    "Mechanical style rules: never use em dash/en dash; use --. Never use curly apostrophes. "
-                    "For English emails, default to Hi [Name] or Hiya from the saved style rather than Hey. "
-                    "If the saved style specifies Best/newline/name, use that sign-off when a sign-off is natural."
-                )
-                # User-editable style text is untrusted — wrap it so a malicious
-                # style value cannot inject system-role instructions.
-                _email_style_message = untrusted_context_message(
-                    "email writing style",
-                    "EMAIL WRITING STYLE AND IDENTITY — FOLLOW FOR ANY EMAIL DRAFT OR SEND:\n" + _style,
-                )
-        except Exception:
-            pass
-
-    # When creating email documents, instruct the AI on the format
-    if relevant_tools and not suppress_local_context and (_EMAIL_TOOL_HINTS & set(relevant_tools)):
-        agent_prompt += (
-            '\n\n📧 EMAIL DOCUMENT FORMAT: If no email draft is already open and you need to create an email draft, use create_document with language="email". '
-            'The content format is:\n'
-            'To: recipient@example.com\n'
-            'Subject: Re: Original subject\n'
-            'In-Reply-To: <original-message-id>\n'
-            'References: <original-message-id>\n'
-            '---\n'
-            'Body text here...\n\n'
-            'The user can then edit and click Send or Draft in the editor. If an email draft is already open, '
-            'that open draft is the target: use update_document/edit_document on it instead of creating another document.'
-        )
 
     # Inject relevant skills based on the user's last message. The
     # SkillsManager does a Jaccard token-match over published skills'
@@ -1872,21 +1616,29 @@ def _build_system_prompt(
                 except (TypeError, ValueError):
                     _skill_max_injected = 3
                 _skill_max_injected = max(0, min(12, _skill_max_injected))
+                # Toolset availability for this turn, so a matched procedure
+                # can't name a tool the route already disabled.
+                try:
+                    from src.tool_policy import known_tool_names as _known_tool_names
+                    _active_toolsets = _known_tool_names() - set(disabled_tools or set())
+                except Exception:
+                    _active_toolsets = set(TOOL_SECTIONS.keys()) - set(disabled_tools or set())
                 relevant_skills = sm.get_relevant_skills(
                     last_user,
                     skills=sm.load(owner=owner),
                     threshold=0.25,
                     max_items=_skill_max_injected,
                     min_confidence=_skill_min_conf,
+                    active_toolsets=_active_toolsets,
                 ) if _skill_max_injected > 0 else []
                 lines = [""]
                 if relevant_skills:
-                    # Bump the "uses" counter on every skill we actually surface
-                    # to the agent — otherwise every skill shows "0 times" no
-                    # matter how often it's been matched and applied.
+                    # `matched` counts prompt surfacing only. Actual consumption
+                    # (view/invoke) is recorded separately, so "uses" can't be
+                    # inflated by a turn the model never acted on.
                     for _sk in relevant_skills:
                         try:
-                            sm.record_use(_sk.get('name', ''), owner=owner)
+                            sm.record_match(_sk.get('name', ''), owner=owner)
                         except Exception:
                             pass
                     lines.append("## Relevant skills for this request")
@@ -1993,12 +1745,6 @@ def _build_system_prompt(
     if _doc_message:
         merged.insert(last_user_idx, _doc_message)
         last_user_idx += 1  # the document message is now at last_user_idx
-    if _email_message:
-        merged.insert(last_user_idx, _email_message)
-        last_user_idx += 1
-    if _email_style_message:
-        merged.insert(last_user_idx, _email_style_message)
-        last_user_idx += 1
     if _integ_message:
         merged.insert(last_user_idx, _integ_message)
         last_user_idx += 1
@@ -2088,7 +1834,15 @@ def _build_base_prompt(
             from services.memory.skills import SkillsManager
             from src.constants import DATA_DIR
             _sm = SkillsManager(DATA_DIR)
-            active_tools = list(set(TOOL_SECTIONS.keys()) - set(disabled or []))
+            # Use the full executable-tool set, not just the prose sections:
+            # code-nav tools (grep/glob/ls) ship as schemas without a
+            # TOOL_SECTIONS entry, and gating on the smaller set hid skills
+            # that the model could actually run.
+            try:
+                from src.tool_policy import known_tool_names as _known_tool_names
+                active_tools = list(_known_tool_names() - set(disabled or []))
+            except Exception:
+                active_tools = list(set(TOOL_SECTIONS.keys()) - set(disabled or []))
             skill_idx = _sm.index_for(owner=owner, active_toolsets=active_tools)
             if skill_idx:
                 lines = ["## Available skills",
@@ -2112,8 +1866,6 @@ def _build_base_prompt(
             logger.debug(f"Skill-index injection skipped: {_e}")
 
     return agent_prompt, skill_index_block
-
-
 
 def _resolve_tool_blocks(
     round_response: str,
@@ -2237,12 +1989,6 @@ def _append_tool_results(
         if round_reasoning:
             msg["reasoning_content"] = round_reasoning
         messages.append(msg)
-        # Tool output (shell/python stdout, file reads, fetched pages, email
-        # bodies, MCP results) is sourced from outside the server. Wrap it as
-        # untrusted data so prompt-injection inside a tool result is treated as
-        # data, not instructions — same hardening as skills (#788) and the
-        # web/RAG context. THREAT_MODEL.md lists tool output as a surface that
-        # must go through untrusted_context_message.
         messages.append(
             untrusted_context_message("tool execution results", tool_output_text)
         )
@@ -2334,18 +2080,28 @@ def _build_actions_snapshot(tool_events: list, limit: int = 8000) -> str:
     """Compact record of what the agent actually did this turn, for the
     verifier to judge against. One block per tool execution: the command and
     a head of its output."""
+    if limit <= 0:
+        return ""
     parts = []
-    for ev in tool_events:
+    remaining = limit
+    # Reserve room for the latest results first. A follow-up verification
+    # must see the repair even when earlier rounds filled the evidence budget.
+    for ev in reversed(tool_events):
         tool = ev.get("tool", "?")
         cmd = (ev.get("command") or "").strip()
         out = (ev.get("output") or "").strip()
         rc = ev.get("exit_code")
-        head = f"[{tool}] {cmd}" if cmd else f"[{tool}]"
+        head = f"[{tool}] {cmd[:600]}" if cmd else f"[{tool}]"
         rc_s = f" (exit {rc})" if rc not in (None, 0) else ""
         body = (out[:1200] + " …") if len(out) > 1200 else (out or "(no output)")
-        parts.append(f"{head}{rc_s}\n-> {body}")
-    snap = "\n\n".join(parts)
-    return snap[:limit] if len(snap) > limit else snap
+        block = f"{head}{rc_s}\n-> {body}"
+        if parts and len(block) > remaining:
+            break
+        parts.append(block[:remaining])
+        remaining -= len(block) + 2
+        if remaining <= 0:
+            break
+    return "\n\n".join(reversed(parts))
 
 
 async def _run_verifier_subagent(
@@ -2365,8 +2121,6 @@ async def _run_verifier_subagent(
         "following task is complete. Using ONLY the request and the record of "
         "what it actually did, decide whether that claim is correct. Be strict: "
         "only say SUCCESS if the work genuinely satisfies the request.\n\n"
-        f"<user_request>\n{(instruction or '')[:4000]}\n</user_request>\n\n"
-        f"<actions_taken>\n{actions_snapshot[:8000]}\n</actions_taken>\n\n"
         "<checklist>\n"
         "1. Every concrete deliverable the request asked for was actually produced\n"
         "2. Outputs/edits match what was asked — nothing missing, no extra or unrequested changes\n"
@@ -2381,21 +2135,29 @@ async def _run_verifier_subagent(
     try:
         raw = await llm_call_async(
             url=endpoint_url, model=model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": prompt},
+                untrusted_context_message("task and action evidence", json.dumps({
+                    "user_request": (instruction or "")[:4000],
+                    "actions_taken": actions_snapshot[:8000],
+                }, ensure_ascii=False)),
+            ],
             headers=headers, temperature=0.0, max_tokens=600, timeout=60,
         )
     except Exception as e:
         logger.warning(f"[agent] verifier subagent failed: {e}")
         return []
     raw = _strip_think_blocks(raw or "")
-    last_v = None
-    for line in raw.splitlines():
-        if "VERIFICATION:" in line:
-            last_v = line.strip()
-    if not last_v or "VERIFICATION: FAIL:" not in last_v:
+    lines = raw.strip().splitlines()
+    verdict = lines[-1].strip() if lines else ""
+    if verdict == "VERIFICATION: SUCCESS":
         return []
-    reasons = last_v.split("VERIFICATION: FAIL:", 1)[1].strip()
-    return [r.strip() for r in reasons.split(";") if r.strip()]
+    if verdict.startswith("VERIFICATION: FAIL:"):
+        reasons = [r.strip() for r in verdict.removeprefix("VERIFICATION: FAIL:").split(";") if r.strip()]
+        if reasons:
+            return reasons
+    logger.warning("[agent] verifier returned no valid final verdict")
+    return []
 
 
 def _empty_response_fallback(
@@ -2520,7 +2282,6 @@ async def stream_agent_loop(
     max_tool_calls: int = 0,
     context_length: int = 0,
     active_document=None,
-    active_email: Optional[Dict[str, str]] = None,
     session_id: Optional[str] = None,
     disabled_tools: Optional[Set[str]] = None,
     owner: Optional[str] = None,
@@ -2583,12 +2344,6 @@ async def stream_agent_loop(
     _casual_low_signal_turn = _is_casual_low_signal(_last_user)
     _existing_conversation = _user_turn_count(messages) > 1
     _active_document_relevant = _turn_targets_active_document(_intent, _last_user, active_document)
-    _active_email_draft_relevant = _active_document_relevant and _is_email_document_obj(active_document)
-    if _active_email_draft_relevant:
-        disabled_tools.update({
-            "list_email_accounts", "list_emails", "read_email",
-            "mcp__email__list_emails", "mcp__email__read_email",
-        })
     _prompt_active_document = active_document if _active_document_relevant else None
     _direct_low_signal = (
         _low_signal_turn
@@ -2598,7 +2353,6 @@ async def stream_agent_loop(
         and not approved_plan
         and not guide_only
         and (_casual_low_signal_turn or not _active_document_relevant)
-        and (_casual_low_signal_turn or not active_email)
         and (_casual_low_signal_turn or not workspace)
         and not forced_tools
         and not relevant_tools
@@ -2771,12 +2525,6 @@ async def stream_agent_loop(
                         )
                         logger.info(f"[tool-rag] Retrieved tools for query: {sorted(_relevant_tools - ALWAYS_AVAILABLE)}")
                     except asyncio.TimeoutError:
-                        # Leave _relevant_tools unset so the keyword fallback
-                        # below still runs. Hard-coding ALWAYS_AVAILABLE here
-                        # skipped the deterministic keyword hints whenever the
-                        # embedding backend was slow (e.g. a remote endpoint
-                        # cold-loading its model), silently stripping email/
-                        # calendar tools from queries that named them outright.
                         logger.warning(
                             "[tool-rag] Retrieval exceeded %.1fs; falling back to keyword tool selection",
                             _TOOL_SELECTION_TIMEOUT_SECONDS,
@@ -2797,12 +2545,6 @@ async def stream_agent_loop(
                 _relevant_tools.update(tools)
         logger.info(f"[tool-rag] Keyword fallback selected: {sorted(_relevant_tools - ALWAYS_AVAILABLE)}")
 
-    # If deterministic domain detection fired, seed the corresponding domain
-    # tools into the selected tool set. This is not direct prompt-pack
-    # injection: `_assemble_prompt()` still derives domain rules from the final
-    # tool names. It prevents obvious requests like "last 5 emails" from
-    # collapsing to only ask_user/manage_memory when vector retrieval misses or
-    # times out.
     if not guide_only and _relevant_tools is not None:
         for _domain in (_intent.get("domains") or set()):
             _relevant_tools.update(_DOMAIN_TOOL_MAP.get(str(_domain), set()))
@@ -2814,8 +2556,6 @@ async def stream_agent_loop(
                 "list_cookbook_servers",
                 "list_serve_presets",
             })
-        if "email" in (_intent.get("domains") or set()):
-            _relevant_tools.add("ui_control")
         if "web" in (_intent.get("domains") or set()):
             _relevant_tools.update(WEB_TOOL_NAMES)
             _blocked_web_tools = sorted(WEB_TOOL_NAMES & disabled_tools)
@@ -2840,19 +2580,6 @@ async def stream_agent_loop(
     # panel is open.
     if _relevant_tools is not None and _active_document_relevant:
         _relevant_tools.update({"edit_document", "update_document", "suggest_document"})
-        if _active_email_draft_relevant:
-            # The open compose document already contains the recipient,
-            # subject, source UID, and quoted previous-message excerpt. Reading
-            # the same email again through IMAP/MCP is slow, token-heavy, and
-            # can hang. Keep draft editing tools, drop email fetch tools.
-            _email_fetch_tools = {
-                "list_email_accounts", "list_emails", "read_email",
-                "mcp__email__list_emails", "mcp__email__read_email",
-            }
-            removed = sorted(_relevant_tools & _email_fetch_tools)
-            if removed:
-                _relevant_tools.difference_update(_email_fetch_tools)
-                logger.info("[agent-intent] active email draft pruned fetch tools=%s", removed)
 
     # Current-turn chat uploads are real files under the upload/data root. Make
     # the read-side file/document tools visible immediately so the agent can
@@ -2880,7 +2607,12 @@ async def stream_agent_loop(
     # (grep, read_file, ...) that aren't in its schema list. Keep the schemas
     # in lockstep: manage_skills is callable whenever any skill is indexed,
     # and a matched skill's declared requires_toolsets ride along with it.
-    if not guide_only and _relevant_tools is not None and not _low_signal_turn:
+    if (
+        not guide_only
+        and _relevant_tools is not None
+        and not _low_signal_turn
+        and "manage_skills" not in disabled_tools
+    ):
         try:
             from services.memory.skills import SkillsManager
             from src.constants import DATA_DIR
@@ -2900,13 +2632,15 @@ async def stream_agent_loop(
                     # schemas without a prompt-prose section.
                     from src.tool_policy import known_tool_names
                     _known = known_tool_names()
+                    _active_toolsets = _known - set(disabled_tools)
                     for _sk in _sm.get_relevant_skills(
                         _retrieval_query, skills=_owner_skills,
                         threshold=0.25, max_items=3,
+                        active_toolsets=_active_toolsets,
                     ):
                         _relevant_tools.update(
                             t for t in (_sk.get("requires_toolsets") or [])
-                            if t in _known
+                            if t in _known and t not in disabled_tools
                         )
         except Exception as _e:
             logger.debug(f"[tool-rag] skill-aware tool include skipped: {_e}")
@@ -3070,7 +2804,6 @@ async def stream_agent_loop(
         owner=owner,
         suppress_local_context=guide_only,
         suppress_skills=_low_signal_turn,
-        active_email=active_email,
         workspace=workspace,
     )
     if _ody_doc_finetune_mode and not plan_mode and not approved_plan and not guide_only:
@@ -3813,11 +3546,11 @@ async def stream_agent_loop(
                         "role": "system",
                         "content": (
                             "An independent verifier reviewed your work against the "
-                            "original request and found issues that must be fixed before "
-                            "this is actually done:\n- " + "\n- ".join(_vfail) +
-                            "\n\nFix these now using tools, then finish."
+                            "original request. Check the findings against the evidence "
+                            "and correct confirmed issues within the user's request."
                         ),
                     })
+                    messages.append(untrusted_context_message("verifier findings", "\n".join(_vfail)))
                     # Require fresh effectful work before verifying again, so we
                     # never re-verify an unchanged state in a loop.
                     _effectful_used = False
@@ -4295,14 +4028,6 @@ async def stream_agent_loop(
                 tool_output_data["ui_event"] = result["ui_event"]
                 for k in (
                     "toggle_name", "state", "mode", "model", "endpoint_url",
-                    # ui_control open_email_reply payload — without these the
-                    # frontend openReplyDraft bails on undefined uid and the
-                    # reply window silently never opens.
-                    "uid", "folder", "account_id",
-                    # Optional pre-filled body for open_email_reply so the
-                    # agent can compose-and-open in one tool call.
-                    "body",
-                    # ui_control open_panel payload
                     "panel",
                 ):
                     if k in result:

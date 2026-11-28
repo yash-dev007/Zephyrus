@@ -2,7 +2,7 @@
 // Lightweight popup that surfaces the existing /command registry as users
 // type. Reads COMMANDS from slashCommands.js — no command logic lives here.
 
-import { COMMANDS, LEGACY_ALIASES } from './slashCommands.js';
+import { COMMANDS, LEGACY_ALIASES, loadSkillSlashCatalog, skillCommandToken } from './slashCommands.js';
 
 const POPUP_ID = 'slash-autocomplete';
 // Short enough to fit above the composer on a 700px-tall viewport without
@@ -34,7 +34,7 @@ function _flatten() {
   for (const [name, def] of Object.entries(COMMANDS)) {
     if (EXCLUDED.has(name)) continue;
     if (def.hidden) continue;
-    if (def.handler) {
+    if (def.handler || def.subs) {
       seen.add(`/${name}`);
       out.push({
         token: `/${name}`,
@@ -84,21 +84,17 @@ function _flatten() {
   return out;
 }
 
-async function _loadSkillEntries() {
-  try {
-    const res = await fetch('/api/skills/slash-catalog', { credentials: 'same-origin' });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (Array.isArray(data.skills) ? data.skills : []).map(s => ({
-      token: s.token || `/${s.name}`,
+function _skillEntries(skills) {
+  return skills.map(s => {
+    const token = skillCommandToken(s.name);
+    return {
+      token,
       aliases: [],
       category: s.category || 'Skills',
       help: s.help || 'Run skill',
-      usage: s.usage || `${s.token || `/${s.name}`} <request>`,
-    })).filter(e => e.token && e.token.startsWith('/'));
-  } catch {
-    return [];
-  }
+      usage: `${token} <request>`,
+    };
+  });
 }
 
 function _scoreMatch(entry, query) {
@@ -119,14 +115,14 @@ function _scoreMatch(entry, query) {
 }
 
 function _exactCommandGroupItems(all, query) {
-  const q = query.toLowerCase();
+  const q = query.trimEnd().toLowerCase();
   if (!/^\/[a-z0-9_-]+$/i.test(q)) return [];
   const parent = all.find(entry => entry.token.toLowerCase() === q);
   if (!parent) return [];
   const prefix = q + ' ';
   const children = all.filter(entry => entry.token.toLowerCase().startsWith(prefix));
   if (!children.length) return [];
-  return children.concat(parent);
+  return query.endsWith(' ') ? children.concat(parent) : [parent, ...children];
 }
 
 function _ensurePopup(textarea) {
@@ -184,13 +180,13 @@ function _render(popup, items, selectedIdx, query) {
     }
     const sel = i === selectedIdx ? ' slash-ac-row-sel' : '';
     const usage = it.usage && it.usage !== it.token ? ` <span class="slash-ac-usage">${_esc(it.usage)}</span>` : '';
-    html += `<div class="slash-ac-row${sel}" role="option" data-idx="${i}" data-token="${_esc(it.token)}">`
+    html += `<div class="slash-ac-row${sel}" id="slash-option-${i}" role="option" aria-selected="${i === selectedIdx}" data-idx="${i}" data-token="${_esc(it.token)}">`
          +    `<span class="slash-ac-token">${_esc(it.token)}</span>`
          +    `<span class="slash-ac-help">${_esc(it.help)}</span>`
          +    usage
          + `</div>`;
   }
-  popup.innerHTML = html;
+  popup.innerHTML = html + '<div class="slash-ac-keys">↑ ↓ to select · Enter to run · Tab to fill</div>';
   // Scroll selected into view
   const selEl = popup.querySelector('.slash-ac-row-sel');
   if (selEl) selEl.scrollIntoView({ block: 'nearest' });
@@ -200,25 +196,31 @@ function _esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[c]));
 }
 
-export function initSlashAutocomplete(textarea) {
+export function initSlashAutocomplete(textarea, submitCommand) {
   if (!textarea || textarea._slashAcWired) return;
   textarea._slashAcWired = true;
 
-  let all = _flatten();
+  const commands = _flatten();
+  let all = commands;
   let popup = null;
   let visible = false;
   let items = [];
   let selectedIdx = 0;
+  textarea.setAttribute('aria-autocomplete', 'list');
+  textarea.setAttribute('aria-haspopup', 'listbox');
 
   const hide = () => {
     if (!visible) return;
     visible = false;
+    textarea.removeAttribute('aria-activedescendant');
+    textarea.removeAttribute('aria-controls');
     if (popup) popup.style.display = 'none';
   };
 
   const show = () => {
     if (!popup) popup = _ensurePopup(textarea);
     visible = true;
+    textarea.setAttribute('aria-controls', POPUP_ID);
     popup.style.display = 'block';
     _position(popup, textarea);
   };
@@ -231,7 +233,12 @@ export function initSlashAutocomplete(textarea) {
     // the menu hides — we don't autocomplete mid-sentence.
     if (!v.startsWith('/') || v.includes('\n')) { hide(); return; }
     const query = v.trim();
-    const groupItems = _exactCommandGroupItems(all, query);
+    const groupItems = _exactCommandGroupItems(all, v);
+    if (/\s/.test(v) && !groupItems.length &&
+        !all.some(entry => entry.token.toLowerCase().startsWith(v.toLowerCase()))) {
+      hide();
+      return;
+    }
     if (groupItems.length) {
       items = groupItems.slice(0, MAX_VISIBLE);
     } else {
@@ -250,20 +257,15 @@ export function initSlashAutocomplete(textarea) {
     selectedIdx = 0;
     show();
     _render(popup, items, selectedIdx, query);
+    textarea.setAttribute('aria-activedescendant', 'slash-option-0');
   };
 
-  _loadSkillEntries().then(skillEntries => {
-    if (!skillEntries.length) return;
-    const seen = new Set(all.map(e => e.token));
-    const merged = all.slice();
-    for (const entry of skillEntries) {
-      if (seen.has(entry.token)) continue;
-      seen.add(entry.token);
-      merged.push(entry);
-    }
-    all = merged;
-    if (visible) refresh();
-  });
+  const updateSkills = skills => {
+    all = commands.concat(_skillEntries(skills));
+    if (visible || (document.activeElement === textarea && textarea.value.startsWith('/'))) refresh();
+  };
+  document.addEventListener('zephyrus:skill-catalog', e => updateSkills(e.detail));
+  loadSkillSlashCatalog().then(updateSkills).catch(() => {});
 
   const insert = (token) => {
     textarea.value = token + ' ';
@@ -279,7 +281,7 @@ export function initSlashAutocomplete(textarea) {
   textarea.addEventListener('blur', () => { setTimeout(hide, 120); });  // delay so click works
 
   textarea.addEventListener('keydown', (e) => {
-    if (!visible || !items.length) return;
+    if (!visible || !items.length || e.isComposing || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       selectedIdx = (selectedIdx + 1) % items.length;
@@ -288,24 +290,21 @@ export function initSlashAutocomplete(textarea) {
       e.preventDefault();
       selectedIdx = (selectedIdx - 1 + items.length) % items.length;
       _render(popup, items, selectedIdx, textarea.value);
-    } else if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-      // Tab always inserts. Enter inserts only when the user hasn't already
-      // typed a full command + args — i.e. the popup is still in completion
-      // mode, not in "ready to submit a typed-out command" mode.
-      const v = textarea.value.trim();
-      const exactHit = items.find(it => it.token === v || it.aliases.includes(v));
-      if (e.key === 'Enter' && exactHit) {
-        // User typed the whole command — let the normal submit path handle it
-        hide();
-        return;
-      }
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
       e.preventDefault();
       insert(items[selectedIdx].token);
+      if (e.key === 'Enter') submitCommand();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       hide();
+    } else {
+      return;
     }
-  });
+    if (visible) {
+      textarea.setAttribute('aria-activedescendant', `slash-option-${selectedIdx}`);
+    }
+    e.stopImmediatePropagation();
+  }, true);
 
   // Re-position on window resize / scroll
   window.addEventListener('resize', () => { if (visible) _position(popup, textarea); });

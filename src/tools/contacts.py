@@ -3,8 +3,6 @@
 Extracted from tool_implementations.py as part of slice 1 (#4082/#4071).
 Holds the resolve_contact and manage_contact (CardDAV CRUD) tools.
 ``src.tool_implementations`` re-exports these for backward compatibility.
-``_INTERNAL_BASE`` still lives in tool_implementations.py and is pulled
-back function-locally where needed.
 """
 from typing import Dict, Optional
 
@@ -12,9 +10,7 @@ from src.tools._common import _parse_tool_args
 
 
 async def do_resolve_contact(content: str, owner: Optional[str] = None) -> Dict:
-    """Look up a contact by name. Searches: CardDAV -> email history -> memory."""
-    import httpx
-    from src.tool_implementations import _INTERNAL_BASE  # shared constant, still lives in the facade
+    """Look up a contact by name in the CardDAV address book."""
     try:
         args = _parse_tool_args(content)
     except ValueError:
@@ -52,18 +48,6 @@ async def do_resolve_contact(content: str, owner: Optional[str] = None) -> Dict:
                         contacts[phone] = {"name": c.get("name") or phone, "source": "contacts", "phone": phone}
     except Exception:
         pass
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        # 2. Email history (sent/received)
-        try:
-            resp = await client.get(f"{_INTERNAL_BASE}/api/email/resolve-contact", params={"name": name})
-            if resp.status_code == 200:
-                for c in (resp.json().get("contacts") or []):
-                    email = (c.get("email") or "").strip().lower()
-                    if email and email not in contacts:
-                        contacts[email] = {"name": c.get("name") or email, "source": "email history"}
-        except Exception:
-            pass
 
     if not contacts:
         return {"output": f"No contacts found matching '{name}'.", "exit_code": 0}

@@ -404,7 +404,7 @@ function _useSvgEmoji() {
 }
 
 // `opts.shortcodes` (default true) controls the issue-#345 `:name:` → emoji
-// expansion. Chat passes it through as true; document/email body renderers pass
+// expansion. Chat passes it through as true; document body renderers pass
 // false so author-typed `:shortcode:` text stays literal (see mdToHtml callers).
 // The Unicode-emoji → monochrome-SVG pass always runs regardless, so a real 😀
 // in a document still renders as the themed line icon as it always has.
@@ -542,7 +542,7 @@ export function mdToHtml(src, opts) {
   // right but slip into other formats when listing many in a table.
   // These regexes upgrade the broken forms to proper markdown links so
   // the standard `[text](url)` handler below picks them up.
-  const ANCHOR_KIND = '(?:session|document|note|image|email|event|task|skill|research)';
+  const ANCHOR_KIND = '(?:session|document|note|image|event|task|skill|research)';
   // Case A: `[Name] [#kind-id]` — agent put the URL in brackets, often
   // in a table cell next to the label. Pair them.
   s = s.replace(

@@ -241,20 +241,57 @@ HOUSEKEEPING_DEFAULTS = {
     "tidy_documents":       {"name": "Documents Tidy",           "trigger_type": "event", "trigger_event": "document_created", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Documents"]},
     "consolidate_memory":   {"name": "Memory Tidy",              "trigger_type": "event", "trigger_event": "memory_added", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Memory"]},
     "tidy_research":        {"name": "Research Tidy",            "trigger_type": "event", "trigger_event": "research_completed", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Tidy Research"]},
-    "summarize_emails":     {"name": "Email (Summary)",          "schedule": "cron",  "scheduled_time": None,    "cron_expression": "0 */2 * * *", "ship_paused": True, "legacy_names": ["Tidy Email (Summary)"]},
-    "draft_email_replies":  {"name": "Email AI Auto Reply",      "schedule": "cron",  "scheduled_time": None,    "cron_expression": "0 */2 * * *", "ship_paused": True, "legacy_names": ["Tidy Email (Replies)", "AI Auto Reply"]},
-    "email_auto_translate": {"name": "Email Auto Translate",     "schedule": "cron",  "scheduled_time": None,    "cron_expression": "0 */2 * * *", "ship_paused": True, "legacy_names": ["Auto-translate Emails", "Auto Translate Email"]},
-    "extract_email_events": {"name": "Email Calendar Events",    "schedule": "cron",  "scheduled_time": None,    "cron_expression": "0 */1 * * *", "ship_paused": True, "legacy_names": ["Email → Calendar Events"]},
     "classify_events":      {"name": "Calendar Classify Events", "schedule": "cron",  "scheduled_time": None,    "cron_expression": "0 6,18 * * *", "ship_paused": True, "legacy_names": ["Classify Calendar Events"]},
-    "check_email_urgency":   {"name": "Email Tags",               "schedule": "cron",  "scheduled_time": None,    "cron_expression": "0 * * * *", "ship_paused": True, "old_cron_expressions": ["*/15 * * * *"], "legacy_names": ["Email Triage", "Urgent Email"]},
     "audit_skills":          {"name": "Skills Audit",             "trigger_type": "event", "trigger_event": "skill_added", "trigger_count": 5, "schedule": None, "scheduled_time": None, "cron_expression": None, "legacy_names": ["Audit Skills"]},
 }
 
 RETIRED_HOUSEKEEPING_ACTIONS = frozenset({
     "tidy_calendar",
+    "summarize_emails",
+    "draft_email_replies",
+    "email_auto_translate",
+    "extract_email_events",
+    "learn_sender_signatures",
+    "check_email_urgency",
     "tidy_email_inbox",
     "mark_email_boundaries",
 })
+
+# Names used before task_type/action were reliably populated. Keep these only
+# for retirement; they must never be seeded as new housekeeping defaults.
+RETIRED_HOUSEKEEPING_NAMES = {
+    "Email (Summary)": "summarize_emails",
+    "Tidy Email (Summary)": "summarize_emails",
+    "Email AI Auto Reply": "draft_email_replies",
+    "Tidy Email (Replies)": "draft_email_replies",
+    "AI Auto Reply": "draft_email_replies",
+    "Email Auto Translate": "email_auto_translate",
+    "Auto-translate Emails": "email_auto_translate",
+    "Auto Translate Email": "email_auto_translate",
+    "Email Calendar Events": "extract_email_events",
+    "Email → Calendar Events": "extract_email_events",
+    "Email Tags": "check_email_urgency",
+    "Email Triage": "check_email_urgency",
+    "Urgent Email": "check_email_urgency",
+}
+
+
+def is_retired_email_output(target: str | None) -> bool:
+    """True for any output target that depended on the removed email feature.
+
+    Covers the old ``email:...`` / ``email`` forms, the MCP email tools
+    (``mcp__email__*``), and legacy raw-address targets that predate the
+    ``email:`` prefix.
+    """
+    value = (target or "").strip().lower()
+    if not value:
+        return False
+    if value.split(":", 1)[0] == "email":
+        return True
+    if value.startswith("mcp__email__"):
+        return True
+    # Legacy raw-address target (e.g. "me@example.com").
+    return "@" in value and " " not in value
 
 
 def _digest_windows(now):
@@ -442,6 +479,35 @@ class TaskScheduler:
         return take
 
     async def start(self):
+        # Retire leftover email housekeeping rows (including old rows identified
+        # only by name) and pause user tasks whose email output was removed.
+        try:
+            from core.database import SessionLocal, ScheduledTask, TaskRun
+            db = SessionLocal()
+            try:
+                retired = db.query(ScheduledTask).filter(
+                    (ScheduledTask.action.in_(list(RETIRED_HOUSEKEEPING_ACTIONS)))
+                    | (ScheduledTask.name.in_(list(RETIRED_HOUSEKEEPING_NAMES)))
+                ).all()
+                if retired:
+                    db.query(TaskRun).filter(TaskRun.task_id.in_([task.id for task in retired])).delete(synchronize_session=False)
+                    for task in retired:
+                        db.delete(task)
+                tasks = db.query(ScheduledTask).filter(ScheduledTask.status == "active").all()
+                paused = 0
+                for task in tasks:
+                    if is_retired_email_output(task.output_target):
+                        task.status = "paused"
+                        task.next_run = None
+                        paused += 1
+                if retired or paused:
+                    db.commit()
+                    logger.info("Retired %d email housekeeping tasks; paused %d tasks with retired email output", len(retired), paused)
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.warning("Could not migrate legacy email tasks: %s", exc)
+
         # On startup, mark any leftover "running" task_runs as errored. Without
         # this, a server crash leaves rows stuck running indefinitely and the
         # _executing in-memory set forgets them, so the UI shows phantoms.
@@ -1166,14 +1232,8 @@ class TaskScheduler:
 
     # Built-in housekeeping actions whose output is pure infra (no user-facing
     # content) — don't pollute the assistant chat session with their summaries.
-    # Activity log + reminder email already carry everything the user needs.
+    # Activity log carries their results.
     _SILENT_ACTIONS = frozenset({
-        "check_email_urgency",
-        "learn_sender_signatures",
-        "summarize_emails",
-        "draft_email_replies",
-        "email_auto_translate",
-        "extract_email_events",
         "classify_events",
         "tidy_sessions",
         "tidy_documents",
@@ -1184,13 +1244,7 @@ class TaskScheduler:
     })
 
     _MODEL_BACKED_ACTIONS = frozenset({
-        "summarize_emails",
-        "draft_email_replies",
-        "email_auto_translate",
-        "extract_email_events",
         "classify_events",
-        "learn_sender_signatures",
-        "check_email_urgency",
         "test_skills",
         "audit_skills",
         "consolidate_memory",
@@ -1265,14 +1319,6 @@ class TaskScheduler:
     # a check-in source. Add new patterns here to support new integrations —
     # no code changes needed elsewhere.
     CHECKIN_MCP_PATTERNS = [
-        {"detect": "list_emails",   "section": "Email",    "tool": "list_emails",
-         "args": {"mailbox": "INBOX", "limit": 10, "unread_only": True},
-         "label_from_identity": True,
-         "formatter": "_format_email_output"},
-        {"detect": "search_emails", "section": "Email",    "tool": "search_emails",
-         "args": {"query": "is:unread", "limit": 10},
-         "label_from_identity": True,
-         "formatter": "_format_email_output"},
         {"detect": "get_feed",      "section": "RSS",      "tool": "get_feed",
          "args": {},
          "label_from_identity": False},
@@ -1284,38 +1330,6 @@ class TaskScheduler:
          "label_from_identity": True},
     ]
 
-    @staticmethod
-    def _format_email_output(raw: str) -> str:
-        """Clean up raw MCP email list output into readable format."""
-        import re as _re
-        lines = []
-        for line in raw.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            # Skip header lines like "📬 [INBOX] 856 emails..."
-            if line.startswith(("\U0001f4ec", "📬", "No emails", "---", "Page ")):
-                continue
-            # Skip "more pages available" etc
-            if "page" in line.lower() and "/" in line:
-                continue
-            # Parse: [1778] Re: Subject From: Name | Date
-            m = _re.match(r'\[?\d+\]?\s*(?:↩️\s*|📎\s*|🔵\s*|⭐\s*)?(.+?)(?:\s*From:\s*(.+?))?(?:\s*\|\s*(\S+))?$', line)
-            if m:
-                subject = m.group(1).strip().rstrip('|').strip()
-                sender = (m.group(2) or "").strip().rstrip('|').strip()
-                if sender:
-                    lines.append(f"- {sender} — {subject}")
-                else:
-                    lines.append(f"- {subject}")
-            elif line.startswith("[") or line.startswith("-"):
-                # Generic cleanup
-                cleaned = _re.sub(r'^\[?\d+\]?\s*(?:↩️\s*|📎\s*)?', '', line.lstrip('- '))
-                if cleaned.strip():
-                    lines.append(f"- {cleaned.strip()}")
-        if not lines:
-            return "No unread emails"
-        return "\n".join(lines[:10])
 
     async def _execute_checkin(self, task, crew, db, session_id: str,
                                endpoint_url: str, model: str) -> str:
@@ -1681,14 +1695,13 @@ class TaskScheduler:
             and (getattr(task, "action", "") or "") in self._SILENT_ACTIONS
         ):
             return
+        if is_retired_email_output(output):
+            raise ValueError("Email task output has been removed; choose a supported output target")
         if output.startswith("mcp__"):
             await self._deliver_via_mcp(output, task, result)
             return
-
-        if self._is_email_output_target(output):
-            await self._deliver_via_email(output, task, result)
-            return
-
+        if output not in ("session", "notification", "none"):
+            raise ValueError(f"Unsupported task output target: {output}")
         if output != "session":
             return
 
@@ -1788,61 +1801,7 @@ class TaskScheduler:
             db.add(assistant_msg)
             db.commit()
 
-    @staticmethod
-    def _is_email_output_target(output: str) -> bool:
-        target = (output or "").strip()
-        if target in {"email", "email:self"}:
-            return True
-        if target.startswith("email:"):
-            return True
-        return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", target))
 
-    async def _deliver_via_email(self, output: str, task, result: str):
-        """Send task output through the app's configured SMTP account.
-
-        Supported output_target values:
-        - email / email:self: send to the account's From address
-        - email:name@example.com or raw name@example.com: send there
-        """
-        from email.message import EmailMessage
-
-        target = (output or "").strip()
-        explicit = ""
-        account_id = ""
-        if target.startswith("email:"):
-            explicit = target.split(":", 1)[1].strip()
-            if "|account=" in explicit:
-                explicit, account_id = explicit.split("|account=", 1)
-                explicit = explicit.strip()
-                account_id = account_id.strip()
-            if explicit == "self":
-                explicit = ""
-        elif "@" in target:
-            explicit = target
-
-        try:
-            from routes.email_routes import _resolve_send_config
-            from routes.email_helpers import _send_smtp_message
-
-            cfg = _resolve_send_config(account_id=account_id or None, owner=task.owner or "")
-            to_addr = explicit or cfg.get("from_address") or cfg.get("smtp_user") or ""
-            if not to_addr:
-                raise RuntimeError("No email recipient resolved for task output")
-
-            from_addr = cfg.get("from_address") or cfg.get("smtp_user") or to_addr
-            msg = EmailMessage()
-            msg["From"] = from_addr
-            msg["To"] = to_addr
-            msg["Subject"] = f"[Task] {task.name}"
-            msg["X-Zephyrus-Origin"] = "zephyrus-ui"
-            msg["X-Zephyrus-Kind"] = "task"
-            msg["X-Zephyrus-Ref"] = str(task.id)
-            msg.set_content(result or "")
-            _send_smtp_message(cfg, from_addr, [to_addr], msg.as_string(), timeout=30)
-            logger.info("Task %s emailed result (recipient_set=%s, %sb)", task.id, bool(to_addr), len(result or ""))
-        except Exception as e:
-            logger.error("Task %s email delivery failed: %s", task.id, e, exc_info=True)
-            raise
 
     async def _run_agent_loop(self, endpoint_url: str, model: str, task, session_id: str,
                               system_prompt: str | None = None,
@@ -2139,32 +2098,14 @@ class TaskScheduler:
         return None, None
 
     async def _deliver_via_mcp(self, tool_name: str, task, result: str):
-        """Send the task result via an MCP tool (e.g. Gmail send).
-
-        Resolves a recipient (so email-style tools have a 'to') by trying the
-        configured From address first (the `daily_brief` pattern — email
-        yourself) then falling back to the task owner. Common recipient field
-        names (to / recipient / email / address) are all populated so we don't
-        have to special-case each tool's schema; the MCP tool ignores keys it
-        doesn't recognise.
-        """
+        """Send the task result via a configured outbound MCP tool."""
         from src.tool_utils import get_mcp_manager
         mcp = get_mcp_manager()
         if not mcp:
             logger.warning(f"Task {task.id}: MCP manager not available for delivery")
             return
 
-        # Resolve recipient — prefer the configured email From (the established
-        # "email yourself" pattern from daily_brief), fall back to task.owner.
-        # `_get_email_config()` is the single source of truth that handles both
-        # the legacy `email_from` setting and the per-account DB rows.
         recipient = None
-        try:
-            from routes.email_helpers import _get_email_config
-            cfg = _get_email_config() or {}
-            recipient = cfg.get("from_address") or None
-        except Exception as _e:
-            logger.debug(f"_deliver_via_mcp: email config lookup failed: {_e}")
         if not recipient and task.owner and "@" in str(task.owner):
             recipient = task.owner
 
@@ -2178,8 +2119,7 @@ class TaskScheduler:
             },
         }
         if recipient:
-            # Cover the common field names so we work across MCP servers (Gmail,
-            # generic SMTP, Slack DMs, etc.) without having to hard-code each.
+            # Cover common recipient field names across MCP servers.
             args["to"] = recipient
             args["recipient"] = recipient
             args["email"] = recipient
@@ -2187,7 +2127,7 @@ class TaskScheduler:
         else:
             logger.warning(
                 f"Task {task.id}: no recipient resolved for MCP delivery via {tool_name} — "
-                "set an email From address in Settings or give the task an owner email."
+                "configure the destination in the MCP tool."
             )
         try:
             mcp_result = await mcp.call_tool(tool_name, args)
@@ -2201,9 +2141,7 @@ class TaskScheduler:
                     f"exit={exit_code} stderr={stderr[:400]!r} stdout={stdout[:400]!r}"
                 )
             else:
-                # Include the MCP tool's own stdout (e.g. email_server returns
-                # "Sent email to ... with subject ...") + the body size so a
-                # silent SMTP failure is easier to spot in the logs.
+                # Include tool output and body size to diagnose delivery failures.
                 logger.info(
                     f"Task {task.id} delivered via MCP tool {tool_name} "
                     f"(recipient_set={bool(recipient)}, body={body_len}b, reply={stdout[:200]!r})"
@@ -2281,6 +2219,7 @@ class TaskScheduler:
                 name_to_action[defs["name"]] = action
                 for legacy in defs.get("legacy_names") or []:
                     name_to_action[legacy] = action
+            name_to_action.update(RETIRED_HOUSEKEEPING_NAMES)
             possible_names = list(name_to_action.keys())
             legacy_named = db.query(ScheduledTask).filter(
                 ScheduledTask.owner == owner,
@@ -2371,16 +2310,6 @@ class TaskScheduler:
                     renamed.append(task.action)
                 normalized = False
                 desired_trigger = defs.get("trigger_type", "schedule")
-                if task.action == "check_email_urgency":
-                    old_crons = set(defs.get("old_cron_expressions") or [])
-                    if task.schedule == "cron" and (task.cron_expression or "") in old_crons:
-                        task.cron_expression = defs["cron_expression"]
-                        task.next_run = compute_next_run(
-                            defs["schedule"], defs["scheduled_time"], None, None,
-                            after=_utcnow(), cron_expression=defs["cron_expression"],
-                            tz_name=_resolve_task_timezone(db, task),
-                        )
-                        normalized = True
                 if desired_trigger == "event" and (
                     (task.trigger_type or "schedule") != "event"
                     or task.trigger_event != defs.get("trigger_event")
@@ -2503,7 +2432,7 @@ class TaskScheduler:
 
             default_personality = (
                 "You are the user's personal assistant. Concise, warm, a little dry. "
-                "Never waste time with fluff. Default to English. Only match the other language when replying to a non-English email.\n\n"
+                "Never waste time with fluff. Default to English.\n\n"
 
                 "CORE RULE: You MUST use your tools to take action — do not describe what you would do. "
                 "Never say 'I would check your calendar' — actually call manage_calendar. "
@@ -2513,17 +2442,11 @@ class TaskScheduler:
                 "DECISION FRAMEWORK — follow these rules, not just tool descriptions:\n\n"
 
                 "CONTEXT GATHERING (before any response involving a specific person):\n"
-                "1. resolve_contact if you only have a name and need their email\n"
-                "2. search_chats for recent conversations mentioning them or their topic\n"
-                "3. manage_memory to check stored facts about them\n"
+                "1. search_chats for recent conversations mentioning them or their topic\n"
+                "2. manage_memory to check stored facts about them\n"
                 "Skip steps you already have answers for. Don't search for the user themselves.\n\n"
 
-                "EMAIL HANDLING:\n"
-                "- If a document is open in the editor, that IS the email. Use update_document to write the reply.\n"
-                "- BEFORE drafting any reply: gather context (steps above) about the sender and topic.\n"
-                "- When an email mentions a date/meeting: check calendar for conflicts, add if clear.\n"
-                "- When an email asks a question you can't answer from context: say so honestly. Never fabricate.\n"
-                "- Skip automated/marketing emails in check-ins. Only surface human-sent, actionable ones.\n"
+                "CHECK-INS:\n"
                 "- Never duplicate information the user already saw in a previous check-in.\n\n"
 
                 "ESCALATION LADDER (when you need info you don't have):\n"
@@ -2532,12 +2455,6 @@ class TaskScheduler:
                 "3. web_search (medium cost)\n"
                 "4. trigger_research (expensive, async — only for complex multi-source questions)\n"
                 "Stop as soon as you have a sufficient answer.\n\n"
-
-                "'SEND TO [NAME]' FLOW:\n"
-                "1. resolve_contact to find their email\n"
-                "2. If a document is open, use its content as the body\n"
-                "3. Draft the email in a document (create_document with language='email')\n"
-                "4. Tell the user to review — NEVER auto-send\n\n"
 
                 "SELF-IMPROVEMENT — use manage_memory constantly:\n"
                 "- When the user corrects you, IMMEDIATELY store the correction as a memory.\n"
@@ -2551,8 +2468,6 @@ class TaskScheduler:
 
                 "AUTONOMY RULES:\n"
                 "- Auto-add calendar events from clear meeting invitations (mention what you added)\n"
-                "- Auto-draft email replies (cached for when user clicks Reply)\n"
-                "- NEVER send emails without explicit user instruction\n"
                 "- NEVER delete anything without explicit instruction\n"
                 "- If uncertain, ask rather than guess"
             )
@@ -2588,8 +2503,7 @@ class TaskScheduler:
                 greeting=None,
                 enabled_tools=json.dumps([
                     "manage_calendar", "manage_notes", "manage_tasks", "manage_memory",
-                    "list_email_accounts", "list_emails", "read_email", "send_email", "reply_to_email", "archive_email",
-                    "mark_email_read", "delete_email", "resolve_contact",
+                    "resolve_contact",
                     "search_chats", "web_search", "web_fetch", "read_file",
                     "create_document", "update_document", "edit_document",
                     "generate_image", "trigger_research",

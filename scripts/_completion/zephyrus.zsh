@@ -1,12 +1,12 @@
-﻿#compdef zephyrus zephyrus-backup zephyrus-calendar zephyrus-contacts zephyrus-cookbook zephyrus-docs zephyrus-gallery zephyrus-mail zephyrus-mcp zephyrus-memory zephyrus-notes zephyrus-personal zephyrus-preset zephyrus-research zephyrus-sessions zephyrus-signature zephyrus-skills zephyrus-tasks zephyrus-webhook
+﻿#compdef zephyrus zephyrus-backup zephyrus-calendar zephyrus-contacts zephyrus-cookbook zephyrus-docs zephyrus-gallery zephyrus-mcp zephyrus-memory zephyrus-notes zephyrus-personal zephyrus-preset zephyrus-research zephyrus-sessions zephyrus-signature zephyrus-skills zephyrus-tasks zephyrus-webhook
 # Zsh tab-completion for the zephyrus umbrella + sub-CLIs.
 #
 # Drop in any directory on $fpath, e.g.:
 #     fpath=(/path/to/zephyrus-ui/scripts/_completion $fpath)
 #     autoload -U compinit; compinit
 #
-# Then `zephyrus <tab>` completes subcommands; `zephyrus mail <tab>`
-# completes mail subcommands; `zephyrus-mail <tab>` works the same.
+# Then `zephyrus <tab>` completes subcommands; `zephyrus notes <tab>`
+# completes notes subcommands; `zephyrus-notes <tab>` works the same.
 
 _zephyrus_scripts_dir() {
     local self="${(%):-%x}"

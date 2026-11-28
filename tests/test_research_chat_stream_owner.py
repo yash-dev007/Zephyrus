@@ -296,13 +296,12 @@ def _handler_with_bob_task():
     return handler
 
 
-def test_research_status_cross_user_is_404():
-    """Alice polling Bob's in-flight research → 404. PASSES."""
+def test_research_status_cross_user_is_idle():
+    """Alice polling Bob's in-flight research → idle (no existence leak)."""
     router = setup_research_routes(_handler_with_bob_task())
     target = _ep(router, "/api/research/status/{session_id}", "GET")
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(target(session_id="s-bob", request=_research_request("alice")))
-    assert exc.value.status_code == 404
+    out = asyncio.run(target(session_id="s-bob", request=_research_request("alice")))
+    assert out == {"status": "idle", "active": False}
 
 
 def test_research_result_cross_user_is_404():

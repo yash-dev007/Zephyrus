@@ -2698,7 +2698,7 @@ export function _renderRunningTab() {
             : 'Remove this row',
           danger: true,
         });
-        // Cancel = mobile-only dismiss item. Same pattern as the email kebab.
+        // Cancel = mobile-only dismiss item.
         items.push({ group: 'danger', label: 'Cancel', action: 'cancel', mobileOnly: true, custom: () => {} });
 
         const _MENU_ICONS = {
@@ -2775,7 +2775,7 @@ export function _renderRunningTab() {
         };
         // Close on scroll too — once the page scrolls, the dropdown's
         // fixed position no longer matches the originating ⋮ button, so
-        // it visually drifts. Matches the email kebab behaviour.
+        // it visually drifts.
         const scrollClose = () => _cleanup();
         let _unreg = () => {};
         const _cleanup = () => {

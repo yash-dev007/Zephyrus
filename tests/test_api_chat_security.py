@@ -190,7 +190,7 @@ class _SessionManager:
         self.created = []
         self.save_calls = 0
 
-    def create_session(self, *, session_id, name, endpoint_url, model, owner):
+    def create_session(self, *, session_id, name, endpoint_url, model, owner, workspace=None):
         session = _ChatSession(endpoint_url, model)
         self.created.append({
             "session_id": session_id,

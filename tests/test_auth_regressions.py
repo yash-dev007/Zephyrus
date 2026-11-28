@@ -225,16 +225,17 @@ def test_research_status_accepts_authenticated():
     assert out == {"status": "running", "progress": {}}
 
 
-def test_research_status_rejects_wrong_owner():
+def test_research_status_hides_wrong_owner():
     from routes.research_routes import setup_research_routes
     rh = MagicMock()
     rh._active_tasks = {"x": {"owner": "alice", "status": "running"}}
     rh.get_status.return_value = {"status": "running", "progress": {}}
     router = setup_research_routes(rh)
     target = next(r.endpoint for r in router.routes if getattr(r, "path", "") == "/api/research/status/{session_id}")
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(target(session_id="x", request=_fake_request(user="bob")))
-    assert exc.value.status_code == 404
+    out = asyncio.run(target(session_id="x", request=_fake_request(user="bob")))
+    # Non-owners get an idle response rather than a 404 so the endpoint does
+    # not leak whether another user's research session exists.
+    assert out == {"status": "idle", "active": False}
 
 
 def test_research_cancel_rejects_anonymous():

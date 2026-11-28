@@ -35,8 +35,9 @@ class _FakeSessionManager:
         self.created = None
 
     def create_session(self, session_id=None, name=None, endpoint_url=None,
-                       model=None, rag=False, owner=None):
+                       model=None, rag=False, owner=None, workspace=None):
         self.created = _FakeSession(name=name, owner=owner)
+        self.created.workspace = workspace
         return self.created
 
     def save_sessions(self):

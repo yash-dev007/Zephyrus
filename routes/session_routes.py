@@ -272,13 +272,14 @@ def setup_session_routes(
             last_msg_map = {}
             mode_map = {}
             msg_count_map = {}
+            workspace_map = {}
             row_map = {}
             q = db.query(
                 DbSession.id, DbSession.name, DbSession.model, DbSession.endpoint_url,
                 DbSession.rag, DbSession.folder, DbSession.total_input_tokens,
                 DbSession.total_output_tokens, DbSession.is_important,
                 DbSession.created_at, DbSession.updated_at, DbSession.last_message_at,
-                DbSession.mode, DbSession.message_count,
+                DbSession.mode, DbSession.message_count, DbSession.workspace,
             ).filter(DbSession.archived == False)
             q = owner_filter(q, DbSession, user, include_shared=False)
             rows = q.all()
@@ -298,6 +299,7 @@ def setup_session_routes(
                 )
                 mode_map[row.id] = row.mode
                 msg_count_map[row.id] = row.message_count or 0
+                workspace_map[row.id] = row.workspace
             # Sessions with active documents that have content
             from sqlalchemy import func
             doc_session_ids = set(
@@ -357,6 +359,7 @@ def setup_session_routes(
                 "has_images": sid in img_session_ids,
                 "mode": mode_map.get(sid),
                 "message_count": msg_count_map.get(sid, 0),
+                "workspace": workspace_map.get(sid) or (getattr(s, "workspace", None) if s else None),
             })
         sessions.sort(
             key=lambda x: x.get("last_message_at") or x.get("updated_at") or x.get("created_at") or "",
@@ -375,6 +378,7 @@ def setup_session_routes(
         skip_validation: str = Form(None),
         api_key: str = Form(""),
         endpoint_id: str = Form(""),
+        workspace: str = Form(""),
     ):
         skip_val = str(skip_validation).lower() == "true"
         user = effective_user(request)
@@ -470,6 +474,7 @@ def setup_session_routes(
             model=model_to_use,
             rag=str(rag).lower() == "true" if rag else False,
             owner=user,
+            workspace=workspace.strip() or None,
         )
         # Set auth headers for custom API-key endpoints
         resolved_key = request_api_key

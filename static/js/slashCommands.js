@@ -10,6 +10,7 @@ window.cancelActiveTour = function cancelActiveTour() {
 };
 
 import Storage from './storage.js';
+import { createSkillPicker } from './skillPicker.js';
 import uiModule from './ui.js';
 import sessionModule from './sessions.js';
 import modelsModule from './models.js';
@@ -298,7 +299,7 @@ function _persistMsg(role, content, metadata) {
   }).catch(() => {});
 }
 
-function slashReply(text) {
+function slashReply(text, transcript) {
   const chatBox = document.getElementById('chat-history');
   const div = document.createElement('div');
   div.className = 'msg msg-ai';
@@ -308,7 +309,8 @@ function slashReply(text) {
   div.appendChild(role);
   const body = document.createElement('div');
   body.className = 'body';
-  body.innerHTML = text;
+  if (typeof text === 'string') body.innerHTML = text;
+  else body.append(text);
   // Add copy buttons to any <pre> blocks
   body.querySelectorAll('pre').forEach(pre => {
     if (!pre.querySelector('.copy-code')) {
@@ -321,29 +323,32 @@ function slashReply(text) {
     }
   });
   div.appendChild(body);
-  div.dataset.raw = body.textContent;
+  div.dataset.raw = transcript ?? body.textContent;
   div.appendChild(_slashFooter(div));
   chatBox.appendChild(div);
   uiModule.scrollHistory();
-  _persistMsg('assistant', body.textContent, { source: 'slash' });
+  _persistMsg('assistant', div.dataset.raw, { source: 'slash' });
   return { el: div, body };
 }
 
 let _skillCatalogCache = { at: 0, items: [] };
+let _skillCatalogPending;
 
-async function _loadSkillSlashCatalog(force = false) {
+export async function loadSkillSlashCatalog(force = false) {
   const now = Date.now();
   if (!force && (now - _skillCatalogCache.at) < 15000) return _skillCatalogCache.items;
-  try {
+  if (_skillCatalogPending) return _skillCatalogPending;
+  _skillCatalogPending = (async () => {
     const res = await fetch(`${API_BASE}/api/skills/slash-catalog`, { credentials: 'same-origin' });
-    if (!res.ok) throw new Error('catalog unavailable');
+    if (!res.ok) throw new Error(`Skill catalog unavailable (HTTP ${res.status}).`);
     const data = await res.json();
-    const items = Array.isArray(data.skills) ? data.skills : [];
+    if (!Array.isArray(data.skills)) throw new Error('Invalid skill catalog response.');
+    const items = data.skills;
     _skillCatalogCache = { at: now, items };
+    document.dispatchEvent(new CustomEvent('zephyrus:skill-catalog', { detail: items }));
     return items;
-  } catch {
-    return _skillCatalogCache.items || [];
-  }
+  })().finally(() => { _skillCatalogPending = null; });
+  return _skillCatalogPending;
 }
 
 function _submitComposedMessage(text) {
@@ -1395,12 +1400,6 @@ async function _cmdToolPanel(tool, args, ctx) {
     await cookbookModule?.open?.({ tab: 'Download', usecase: rest || undefined });
     return true;
   }
-  if (target === 'email') {
-    const btn = document.getElementById('rail-email') || document.getElementById('email-section-title');
-    if (btn) btn.click();
-    else slashReply('Could not open Email.');
-    return true;
-  }
   if (target === 'settings') {
     if (settingsModule && typeof settingsModule.open === 'function') settingsModule.open(rest || undefined);
     else document.getElementById('user-bar-settings')?.click();
@@ -1477,6 +1476,37 @@ async function _cmdMcp(args, ctx) {
     return `${s.name || s.id || 'MCP server'} - ${status} (${enabled}/${total} tools)`;
   });
   slashReply(`<pre>${lines.map(line => ctx.esc(line)).join('\n')}</pre>`);
+  return true;
+}
+
+async function _cmdHarness(args, ctx) {
+  const [catalog, runtime] = await Promise.allSettled([
+    loadSkillSlashCatalog(true),
+    fetch(`${API_BASE}/api/harness/runtime`, { credentials: 'same-origin' }).then(res => {
+      if (!res.ok) throw new Error(res.status === 403 ? 'admin access required' : `HTTP ${res.status}`);
+      return res.json();
+    }),
+  ]);
+  const lines = [`Slash commands: ${Object.values(COMMANDS).filter(def => !def.hidden).length} visible command groups and commands`];
+  if (catalog.status === 'fulfilled') {
+    lines.push(`Skills: ${catalog.value.length} available (/skill)`);
+    for (const skill of catalog.value) {
+      if (_resolveCommand(skill.name) || Object.hasOwn(LEGACY_ALIASES, skill.name)) {
+        lines.push(`  /${skill.name} is a built-in command. Run this skill with ${skillCommandToken(skill.name)}`);
+      }
+    }
+  } else {
+    lines.push('Skills: catalog unavailable (/reload-skills to retry)');
+  }
+  if (runtime.status === 'fulfilled') {
+    lines.push(`Completion verifier: ${runtime.value.verifier_enabled ? 'enabled' : 'off'}`);
+    const servers = runtime.value.servers;
+    lines.push(`MCP: ${servers.filter(s => s.status === 'connected').length}/${servers.length} connected`);
+    for (const server of servers) lines.push(`  ${server.name} — ${server.status}`);
+  } else {
+    lines.push(`Verifier and MCP status unavailable: ${runtime.reason.message}`);
+  }
+  slashReply(`<pre>${lines.map(ctx.esc).join('\n')}</pre>`);
   return true;
 }
 
@@ -1565,23 +1595,25 @@ async function _cmdSkills(args, ctx) {
   const rest = args.slice(1);
 
   if (sub === 'list' || sub === 'ls') {
-    const skills = await _loadSkillSlashCatalog(true);
+    const skills = await loadSkillSlashCatalog(true);
     if (!skills.length) {
       slashReply('No published skills available for slash commands.');
       return true;
     }
-    const lines = skills.map(s => {
-      const uses = Number(s.uses || 0);
-      const useText = uses > 0 ? `  uses:${uses}` : '';
-      return `${ctx.esc(String(s.token || '').padEnd(24))}${ctx.esc(s.help || '')}${useText}`;
+    const picker = createSkillPicker(skills, skill => {
+      const input = document.getElementById('message');
+      input.value = skillCommandToken(skill.name) + ' ';
+      input.focus();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    slashReply(`<pre>${lines.join('\n')}</pre>`);
+    slashReply(picker, `Skills available: ${skills.length}. Open /skill to choose one.`);
+    picker.querySelector('input').focus({ preventScroll: true });
     return true;
   }
 
   if (sub === 'search' || sub === 'find') {
     const query = rest.join(' ').trim();
-    if (!query) { slashReply('Usage: /skills search query'); return true; }
+    if (!query) { slashReply('Usage: /skill search query'); return true; }
     const res = await fetch(`${API_BASE}/api/skills/search`, {
       method: 'POST',
       credentials: 'same-origin',
@@ -1601,7 +1633,7 @@ async function _cmdSkills(args, ctx) {
 
   if (sub === 'view' || sub === 'cat' || sub === 'show') {
     const name = (rest[0] || '').trim();
-    if (!name) { slashReply('Usage: /skills view name'); return true; }
+    if (!name) { slashReply('Usage: /skill view name'); return true; }
     const res = await fetch(`${API_BASE}/api/skills/${encodeURIComponent(name)}/markdown`, { credentials: 'same-origin' });
     if (!res.ok) { slashReply(`Skill "${ctx.esc(name)}" was not found.`); return true; }
     const data = await res.json();
@@ -1611,16 +1643,16 @@ async function _cmdSkills(args, ctx) {
 
   if (sub === 'use' || sub === 'run') {
     const name = (rest[0] || '').trim();
-    if (!name) { slashReply('Usage: /skills use name request'); return true; }
+    if (!name) { slashReply('Usage: /skill use name request'); return true; }
     return _invokeSkillByName(name, rest.slice(1).join(' ').trim(), ctx);
   }
 
-  slashReply('Usage: /skills list | search query | view name | use name request');
+  slashReply('Open /skill to browse, or use /skill search, /skill view, or /skill use.');
   return true;
 }
 
 async function _cmdReloadSkills(args, ctx) {
-  const skills = await _loadSkillSlashCatalog(true);
+  const skills = await loadSkillSlashCatalog(true);
   slashReply(`Reloaded skills. ${skills.length} skill command${skills.length === 1 ? '' : 's'} available.`);
   return true;
 }
@@ -3169,7 +3201,7 @@ async function _cmdTourSettings(args, ctx) {
       text: '<b>Vision</b> — powers any image-recognition feature: drop a photo in chat, ask what\'s in it, OCR, etc.',
       before: () => _clickNav('ai') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="integrations"]',
-      text: '<b>Integrations</b> — wire up email, calendar, contacts here (per-account).',
+      text: '<b>Integrations</b> — wire up calendar and contacts here (per-account).',
       before: () => _clickNav('integrations') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="search"]',
       text: '<b>Search</b> — plug in your own search provider, or use the bundled <b>SearXNG</b> out of the box.',
@@ -3177,11 +3209,8 @@ async function _cmdTourSettings(args, ctx) {
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="appearance"]',
       text: '<b>Appearance</b> — too many tools you don\'t need? Adjust them here! Toggle sidebar buttons, tool icons, and section visibility.',
       before: () => _clickNav('appearance') },
-    { sel: '#settings-modal .settings-nav-item[data-settings-tab="email"]',
-      text: '<b>Email</b> — sync schedule, drafts, snooze defaults — everything email-flow related.',
-      before: () => _clickNav('email') },
     { sel: '#settings-modal .settings-nav-item[data-settings-tab="reminders"]',
-      text: '<b>Reminders</b> — quiet hours and how Zephyrus nudges you about calendar + urgent email.',
+      text: '<b>Reminders</b> — quiet hours and how Zephyrus nudges you about calendar reminders.',
       before: () => _clickNav('reminders') },
   ];
 
@@ -4047,7 +4076,7 @@ async function _cmdTourTask2(args, ctx) {
       text: '<b>Add</b> creates scheduled prompts, research jobs, actions, event triggers, or webhooks.',
       before: () => document.querySelector('#tasks-modal .tasks-tab[data-tab="new"]')?.click() },
     { sel: '#task-ai-input',
-      text: 'You can just describe the task in plain chat language. Example: “weekday mornings summarize unread email”.' },
+      text: 'You can just describe the task in plain chat language. Example: “weekday mornings review my upcoming tasks”.' },
     { sel: '#tasks-modal .memory-item[data-idx="0"]',
       text: 'Or pick a template and fill out the form manually.' },
     { sel: '#task-form-save, #tasks-modal .tasks-tab[data-tab="tasks"]',
@@ -4057,7 +4086,7 @@ async function _cmdTourTask2(args, ctx) {
     // re-show it when the user moves past this step so the tour lands
     // back where it started.
     { sel: '#message',
-      text: 'You can also <b>just ask in chat</b> — say "every weekday at 9am check for urgent emails" and Zephyrus will create the task for you.',
+      text: 'You can also <b>just ask in chat</b> — say "every weekday at 9am review my upcoming tasks" and Zephyrus will create the task for you.',
       before: () => document.getElementById('tasks-modal')?.classList.add('hidden'),
       after:  () => document.getElementById('tasks-modal')?.classList.remove('hidden') },
   ], 'That\'s Tasks. Have it run the background bits so you can stay in chat.');
@@ -4530,7 +4559,7 @@ async function _cmdTourLibrary(args, ctx) {
     { sel: '#doc-tab-bar',
       text: 'Multiple docs as <b>tabs</b>. Drag to reorder, click <b>+</b> for a new one, click the dots for rename / clone / export / delete.' },
     { sel: '#doc-language-select',
-      text: 'Switch the <b>document type</b> — markdown shows a preview, email shows To/Subject/Send, PDF lets you fill blanks with AI.' },
+      text: 'Switch the <b>document type</b> — markdown shows a preview, PDF lets you fill blanks with AI.' },
     { sel: '#doc-editor-textarea',
       text: 'Ask the LLM to <i>draft</i>, <i>rewrite</i>, <i>summarize</i>, <i>feedback</i> — edits stream live.' },
   ];
@@ -5372,20 +5401,20 @@ async function _cmdHelp(args, ctx) {
       lines.push('');
     }
   }
-  const skillCommands = await _loadSkillSlashCatalog(false);
+  const skillCommands = await loadSkillSlashCatalog().catch(() => []);
   if (skillCommands.length) {
     lines.push('Skills:');
     for (const skill of skillCommands.slice(0, 20)) {
-      const token = String(skill.token || '').padEnd(21);
+      const token = skillCommandToken(skill.name).padEnd(21);
       lines.push(`  ${ctx.esc(token)}${ctx.esc(skill.help || '')}`);
     }
     if (skillCommands.length > 20) {
-      lines.push(`  ... ${skillCommands.length - 20} more. Use /skills list`);
+      lines.push(`  ... ${skillCommands.length - 20} more. Open /skill to browse`);
     }
     lines.push('');
   }
   lines.push('Tip: /<command> --help for details');
-  lines.push('Shortcuts: /new /rename /fork /web /bash /memories /skills');
+  lines.push('Shortcuts: /new /rename /fork /web /bash /memories /skill');
   slashReply(`<pre style="line-height:1.7">${lines.join('\n')}</pre>`);
   return true;
 }
@@ -5452,12 +5481,12 @@ const COMMANDS = {
       'search': { handler: _cmdMemorySearch, alias: ['grep'],        help: 'Search memories',     usage: '/memory search q' }
     }
   },
-  skills: {
-    alias: ['skill'],
+  skill: {
+    alias: ['skills'],
     category: 'Memory',
-    help: 'List, search, inspect, or run skills',
+    help: 'Browse and choose a skill',
     handler: _cmdSkills,
-    usage: '/skills list | search query | view name | use name request',
+    usage: '/skill',
   },
   'reload-skills': {
     alias: ['reload_skills'],
@@ -5625,13 +5654,6 @@ const COMMANDS = {
     handler: (args, ctx) => _cmdToolPanel('cookbook', args, ctx),
     usage: '/cookbook  ·  /cookbook serve qwen'
   },
-  email: {
-    alias: ['mail', 'inbox'],
-    category: 'Tools',
-    help: 'Open Email',
-    handler: (args, ctx) => _cmdToolPanel('email', args, ctx),
-    usage: '/email'
-  },
   notes: {
     alias: [],
     category: 'Tools',
@@ -5687,6 +5709,12 @@ const COMMANDS = {
     help: 'Show MCP server status',
     handler: _cmdMcp,
     usage: '/mcp'
+  },
+  harness: {
+    category: 'Agent',
+    help: 'Inspect skills, command conflicts, verifier mode, and MCP connections',
+    handler: _cmdHarness,
+    usage: '/harness'
   },
   model: {
     alias: [],
@@ -5844,7 +5872,7 @@ function _makeCtx() {
 
 /** Build a flat map: alias -> canonical command name (from COMMANDS alias arrays) */
 function _buildAliasMap() {
-  const map = {};
+  const map = Object.create(null);
   for (const [name, def] of Object.entries(COMMANDS)) {
     map[name] = name;
     if (def.alias) def.alias.forEach(a => { map[a] = name; });
@@ -5858,10 +5886,14 @@ function _resolveCommand(cmd) {
   return _ALIAS_MAP[cmd] || null;
 }
 
+export function skillCommandToken(name) {
+  return _resolveCommand(name) || Object.hasOwn(LEGACY_ALIASES, name) ? `/skill use ${name}` : `/${name}`;
+}
+
 /** Resolve a subcommand within a command definition, checking sub aliases */
 function _resolveSubcommand(def, sub) {
   if (!def.subs) return null;
-  if (def.subs[sub]) return sub;
+  if (Object.hasOwn(def.subs, sub)) return sub;
   for (const [name, sDef] of Object.entries(def.subs)) {
     if (sDef.alias && sDef.alias.includes(sub)) return name;
   }
@@ -5892,6 +5924,7 @@ function _fuzzyMatch(typed, maxDist) {
   Object.keys(LEGACY_ALIASES).forEach(k => { if (!candidates.includes(k)) candidates.push(k); });
   const matches = [];
   for (const c of candidates) {
+    if (Math.abs(typed.length - c.length) > maxDist) continue;
     const d = _levenshtein(typed, c);
     if (d > 0 && d <= maxDist) matches.push(c);
   }
@@ -5923,7 +5956,7 @@ async function handleSlashCommand(input) {
     let cmdDef = cmdKey ? COMMANDS[cmdKey] : null;
 
     // --- 2. Try legacy alias ---
-    if (!cmdDef && LEGACY_ALIASES[rawCmd]) {
+    if (!cmdDef && Object.hasOwn(LEGACY_ALIASES, rawCmd)) {
       const leg = LEGACY_ALIASES[rawCmd];
       cmdDef = COMMANDS[leg.parent];
       cmdKey = leg.parent;
@@ -6011,13 +6044,11 @@ async function handleSlashCommand(input) {
     // --- 4. Skill invocation: /<skill-name> [request] ---
     // If `rawCmd` matches a published skill, the backend records usage and
     // returns a skill-pinned message to submit as the next agent turn.
-    try {
-      const catalog = await _loadSkillSlashCatalog(false);
-      if (catalog.some(s => s.name === rawCmd)) {
-        _showUser();
-        return await _invokeSkillByName(rawCmd, args.join(' ').trim(), ctx);
-      }
-    } catch (_) { /* fall through to fuzzy match */ }
+    const catalog = await loadSkillSlashCatalog();
+    if (catalog.some(s => s.name === rawCmd)) {
+      _showUser();
+      return await _invokeSkillByName(rawCmd, args.join(' ').trim(), ctx);
+    }
 
     // --- 5. Fuzzy match for typos ---
     const suggestions = _fuzzyMatch(rawCmd);

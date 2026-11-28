@@ -78,6 +78,12 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         md = sm.read_skill_md(name, owner=owner)
         if md is None:
             return {"error": f"Skill {name!r} not found", "exit_code": 1}
+        # Opening the procedure is real consumption — this is what `uses`
+        # means. Prompt-time matching is tracked separately as `matched`.
+        try:
+            sm.record_use(name, owner=owner)
+        except Exception as _e:
+            logger.debug("record_use(view) failed for %s: %s", name, _e)
         return {"results": md}
 
     if action == "view_ref":
@@ -89,6 +95,10 @@ async def do_manage_skills(content: str, owner: Optional[str] = None) -> Dict:
         text = sm.read_skill_reference(name, ref, owner=owner)
         if text is None:
             return {"error": f"Reference {ref!r} not found under {name!r}", "exit_code": 1}
+        try:
+            sm.record_use(name, owner=owner)
+        except Exception as _e:
+            logger.debug("record_use(view_ref) failed for %s: %s", name, _e)
         return {"results": text}
 
     if action == "add":
@@ -524,7 +534,6 @@ _APP_API_BLOCKLIST_PREFIXES = (
 # {"tasks": []} to /api/cookbook/state, which overwrote the whole file.
 # Use dedicated tools or UI flows instead.
 _APP_API_BLOCKLIST_METHOD_PATH = (
-    ("GET",    "/api/email/accounts"),  # owner-filtered in tool context; use list_email_accounts MCP tool
     ("POST",   "/api/cookbook/state"),   # whole-file overwrite — agent must use serve_preset/serve_model instead
     ("DELETE", "/api/cookbook/state"),
     # Host-control routes: package install, engine rebuild, and process
@@ -562,7 +571,7 @@ _APP_API_BLOCKLIST_METHOD_PATH = (
 
 async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
     """Generic loopback to allowed internal Zephyrus API endpoints. Lets the
-    agent reach the full UI-button surface (cookbook, email, notes,
+    agent reach the full UI-button surface (cookbook, notes,
     calendar, skills, sessions, gallery, research, etc.) without us
     landing a named tool wrapper for every one.
 
@@ -648,8 +657,6 @@ async def do_app_api(content: str, owner: Optional[str] = None) -> Dict:
     if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
         return {"error": f"Unsupported method: {method}", "exit_code": 1}
     if any(method == m and path.startswith(p) for m, p in _APP_API_BLOCKLIST_METHOD_PATH):
-        if "/api/email/accounts" in path:
-            return {"error": "Don't use /api/email/accounts via app_api — it is owner-filtered in tool context and may return empty. Use the `list_email_accounts` email tool, then pass `account` to list_emails/read_email.", "exit_code": 1}
         if "/api/cookbook/packages/install" in path:
             return {"error": "Don't POST /api/cookbook/packages/install via app_api — package installation is host code execution. Use the dedicated Cookbook dependency UI/flow instead.", "exit_code": 1}
         if "/api/cookbook/rebuild-engine" in path:

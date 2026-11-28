@@ -428,9 +428,9 @@ function _openSkillMenu(btn, card, sk, name, isPublished) {
   mk(_ICON.test, 'Audit', {}, () => _auditAllSkills());
   mk(_ICON.del, 'Delete', { danger: true }, () => _deleteSkill(name, card));
 
-  // Mobile-only Cancel — mirrors the email/documents/brain popup pattern.
-  // CSS hides `.dropdown-cancel-mobile` on desktop where outside-click
-  // already dismisses cleanly.
+  // Mobile-only Cancel — mirrors the documents/brain popup pattern. CSS
+  // hides `.dropdown-cancel-mobile` on desktop where outside-click already
+  // dismisses cleanly.
   const cancelItem = document.createElement('button');
   cancelItem.className = 'skill-kebab-item dropdown-cancel-mobile';
   cancelItem.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Cancel</span>';
@@ -678,6 +678,7 @@ function renderSkillsList() {
     }
     const conf = Math.round((sk.confidence || 0) * 100);
     const uses = sk.uses || 0;
+    const matched = sk.matched || 0;
     const isPublished = (sk.status === 'published');
     const confColor = _confColor(conf);
 
@@ -707,7 +708,7 @@ function renderSkillsList() {
         ${_auditModelPills(sk)}
         ${_necessityPill(sk)}
         ${_duplicatePriorityPill(sk)}
-        <span class="skill-stats">${_auditMarks(sk)}<span class="skill-conf" style="color:${confColor};">${conf}%</span> · ${uses}u</span>
+        <span class="skill-stats" title="used ${uses}× (opened/invoked) · matched ${matched}× (offered in prompt)">${_auditMarks(sk)}<span class="skill-conf" style="color:${confColor};">${conf}%</span> · ${uses}u${matched ? ` · ${matched}m` : ''}</span>
         <span class="skill-chevron-up" title="Collapse"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg></span>
         <button class="skill-kebab-btn" title="Actions" aria-label="Actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></button>
       </div>

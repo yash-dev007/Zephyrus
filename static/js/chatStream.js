@@ -133,11 +133,6 @@ export function handleUIControl(uiData) {
           var fn = mod.openGallery || (mod.default && mod.default.openGallery);
           if (fn) fn();
         }).catch(function(){});
-      } else if (panel === 'email') {
-        import('./emailLibrary.js').then(function(mod) {
-          var fn = mod.openEmailLibrary || (mod.default && mod.default.openEmailLibrary);
-          if (fn) fn();
-        }).catch(function(){});
       } else if (panel === 'sessions') {
         import('./sessions.js').then(function(mod) {
           var fn = mod.openLibrary || (mod.default && mod.default.openLibrary);
@@ -161,37 +156,6 @@ export function handleUIControl(uiData) {
         if (btn) btn.click();
       }
 
-    } else if (uiEvent === 'open_email_reply' || uiData.ui_event === 'open_email_reply') {
-      try {
-        var activeCtx = documentModule && documentModule.getActiveEmailComposerContext
-          ? documentModule.getActiveEmailComposerContext()
-          : null;
-        var sameActiveDraft = activeCtx && uiData.uid
-          && String(activeCtx.sourceUid || '') === String(uiData.uid)
-          && String(activeCtx.sourceFolder || 'INBOX') === String(uiData.folder || 'INBOX');
-        var existingDocId = sameActiveDraft && activeCtx.docId
-          ? activeCtx.docId
-          : (documentModule && documentModule.findEmailDocId
-            ? documentModule.findEmailDocId(uiData.uid, uiData.folder || 'INBOX')
-            : null);
-        if (existingDocId && documentModule.replaceEmailReplyBody) {
-          if (documentModule.loadDocument) documentModule.loadDocument(existingDocId);
-          // No `force`: a model-originated event must not overwrite a draft the
-          // user has edited. replaceEmailReplyBody keeps the user's text and
-          // shows a toast instead.
-          documentModule.replaceEmailReplyBody(existingDocId, uiData.body || '');
-          if (uiModule && uiModule.showToast) uiModule.showToast('Wrote reply into the open email');
-          return;
-        }
-      } catch (e) {
-        console.warn('open_email_reply existing draft update failed:', e);
-      }
-      import('./emailInbox.js').then(function(mod) {
-        var fn = mod.openReplyDraft || (mod.default && mod.default.openReplyDraft);
-        if (fn) fn(uiData.uid, uiData.folder || 'INBOX', uiData.mode || 'reply', uiData.body || '');
-      }).catch(function(e) {
-        console.warn('open_email_reply failed:', e);
-      });
     }
   } catch(e) {
     console.warn('ui_control handler error:', e);

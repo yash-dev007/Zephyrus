@@ -7,7 +7,7 @@
 //   - Other static assets (images/fonts/libs): cache-first with bg refresh.
 //   - API / non-GET: never cached.
 // Bump CACHE_NAME whenever the precache list or SW logic changes.
-const CACHE_NAME = 'zephyrus-v360';
+const CACHE_NAME = 'zephyrus-v366';
 
 // Core shell precached on install so repeat opens are instant without any
 // network wait. Keep this list in sync with the <script type="module"> tags
@@ -16,6 +16,7 @@ const PRECACHE = [
   '/',
   '/static/style.css',
   '/static/workbench.css',
+  '/static/design-v1.css',
   '/static/loader.css',
   '/static/js/loadingIndicator.js',
   '/static/js/workbench.js',
@@ -49,12 +50,11 @@ const PRECACHE = [
   '/static/js/censor.js',
   '/static/js/settings.js',
   '/static/js/admin.js',
+  '/static/js/topbar.js',
   '/static/js/init.js',
   '/static/js/slashCommands.js',
-  '/static/js/emailInbox.js',
-  '/static/js/emailLibrary/utils.js',
-  '/static/js/emailLibrary/signatureFold.js',
-  '/static/js/emailLibrary/state.js',
+  '/static/js/slashAutocomplete.js',
+  '/static/js/skillPicker.js',
   '/static/js/notes.js',
   '/static/js/tasks.js',
   '/static/js/calendar.js',

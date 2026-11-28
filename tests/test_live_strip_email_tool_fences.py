@@ -35,9 +35,7 @@ _NON_STRIPPED = {"bash", "python"}
 def _tool_tags() -> set[str]:
     """The backend TOOL_TAGS set — the same authoritative set GET /api/tools
     serves (sorted) and the live EXEC_FENCE_RE derives from. Imported rather
-    than source-scraped so it reflects the real set however it is composed: the
-    literal plus the ``| BUILTIN_EMAIL_TOOLS`` union (email tool names live in
-    that single source, not inline in the literal)."""
+    than source-scraped so it reflects the real set however it is composed."""
     from src.agent_tools import TOOL_TAGS
     return set(TOOL_TAGS)
 
@@ -72,31 +70,12 @@ def _strip_live_exec_fences(text: str) -> str:
     return rx.sub(repl, text)
 
 
-def test_strips_executed_email_tool_fences():
-    # The exact shape the reporter observed lingering in the live bubble.
-    text = 'Here are emails\n\n```list_emails\n{"max_results":10}\n```'
-    assert _strip_live_exec_fences(text).strip() == "Here are emails"
 
 
-def test_strips_executed_inline_email_tool_fences():
-    text = 'Here are accounts\n\n```list_email_accounts {}\n```'
-    assert _strip_live_exec_fences(text).strip() == "Here are accounts"
 
 
-def test_strips_multiline_inline_json_email_fences():
-    text = 'Here are emails\n\n```list_emails {"folder": "INBOX",\n"max_results": 2}\n```'
-    assert _strip_live_exec_fences(text).strip() == "Here are emails"
 
 
-def test_strips_every_named_email_tool_fence():
-    email_tools = [
-        "list_email_accounts", "send_email", "list_emails", "read_email",
-        "reply_to_email", "bulk_email", "archive_email", "delete_email",
-        "mark_email_read",
-    ]
-    for tool in email_tools:
-        fence = f"```{tool}\n{{}}\n```"
-        assert _strip_live_exec_fences(fence).strip() == "", f"{tool} fence not stripped"
 
 
 def test_preserves_existing_web_search_stripping():

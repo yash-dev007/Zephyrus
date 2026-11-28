@@ -50,6 +50,10 @@ export function syncWorkspaceIndicator(path) {
   }
   // Recompute the "+" overflow dot (app.js owns updatePlusDot via this event).
   try { document.dispatchEvent(new CustomEvent('overflow-state-change')); } catch (_) {}
+  // Keep the design-v1 topbar project crumb in sync with the workspace.
+  if (typeof window._updateTopbarProject === 'function') {
+    try { window._updateTopbarProject(path || ''); } catch (_) {}
+  }
 }
 
 // Called by the agent/chat mode toggle so the pill + overflow entry follow mode.

@@ -20,11 +20,7 @@ import tempfile
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
-
-
 from src.tool_security import (
-    BUILTIN_EMAIL_TOOLS,
-    email_tool_policy_names,
     is_public_blocked_tool,
     owner_is_admin_or_single_user,
 )
@@ -40,8 +36,6 @@ from src.tool_utils import _truncate, get_mcp_manager
 # an ephemeral container layer. HOME is deliberately NOT overridden — see
 # _direct_fallback().
 _AGENT_WORKDIR = DATA_DIR
-
-
 
 # ---------------------------------------------------------------------------
 # Path confinement for read_file / write_file
@@ -230,8 +224,6 @@ def _resolve_tool_path_in_workspace(workspace: str, raw_path: str) -> str:
             raise ValueError(f"path '{raw_path}' is outside the workspace ({workspace})")
     return resolved
 
-
-
 # ---------------------------------------------------------------------------
 # Active workspace (per-turn, context-local)
 # ---------------------------------------------------------------------------
@@ -328,9 +320,6 @@ def get_mcp_manager():
     from src import agent_tools
     return agent_tools.get_mcp_manager()
 
-
-
-
 def _resolve_search_root(raw_path: str) -> str:
     """Resolve + confine a code-nav path (grep/glob/ls).
 
@@ -391,7 +380,6 @@ _MCP_TOOL_MAP = {
     "web_fetch":      ("web_fetch",  "web_fetch"),
     "generate_image": ("image_gen",  "generate_image"),
 }
-_EMAIL_MCP_OWNER_ARG = "_zephyrus_owner"
 
 
 def _parse_qualified_mcp_args(tool: str, content: str) -> tuple[Dict, Optional[str]]:
@@ -401,12 +389,8 @@ def _parse_qualified_mcp_args(tool: str, content: str) -> tuple[Dict, Optional[s
     try:
         parsed = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
-        if tool.startswith("mcp__email__"):
-            return {}, "Email MCP tool arguments must be a JSON object."
         return {}, None
     if not isinstance(parsed, dict):
-        if tool.startswith("mcp__email__"):
-            return {}, "Email MCP tool arguments must be a JSON object."
         return {}, None
     return parsed, None
 
@@ -714,12 +698,6 @@ async def _execute_tool_block_impl(
     tool = block.tool_type
     content = block.content
 
-    # The block/disable gates below must match every policy-equivalent
-    # spelling of the tool name (bare email names alias their mcp__email__
-    # form — see email_tool_policy_names), not just the spelling the model
-    # happened to emit.
-    policy_names = email_tool_policy_names(tool)
-
     # Misformatted tool call detection: model put JSON inside ```python``` (or
     # similar) without naming the tool. Common with MiniMax-style outputs.
     # Return a helpful error so the model retries with the correct format.
@@ -735,10 +713,6 @@ async def _execute_tool_block_impl(
                         "```resolve_contact\n"
                         "{\"name\": \"...\"}\n"
                         "```\n"
-                        "or\n"
-                        "```send_email\n"
-                        "{\"to\": \"...\", \"subject\": \"...\", \"body\": \"...\"}\n"
-                        "```"
                     ),
                     "exit_code": 1,
                 }
@@ -747,13 +721,13 @@ async def _execute_tool_block_impl(
             pass
 
     # Reject tools that the user has disabled for this request
-    if disabled_tools and not policy_names.isdisjoint(disabled_tools):
+    if disabled_tools and tool in disabled_tools:
         desc = f"{tool}: BLOCKED"
         result = {"error": f"Tool '{tool}' is disabled by user.", "exit_code": 1}
         logger.info(f"Tool blocked by user: {tool}")
         return desc, result
 
-    if tool_policy and any(tool_policy.blocks(name) for name in policy_names):
+    if tool_policy and tool_policy.blocks(tool):
         desc = f"{tool}: BLOCKED"
         result = {
             "error": f"Execution of tool '{tool}' is forbade by the active guide-only policy.",
@@ -947,51 +921,6 @@ async def _execute_tool_block_impl(
     elif tool == "vault_unlock":
         desc = "vault_unlock"
         result = await do_vault_unlock(content, owner=owner)
-    elif tool in BUILTIN_EMAIL_TOOLS:
-        # Bare email tool name from fenced-block models (e.g. Ollama) — route to MCP email server.
-        # Non-admin owners never reach here: BUILTIN_EMAIL_TOOLS ⊆ NON_ADMIN_BLOCKED_TOOLS,
-        # so is_public_blocked_tool() above already rejected them.
-        mcp = get_mcp_manager()
-        qualified = f"mcp__email__{tool}"
-        desc = f"email: {tool}"
-        if mcp:
-            _raw = content.strip()
-            args = {}
-            _args_error = None
-            if _raw:
-                # A non-empty body is always meant to be the call's arguments,
-                # and every email tool takes a JSON object. Anything that
-                # isn't one is a correctable error — NOT a silent empty-args
-                # call, which would read the DEFAULT mailbox/folder instead of
-                # the one the model meant (#3966 class). Only an EMPTY body
-                # keeps the no-arg path (e.g. ```list_email_accounts```).
-                try:
-                    parsed = json.loads(_raw)
-                except (json.JSONDecodeError, TypeError) as _je:
-                    # Covers both `{account: "work"}` (looks like JSON, bad)
-                    # and `account: work` (not JSON at all).
-                    _args_error = (
-                        f"'{tool}' arguments are not valid JSON ({_je}). "
-                        'Send a JSON object, e.g. {"account": "work"} — '
-                        "keys and string values need double quotes."
-                    )
-                else:
-                    if isinstance(parsed, dict):
-                        args = parsed
-                    else:
-                        _args_error = (
-                            f"'{tool}' arguments must be a JSON object, "
-                            'e.g. {"uid": "..."} — got a JSON array/value instead.'
-                        )
-            if _args_error is not None:
-                result = {"error": _args_error, "exit_code": 1}
-            else:
-                if owner:
-                    args = dict(args)
-                    args[_EMAIL_MCP_OWNER_ARG] = owner
-                result = await mcp.call_tool(qualified, args)
-        else:
-            result = {"error": "MCP manager not available", "exit_code": 1}
     elif tool.startswith("mcp__"):
         # MCP tool dispatch
         mcp = get_mcp_manager()
@@ -1001,9 +930,6 @@ async def _execute_tool_block_impl(
             if parse_error:
                 result = {"error": parse_error, "exit_code": 1}
             else:
-                if tool.startswith("mcp__email__") and owner:
-                    args = dict(args)
-                    args[_EMAIL_MCP_OWNER_ARG] = owner
                 result = await mcp.call_tool(tool, args)
         else:
             desc = f"mcp: {tool}"

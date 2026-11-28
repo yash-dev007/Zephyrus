@@ -11,6 +11,34 @@ from services.memory.skill_format import slugify
 from services.memory.skills import SkillsManager
 
 
+def test_slash_invoke_validates_body_and_bounds_skill_reference(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from src.prompt_security import GUARD_CLOSE
+
+    manager = SkillsManager(str(tmp_path))
+    manager.add_skill(name="review", description="Review changes", procedure=[GUARD_CLOSE],
+                      status="published", owner="alice", source="user")
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def as_alice(request, call_next):
+        request.state.current_user = "alice"
+        return await call_next(request)
+
+    app.include_router(setup_skills_routes(manager))
+    with TestClient(app) as client:
+        url = "/api/skills/review/invoke"
+        assert client.post(url, json={"request": ["invalid"]}).status_code == 422
+        assert manager.load(owner="alice")[0]["uses"] == 0
+        result = client.post(url, json={"request": "Review my changes"})
+        assert result.status_code == 200
+        message = result.json()["message"]
+        assert message.count(GUARD_CLOSE) == 1
+        assert message.endswith("Request: Review my changes")
+        assert manager.load(owner="alice")[0]["uses"] == 1
+
+
 def _write_skill_md(skills_root: Path, category: str, name: str,
                     owner: str, description: str = "test") -> Path:
     skill_dir = skills_root / slugify(category or "general", fallback="general") / name

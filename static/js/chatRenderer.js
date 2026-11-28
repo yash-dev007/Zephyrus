@@ -939,6 +939,22 @@ export function roleTimestamp(when) {
   return ts;
 }
 
+/** Date bucket label for the thread divider ("Today", "Yesterday", weekday). */
+function _threadDateLabel(when) {
+  let d;
+  if (when instanceof Date) d = when;
+  else if (typeof when === 'number') d = new Date(when);
+  else if (typeof when === 'string' && when) d = new Date(when);
+  else d = new Date();
+  if (isNaN(d.getTime())) d = new Date();
+  const dayStart = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((dayStart(new Date()) - dayStart(d)) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  if (diff > 1 && diff < 7) return d.toLocaleDateString([], { weekday: 'long' });
+  return d.toLocaleDateString([], { month: 'long', day: 'numeric' });
+}
+
 /**
  * Apply `fn` to the prose outside fenced code blocks only. Tool markup inside a
  * fence is content the user asked to see (a tool-call format, a CI config), so
@@ -1064,8 +1080,6 @@ var TOOL_LABELS = {
   ui_control: 'Interface', ask_user: 'Question', update_plan: 'Plan',
   manage_notes: 'Notes', manage_calendar: 'Calendar', manage_tasks: 'Tasks',
   manage_settings: 'Settings', generate_image: 'Image', edit_image: 'Edit image',
-  bulk_email: 'Email', mark_email_read: 'Email', list_emails: 'Email',
-  read_email: 'Email', send_email: 'Email', reply_to_email: 'Email',
   search_chats: 'Chats', manage_bg_jobs: 'Jobs', api_call: 'API',
 };
 
@@ -1326,7 +1340,7 @@ document.addEventListener('click', function(e) {
     }
   } catch (_) {}
   if (!href.startsWith('#')) return;
-  let m = href.match(/^#(session|document|note|image|email|event|task|skill|research)-(.+)$/);
+  let m = href.match(/^#(session|document|note|image|event|task|skill|research)-(.+)$/);
   if (!m) {
     const noteOpen = href.match(/^#open=notes&note=([^&]+)/);
     if (noteOpen) m = ['note', 'note', decodeURIComponent(noteOpen[1])];
@@ -1374,11 +1388,6 @@ document.addEventListener('click', function(e) {
     import('./gallery.js').then(mod => {
       const open = mod.openGalleryImage || (mod.default && mod.default.openGalleryImage);
       if (open) open(id);
-    }).catch(() => {});
-  } else if (kind === 'email') {
-    import('./emailLibrary.js').then(mod => {
-      const open = mod.openEmailLibrary || (mod.default && mod.default.openEmailLibrary);
-      if (open) open({ uid: id });
     }).catch(() => {});
   } else if (kind === 'event') {
     import('./calendar.js').then(mod => {
@@ -2616,8 +2625,21 @@ export function addMessage(role, content, modelName, metadata) {
     } else if (metadata?.character_name && role !== 'user' && !isSlash && !isCompacted) {
       _roleText = metadata.character_name;
     }
-    r.textContent = _roleText;
-    if (role !== 'user') {
+    if (role === 'user') {
+      r.textContent = _roleText;
+    } else {
+      const _nameText = metadata?.character_name || 'Zephyrus';
+      const _metaText = (_roleText && _roleText !== _nameText) ? _roleText : 'Local-first';
+      const _name = document.createElement('span');
+      _name.className = 'msg-ai-name';
+      _name.textContent = _nameText;
+      const _tag = document.createElement('span');
+      _tag.className = 'msg-ai-tag';
+      _tag.textContent = /4\.1/i.test(resolvedModel || '') ? 'V4.1' : 'AI';
+      const _meta = document.createElement('span');
+      _meta.className = 'msg-ai-meta';
+      _meta.textContent = _metaText;
+      r.append(_name, _tag, _meta);
       if (!isSlash && !isCompacted && replyModels.requestedModel && resolvedModel && !sameModelName(replyModels.requestedModel, resolvedModel)) {
         r.title = replyModels.requestedModel + ' -> ' + resolvedModel;
       }
@@ -2876,9 +2898,16 @@ export function addMessage(role, content, modelName, metadata) {
       wrap.appendChild(createUserMsgFooter(wrap));
     }
 
-    box.appendChild(wrap);
+    if (!box.querySelector('.thread-meta') && !box.querySelector('.msg')) {
+      const meta = document.createElement('div');
+      meta.className = 'thread-meta';
+      const span = document.createElement('span');
+      span.textContent = _threadDateLabel(metadata?.timestamp);
+      meta.appendChild(span);
+      box.appendChild(meta);
+    }
 
-    // TTS is now part of the msg-actions system
+    box.appendChild(wrap);
     if (role === 'assistant' && markdownModule.renderMermaid) {
       markdownModule.renderMermaid(wrap);
     }

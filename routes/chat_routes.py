@@ -727,52 +727,9 @@ def setup_chat_routes(
         active_doc_id = str(form_data.get("active_doc_id") or "").strip()
         logger.info(f"[doc-inject] chat_mode={chat_mode}, active_doc_id={active_doc_id!r}")
 
-        # Active email reader — when the user has an email open in the UI, the
-        # frontend passes its uid/folder/account so "reply", "summarize this",
-        # etc. resolve to the real email instead of the agent inventing a
-        # fake markdown draft.
-        active_email_uid = str(form_data.get("active_email_uid") or "").strip()
-        active_email_folder = str(form_data.get("active_email_folder") or "INBOX").strip() or "INBOX"
-        active_email_account = str(form_data.get("active_email_account") or "").strip()
-        active_email_ctx: Optional[Dict[str, str]] = None
-        # Request-scoped only: active_email_ctx is built fresh per request and
-        # passed explicitly into stream_agent_loop. It MUST NOT be stashed on
-        # any process-global (the old set/clear_active_email round-trip raced
-        # between concurrent requests: turn A's clear wiped turn B's pointer
-        # mid-flight). Nothing reads the global anymore — the explicit param
-        # is the sole channel.
-        if active_email_uid:
-            active_email_ctx = {
-                "uid": active_email_uid,
-                "folder": active_email_folder,
-                "account": active_email_account,
-            }
-            # Try to enrich with subject + from so the agent's system prompt
-            # block can quote them. Best-effort: a stale cache is fine, a
-            # missing email just means we pass uid/folder/account only.
-            try:
-                from routes.email_routes import _read_cache_get, _read_cache_key
-                _ck = _read_cache_key(active_email_account or None, active_email_folder, active_email_uid, owner=get_current_user(request))
-                _cached_email = _read_cache_get(_ck)
-                if _cached_email and isinstance(_cached_email, dict):
-                    active_email_ctx["subject"] = str(_cached_email.get("subject") or "")
-                    active_email_ctx["from"] = str(
-                        _cached_email.get("from_address")
-                        or _cached_email.get("from")
-                        or _cached_email.get("from_name")
-                        or ""
-                    )
-                    _body_preview = (_cached_email.get("body") or "")[:2000]
-                    if _body_preview:
-                        active_email_ctx["body_preview"] = _body_preview
-            except Exception as _e:
-                logger.warning("[email-inject] cache enrich skipped: %s", _e)
-            logger.info(
-                "[email-inject] active_email uid=%s folder=%s account=%s subject=%r",
-                active_email_uid, active_email_folder, active_email_account or "(default)",
-                active_email_ctx.get("subject", ""),
-            )
-
+        # Active document — when the user has a document open in the UI, the
+        # frontend passes its id so "edit this", "summarize this", etc. resolve
+        # to the real document instead of the agent inventing a new one.
         try:
             # Attachment-only sends: skip the message-required check when the
             # user has attached one or more files (the attachment IS the action).
@@ -790,6 +747,21 @@ def setup_chat_routes(
             _verify_session_owner(request, session, session_manager)
             sess = session_manager.get_session(session)
             owner = effective_user(request)
+            # Remember the workspace this chat is being used in so the sidebar
+            # can group chats by project. Only write when it actually changes.
+            if workspace and getattr(sess, "workspace", None) != workspace:
+                sess.workspace = workspace
+                try:
+                    _ws_db = SessionLocal()
+                    try:
+                        _ws_db.query(DBSession).filter(DBSession.id == session).update(
+                            {DBSession.workspace: workspace}
+                        )
+                        _ws_db.commit()
+                    finally:
+                        _ws_db.close()
+                except Exception as _ws_err:
+                    logger.debug("workspace persist failed for %s: %s", session, _ws_err)
             incognito = incognito or getattr(sess, "incognito", False)
             sess.incognito = incognito
             if _clear_orphaned_session_endpoint(sess, owner=owner):
@@ -949,7 +921,7 @@ def setup_chat_routes(
                     else:
                         # NOTE: previously dropped the doc when doc.session_id
                         # != current chat session — but that broke the common
-                        # case of "open an email draft from one chat, ask a
+                        # case of "open a document from one chat, ask a
                         # different chat to write into it". The frontend only
                         # sends active_doc_id for docs currently visible in
                         # the UI, and we already owner-checked above, so trust
@@ -970,15 +942,6 @@ def setup_chat_routes(
                         logger.info(f"[doc-inject] found by ID: title={active_doc.title!r}, lang={active_doc.language!r}, is_active={active_doc.is_active}, content_len={len(active_doc.current_content or '')}")
                 else:
                     logger.warning(f"[doc-inject] NOT FOUND by ID {active_doc_id}")
-            if not active_doc:
-                _email_doc_q = _doc_db.query(DBDocument).filter(
-                    DBDocument.session_id == session,
-                    DBDocument.is_active == True,
-                    DBDocument.language == "email",
-                )
-                active_doc = _owner_session_filter(_email_doc_q, ctx.user).order_by(DBDocument.updated_at.desc()).first()
-                if active_doc:
-                    logger.info(f"[doc-inject] found email draft by session fallback: title={active_doc.title!r}")
             if not active_doc:
                 _session_doc_q = _doc_db.query(DBDocument).filter(
                     DBDocument.session_id == session,
@@ -1035,7 +998,6 @@ def setup_chat_routes(
                 "search_chats", "manage_skills", "manage_memory",
                 "read_file", "write_file", "edit_file",
                 "create_document", "edit_document", "update_document",
-                "send_email", "reply_to_email",
                 "manage_notes", "manage_calendar", "manage_tasks",
                 "api_call", "builtin_browser",
             })
@@ -1053,21 +1015,6 @@ def setup_chat_routes(
                 "manage_memory",      # persistent memory store
                 "search_chats",       # past chat history
                 "manage_skills",      # skill presets tied to user
-            })
-
-        # Active email reader open → strip the tools that let the agent drift
-        # away from the visible email or skip review. The only allowed compose
-        # path is ui_control open_email_reply, which opens the same draft editor
-        # as the Reply button with the generated body pre-filled. This prevents
-        # the model from falling back to direct SMTP when it botches a draft
-        # call, and prevents fake email-shaped documents.
-        if active_email_ctx and active_email_ctx.get("uid"):
-            disabled_tools.update({
-                "create_document",
-                "send_email",
-                "reply_to_email",
-                "mcp__email__send_email",
-                "mcp__email__reply_to_email",
             })
 
         # Enforce per-user privileges
@@ -1101,7 +1048,7 @@ def setup_chat_routes(
             disabled_tools.update(_global_disabled)
 
         # Light auto-escalation: the user is in chat mode and just expressed a
-        # notes/calendar/email intent. Grant the relevant managers but withhold
+        # notes/calendar intent. Grant the relevant managers but withhold
         # the heavy "do things on the computer" tools — otherwise the model
         # tries to shell out for a request that never needed it, then fails
         # (and looks broken when the shell is disabled).
@@ -1574,7 +1521,6 @@ def setup_chat_routes(
                         max_rounds=0,
                         context_length=ctx.context_length,
                         active_document=active_doc,
-                        active_email=active_email_ctx,
                         session_id=session,
                         disabled_tools=disabled_tools if disabled_tools else None,
                         tool_policy=tool_policy,
@@ -1761,7 +1707,9 @@ def setup_chat_routes(
         # avoids the KeyError race the old inline version commented on.
         rec = _run_status_view(session_id)
         if rec is None:
-            raise HTTPException(404, "No active stream for this session")
+            # No active stream is a normal state, not an error. Returning 404
+            # made every session open log a console error and look broken.
+            return {"status": "idle", "active": False}
         return rec
 
     # ------------------------------------------------------------------ #

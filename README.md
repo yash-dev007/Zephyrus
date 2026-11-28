@@ -16,7 +16,7 @@ Key properties:
 
 - Local-first: all user data lives in `data/` (SQLite `app.db`, JSON settings, uploads, vectors). See [Data layout](#data-layout).
 - Provider-agnostic: Ollama, LM Studio, vLLM, SGLang, llama.cpp, OpenAI-compatible endpoints, plus Anthropic / Gemini / Groq / xAI / OpenRouter / OpenAI / DeepSeek via provider setup.
-- Degrades gracefully: ChromaDB, SearXNG, email, ntfy, or provider probes can be down; the UI reports degraded state instead of crashing.
+- Degrades gracefully: ChromaDB, SearXNG, ntfy, or provider probes can be down; the UI reports degraded state instead of crashing.
 - Auth by default: session cookies + `ody_` API bearer tokens, per-user privileges, admin-gated dangerous tools.
 
 ## Features
@@ -28,7 +28,6 @@ Key properties:
 | Personal docs / RAG | Add directories/files, ChromaDB + FastEmbed semantic search | `src/rag_manager.py`, `src/personal_docs.py`, `routes/personal_routes.py` |
 | Deep research | Multi-step web research with visual reports | `src/deep_research.py`, `src/research_handler.py`, `routes/research/` |
 | Web search | Self-hosted SearXNG (+ optional DuckDuckGo) | `docker-compose.yml`, `services/search/`, `routes/search_routes.py` |
-| Email | IMAP/SMTP multi-account, threads, compose, pollers | `routes/email_routes.py`, `routes/email_pollers.py` |
 | Calendar / Contacts | CalDAV / CardDAV sync, `.ics` import/export | `src/caldav_sync.py`, `routes/calendar_routes.py`, `routes/contacts/` |
 | Tasks / Notes | Scheduled tasks, event bus, assistant log, Keep-style notes | `src/task_scheduler.py`, `routes/task_routes.py`, `routes/note_routes.py` |
 | Documents | Artifacts/canvas editor, Office/PDF extraction | `routes/document_routes.py`, `src/document_processor.py` |
@@ -40,7 +39,7 @@ Key properties:
 | Integrations | Codex + Claude bridges, companion routes, webhooks, API tokens | `routes/codex_routes.py`, `integrations/codex/`, `integrations/claude/`, `companion/` |
 | System | Backup/restore, vault, prefs, fonts, emoji proxy, workspace, shell | `routes/backup_routes.py`, `routes/vault_routes.py`, `routes/shell_routes.py` |
 
-Preview clips live in [`docs/`](docs): `chat.webm`, `research.webm`, `email-outlook.md`, `gallery.webm`, `notes.webm`, `compare.webm`, `document.webm`, plus `zephyrus.jpg`.
+Preview clips live in [`docs/`](docs): `chat.webm`, `research.webm`, `gallery.webm`, `notes.webm`, `compare.webm`, `document.webm`, plus `zephyrus.jpg`.
 
 
 ![Zephyrus UI preview](docs/Zephyrus-Chat.png)
@@ -130,7 +129,7 @@ Ollama on the host from Docker: add `http://host.docker.internal:11434/v1` in Se
 flowchart TB
   Browser["Browser SPA<br/>static/index.html + js/"] -->|HTTP + SSE| App["FastAPI app.py<br/>CORS / gzip / timeout / auth"]
   App --> Core["core/<br/>auth • database • middleware"]
-  App --> Routes["routes/<br/>chat • memory • research • email<br/>calendar • tasks • cookbook • mcp ..."]
+  App --> Routes["routes/<br/>chat • memory • research<br/>calendar • tasks • cookbook • mcp ..."]
   Routes --> SvcLogic["src/<br/>agent_loop • chat_processor<br/>memory • RAG • task_scheduler"]
   SvcLogic --> Providers["Model providers<br/>Ollama • vLLM • SGLang<br/>llama.cpp • LM Studio • APIs"]
   SvcLogic --> Chroma["ChromaDB<br/>vectors"]
@@ -200,7 +199,7 @@ Backup/restore: [`docs/backup-restore.md`](docs/backup-restore.md).
 app.py               # FastAPI entrypoint, middleware, router wiring, lifespan
 core/                # auth, database/models, middleware, constants re-export
 src/                 # agent loop, chat, memory, RAG, research, scheduler, tools
-routes/              # one module per feature area (chat, email, cookbook, MCP...)
+routes/              # one module per feature area (chat, cookbook, MCP...)
 services/            # docs, memory, search, hwfit, shell, stt, tts, youtube
 static/              # index.html, login.html, style.css, app.js, js/ modules
 integrations/        # codex/, claude/ bridges
@@ -243,7 +242,7 @@ Full rules: [CONTRIBUTING](CONTRIBUTING.md).
 
 ## Security
 
-Self-host this like an admin console (shell, uploads, model serving, email, API tokens):
+Self-host this like an admin console (shell, uploads, model serving, API tokens):
 
 - Keep `AUTH_ENABLED=true`, `LOCALHOST_BYPASS=false`, `SECURE_COOKIES=true` behind HTTPS.
 - Bind `127.0.0.1` unless LAN/VPN access is intentional; never expose raw ports directly.
@@ -255,7 +254,7 @@ Reporting: [SECURITY.md](SECURITY.md). Threat model: [THREAT_MODEL.md](THREAT_MO
 
 ## Roadmap and docs
 
-- Help wanted: [ROADMAP.md](ROADMAP.md) (install smoke tests, cookbook reliability, research presets, prompt bloat, email perf, provider audits).
+- Help wanted: [ROADMAP.md](ROADMAP.md) (install smoke tests, cookbook reliability, research presets, prompt bloat, provider audits).
 - Setup deep-dive: [docs/setup.md](docs/setup.md)
 - Backup/restore: [docs/backup-restore.md](docs/backup-restore.md)
 - Tests taxonomy: [tests/README.md](tests/README.md)

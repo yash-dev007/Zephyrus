@@ -48,7 +48,6 @@ _EXPECTED = [
     # active-email facade helpers (no do_* prefix); consumed by
     # routes/chat_routes.py — listed here because get_active_email has no
     # in-repo importer, so the import-site scan below can't see it alone.
-    "set_active_email", "get_active_email", "clear_active_email",
 ]
 
 

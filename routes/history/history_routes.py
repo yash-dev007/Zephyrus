@@ -627,6 +627,7 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
                 model=source.model,
                 rag=False,
                 owner=getattr(source, 'owner', None),
+                workspace=getattr(source, 'workspace', None),
             )
 
             # Copy messages up to keep_count

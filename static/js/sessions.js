@@ -1,7 +1,7 @@
 ﻿// Session Management Functions
 // This module handles all session-related operations
 
-import Storage from './storage.js';
+import Storage, { KEYS } from './storage.js';
 import uiModule, { autoResize, styledPrompt } from './ui.js';
 import chatRenderer from './chatRenderer.js';
 import { providerLogo } from './providers.js';
@@ -21,12 +21,16 @@ let _suppressNextSessionLoading = false;
 // and selected. Deadlock-safe: nothing inside the loadSessions await graph
 // awaits loadSessions (the one nested call is fire-and-forget).
 let _loadSessionsPromise = null;
+// Set when a mutation (delete/archive/restore) lands while a load is in
+// flight. The waiter re-runs once so a stale in-flight response can't
+// resurrect the removed row.
+let _sessionsDirty = false;
 const HISTORY_DISPLAY_CHAR_LIMIT = 160000;
 const HISTORY_DISPLAY_TAIL_CHARS = 20000;
 const HISTORY_PAGE_LIMIT_MOBILE = 8;
 const HISTORY_PAGE_LIMIT_DESKTOP = 24;
 
-const SIDEBAR_MAX_VISIBLE = 10;
+const SIDEBAR_MAX_VISIBLE = 5;
 const FOLDER_MAX_VISIBLE = 5;
 let _showAllSessions = false;
 let _expandedFolders = {};  // folderName -> true if "show more" clicked
@@ -36,6 +40,10 @@ const _INCOGNITO_SESSIONS_KEY = 'ody-incognito-sessions'; // sessionStorage key 
 const _isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 const _mod = _isMac ? '⌘' : 'Ctrl';
 let _historyPager = null;
+// One poller per session. Prevents a second interval when the user leaves
+// and re-enters the same chat while a detached run is still streaming.
+const _serverStreamPollers = new Map();
+const _checkingServerStreams = new Set();
 
 function _paintSessionLoading(chatHistory, label = 'Loading chat') {
   if (!chatHistory) return;
@@ -191,35 +199,36 @@ function _installHistoryPager(id, pageInfo, modelName) {
   };
 
   const loadOlder = async () => {
-    if (!_historyPager || _historyPager.loading || _historyPager.done) return;
-    if (_historyPager.sessionId !== currentSessionId) return;
+    const pager = _historyPager;
+    if (!pager || pager.loading || pager.done) return;
+    if (pager.sessionId !== currentSessionId) return;
     if (box.scrollTop > 90) return;
 
-    const nextOffset = Math.max(0, _historyPager.offset - _historyPager.limit);
-    const nextLimit = _historyPager.offset - nextOffset;
+    const nextOffset = Math.max(0, pager.offset - pager.limit);
+    const nextLimit = pager.offset - nextOffset;
     if (nextLimit <= 0) {
-      _historyPager.done = true;
+      pager.done = true;
       return;
     }
 
-    _historyPager.loading = true;
+    pager.loading = true;
     const anchor = box.querySelector('.msg, .agent-thread, .gallery-bubble');
     const beforeHeight = box.scrollHeight;
     try {
-      const res = await fetch(_historyUrl(_historyPager.sessionId, { limit: nextLimit, offset: nextOffset }));
+      const res = await fetch(_historyUrl(pager.sessionId, { limit: nextLimit, offset: nextOffset }));
       const data = await res.json();
       if (!_historyPager || _historyPager.sessionId !== currentSessionId) return;
       const newEls = [];
       for (const msg of data.history || []) {
         if (msg.role !== 'user' && msg.role !== 'assistant') continue;
-        const els = _renderHistoryMessage(msg, _historyPager.modelName);
+        const els = _renderHistoryMessage(msg, pager.modelName);
         if (Array.isArray(els)) newEls.push(...els);
       }
       for (const el of newEls) {
         box.insertBefore(el, anchor || box.firstChild);
       }
-      _historyPager.offset = Number(data.offset || nextOffset);
-      _historyPager.done = !data.has_more_before;
+      pager.offset = Number(data.offset || nextOffset);
+      pager.done = !data.has_more_before;
       if (window.hljs) {
         newEls.forEach(el => el.querySelectorAll('pre code:not(.hljs)').forEach(block => window.hljs.highlightElement(block)));
       }
@@ -228,7 +237,7 @@ function _installHistoryPager(id, pageInfo, modelName) {
     } catch (e) {
       console.warn('Failed to load older chat history:', e);
     } finally {
-      if (_historyPager) _historyPager.loading = false;
+      pager.loading = false;
     }
   };
 
@@ -271,6 +280,7 @@ let _sessionListFocused = false;
 /** Clear current session from UI (after delete/archive). */
 function _deselectCurrentSession(sid) {
   if (currentSessionId !== sid) return;
+  _clearPeekState();
   currentSessionId = null;
   uiModule.el('chat-history').innerHTML = '';
   uiModule.el('current-meta').textContent = 'Zephyrus Chat';
@@ -291,6 +301,7 @@ function _deselectCurrentSession(sid) {
 
 function _removeSessionFromLocalState(sid) {
   if (!sid) return;
+  _sessionsDirty = true;
   const id = String(sid);
   sessions = sessions.filter(s => String(s.id) !== id);
   _selectedIds.delete(id);
@@ -356,11 +367,33 @@ function getFolderNames() {
 async function moveToFolder(sessionId, folderName) {
   const fd = new FormData();
   fd.append('folder', folderName || '');
-  await fetch(`${API_BASE}/api/session/${sessionId}`, { method: 'PATCH', body: fd });
+  const res = await fetch(`${API_BASE}/api/session/${sessionId}`, { method: 'PATCH', body: fd });
+  if (!res.ok) {
+    uiModule.showError('Failed to move session');
+    return false;
+  }
   // Update local data
   const s = sessions.find(x => x.id === sessionId);
   if (s) s.folder = folderName || null;
   renderSessionList();
+  return true;
+}
+
+/** Rename a session, only mutating local state after the server accepts. */
+async function _commitSessionRename(s, newName) {
+  if (!newName || newName === s.name) return true;
+  try {
+    const fd = new FormData();
+    fd.append('name', newName);
+    const res = await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'PATCH', body: fd });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    s.name = newName;
+    uiModule.showToast('Renamed');
+    return true;
+  } catch (e) {
+    uiModule.showError('Failed to rename session');
+    return false;
+  }
 }
 
 /** Build the "Move to folder" submenu for a session dropdown. */
@@ -470,7 +503,9 @@ function buildFolderSubmenu(sessionId, currentFolder, dropdown) {
   });
 
   sub.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('click', () => { sub.style.display = 'none'; });
+  // The global _initDropdownDismiss handler already closes
+  // .session-folder-submenu on click-away/Escape. A per-row document
+  // listener here leaked one handler per session on every render.
   document.body.appendChild(sub);
 
   return moveItem;
@@ -575,17 +610,13 @@ function createSessionItem(s) {
       input.select();
       const _stopGuard = _guardSidebarDuringRename();
       const commit = async () => {
-        const newName = input.value.trim();
-        if (newName && newName !== s.name) {
-          const fd = new FormData();
-          fd.append('name', newName);
-          await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'PATCH', body: fd });
-          s.name = newName;
-          uiModule.showToast('Renamed');
+        try {
+          await _commitSessionRename(s, input.value.trim());
+        } finally {
+          _forceSidebarOpen();
+          renderSessionList();
+          _stopGuard();
         }
-        _forceSidebarOpen();
-        renderSessionList();
-        _stopGuard();
       };
       input.addEventListener('blur', commit);
       input.addEventListener('keydown', (ev) => {
@@ -837,17 +868,13 @@ function createSessionItem(s) {
     input.select();
     const _stopGuard = _guardSidebarDuringRename();
     const commit = async () => {
-      const newName = input.value.trim();
-      if (newName && newName !== s.name) {
-        const fd = new FormData();
-        fd.append('name', newName);
-        await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'PATCH', body: fd });
-        s.name = newName;
-        uiModule.showToast('Renamed');
+      try {
+        await _commitSessionRename(s, input.value.trim());
+      } finally {
+        _forceSidebarOpen();
+        renderSessionList();
+        _stopGuard();
       }
-      _forceSidebarOpen();
-      renderSessionList();
-      _stopGuard();
     };
     input.addEventListener('blur', commit);
     input.addEventListener('keydown', (ev) => {
@@ -977,10 +1004,28 @@ function _sessionBucketDate(s) {
   return s.last_message_at || s.updated_at || s.created_at || '';
 }
 
+function _normalizeWorkspace(path) {
+  return String(path || '').trim().replace(/[\\/]+$/, '');
+}
+
+function _workspaceLabel(path) {
+  const p = _normalizeWorkspace(path);
+  if (!p) return 'No workspace';
+  const parts = p.split(/[\\/]+/);
+  return parts[parts.length - 1] || p;
+}
+
+function _currentWorkspace() {
+  return _normalizeWorkspace(Storage.get(KEYS.WORKSPACE, ''));
+}
+
 function _createDateSectionHeader(label, kind = 'session') {
   const el = document.createElement('div');
   el.className = `date-section-header ${kind}-date-section-header`;
-  el.textContent = label;
+  const span = document.createElement('span');
+  span.className = 'date-section-label';
+  span.textContent = label;
+  el.appendChild(span);
   return el;
 }
 
@@ -1018,7 +1063,15 @@ function _renderSessionListImpl() {
 
   // Get saved order from localStorage
   const savedOrder = Storage.get('session-order');
-  let orderedSessions = sessions.filter(s => !s.archived && s.folder !== 'Assistant' && !_isIncognitoSession(s.id) && (s.name || '').trim() !== 'Nobody' && (s.name || '').trim() !== 'Incognito');
+  // Hide empty sessions (0 messages) unless they are the one currently
+  // selected. A "New Chat" that was never used should not sit at the top of
+  // the list looking like a broken conversation.
+  let orderedSessions = sessions.filter(s =>
+    !s.archived &&
+    s.folder !== 'Assistant' &&
+    !_isIncognitoSession(s.id) &&
+    (Number(s.message_count) > 0 || String(s.id) === String(currentSessionId))
+  );
 
   if (savedOrder) {
     try {
@@ -1040,9 +1093,69 @@ function _renderSessionListImpl() {
   }
 
   // Clean up any previous session dropdowns and folder submenus from body
-  document.querySelectorAll('.session-dropdown, .folder-submenu').forEach(d => d.remove());
+  document.querySelectorAll('.session-dropdown, .session-folder-submenu').forEach(d => d.remove());
 
   const _frag = document.createDocumentFragment();
+
+  // ── Workspace sort: group chats by the project folder they were used in. ──
+  if (_sortMode === 'workspace') {
+    const byWorkspace = new Map();
+    for (const s of orderedSessions) {
+      const key = _normalizeWorkspace(s.workspace);
+      if (!byWorkspace.has(key)) byWorkspace.set(key, []);
+      byWorkspace.get(key).push(s);
+    }
+    const currentWs = _currentWorkspace();
+    const keys = [...byWorkspace.keys()].sort((a, b) => {
+      if (a === currentWs) return -1;
+      if (b === currentWs) return 1;
+      if (!a) return 1;
+      if (!b) return -1;
+      return a.localeCompare(b);
+    });
+    const byActive = (arr) => arr.sort((a, b) => {
+      const av = a.last_message_at || a.updated_at || a.created_at || '';
+      const bv = b.last_message_at || b.updated_at || b.created_at || '';
+      return bv.localeCompare(av);
+    });
+    const ordered = [
+      ...orderedSessions.filter(s => s.is_important),
+      ...keys.flatMap(key => byActive(byWorkspace.get(key).filter(s => !s.is_important))),
+    ];
+    const limit = _showAllSessions ? ordered.length : SIDEBAR_MAX_VISIBLE;
+    const visible = ordered.slice(0, limit);
+    const activeIdx = ordered.findIndex(s => s.id === currentSessionId);
+    if (!_showAllSessions && activeIdx >= limit) visible.push(ordered[activeIdx]);
+
+    _appendFavoriteSessionItems(_frag, visible.filter(s => s.is_important));
+    let lastWs = null;
+    for (const s of visible.filter(s => !s.is_important)) {
+      const key = _normalizeWorkspace(s.workspace);
+      if (key !== lastWs) {
+        _frag.appendChild(_createDateSectionHeader(
+          key ? _workspaceLabel(key) : 'No workspace', 'workspace'
+        ));
+        lastWs = key;
+      }
+      _frag.appendChild(createSessionItem(s));
+    }
+    if (ordered.length > SIDEBAR_MAX_VISIBLE) {
+      const remaining = ordered.length - visible.length;
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'session-show-more-btn';
+      toggleBtn.textContent = _showAllSessions ? 'Show less' : `Show ${remaining} more`;
+      toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _showAllSessions = !_showAllSessions;
+        renderSessionList();
+      });
+      _frag.appendChild(toggleBtn);
+    }
+    list.innerHTML = '';
+    list.appendChild(_frag);
+    _postRenderSessionList(list);
+    return;
+  }
 
   // ── Flat sort modes: ignore folders, show one ordered list. ──
   // Folders are only shown when _sortMode === 'group' (or null/empty
@@ -1080,7 +1193,7 @@ function _renderSessionListImpl() {
     _appendSessionItemsWithDateHeaders(_frag, visibleRegular);
 
     if (allFlat.length > SIDEBAR_MAX_VISIBLE) {
-      const remaining = allFlat.length - SIDEBAR_MAX_VISIBLE;
+      const remaining = allFlat.length - visible.length;
       const toggleBtn = document.createElement('button');
       toggleBtn.className = 'session-show-more-btn';
       toggleBtn.textContent = _showAllSessions ? 'Show less' : `Show ${remaining} more`;
@@ -1172,9 +1285,13 @@ function _renderSessionListImpl() {
     deleteBtn.title = 'Delete folder and all sessions';
     deleteBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const count = folders[folderName].length;
+      const deletable = folders[folderName].filter(s => !s.is_important);
+      const skipped = folders[folderName].length - deletable.length;
+      if (skipped) uiModule.showToast(`${skipped} favorite(s) kept. Unfavorite before deleting.`);
+      if (!deletable.length) return;
+      const count = deletable.length;
       if (!await uiModule.styledConfirm(`Delete folder "${folderName}" and all ${count} session(s) inside it?`, { confirmText: 'Delete', danger: true })) return;
-      for (const s of folders[folderName]) {
+      for (const s of deletable) {
         try {
           await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'DELETE' });
           _deselectCurrentSession(s.id);
@@ -1182,6 +1299,7 @@ function _renderSessionListImpl() {
           console.error('Failed to delete session:', s.id, err);
         }
       }
+      _sessionsDirty = true;
       await loadSessions();
     });
     header.appendChild(deleteBtn);
@@ -1298,8 +1416,12 @@ function _renderSessionListImpl() {
     deleteBtn.title = 'Delete all unsorted sessions';
     deleteBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (!await uiModule.styledConfirm(`Delete all ${unfiled.length} unsorted session(s)?`, { confirmText: 'Delete', danger: true })) return;
-      for (const s of unfiled) {
+      const deletable = unfiled.filter(s => !s.is_important);
+      const skipped = unfiled.length - deletable.length;
+      if (skipped) uiModule.showToast(`${skipped} favorite(s) kept. Unfavorite before deleting.`);
+      if (!deletable.length) return;
+      if (!await uiModule.styledConfirm(`Delete all ${deletable.length} unsorted session(s)?`, { confirmText: 'Delete', danger: true })) return;
+      for (const s of deletable) {
         try {
           await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'DELETE' });
           _deselectCurrentSession(s.id);
@@ -1307,6 +1429,7 @@ function _renderSessionListImpl() {
           console.error('Failed to delete session:', s.id, err);
         }
       }
+      _sessionsDirty = true;
       await loadSessions();
     });
     unsortedHeader.appendChild(deleteBtn);
@@ -1339,7 +1462,7 @@ function _renderSessionListImpl() {
 
   // "Show more" / "Show less" toggle
   if (unfiledTarget && unfiled.length > SIDEBAR_MAX_VISIBLE) {
-    const remaining = unfiled.length - SIDEBAR_MAX_VISIBLE;
+    const remaining = unfiled.length - visibleUnfiled.length;
     const toggleBtn = document.createElement('button');
     toggleBtn.className = 'session-show-more-btn';
     toggleBtn.textContent = _showAllSessions ? 'Show less' : `Show ${remaining} more`;
@@ -1372,6 +1495,7 @@ function _postRenderSessionList(list) {
   _initSwipeToDelete(list);
   initDragSort();
   _showSwipeHint(list);
+  if (_selectMode) _addSelectDots();
 }
 
 function _initKeyboardNav(list) {
@@ -1455,28 +1579,34 @@ function _enterSelectMode() {
   if (bulkBar) bulkBar.classList.remove('hidden');
   const selectBtn = document.getElementById('session-select-btn');
   if (selectBtn) selectBtn.style.opacity = '1';
-  // Add select dots to all session items
+  _addSelectDots();
+  _updateBulkCount();
+}
+
+/** Add select dots to every row, preserving the current selection. */
+function _addSelectDots() {
   document.querySelectorAll('.list-item[data-session-id]').forEach(item => {
     if (item.querySelector('.session-select-cb')) return;
+    const sid = item.dataset.sessionId;
+    const checked = _selectedIds.has(sid);
     const dot = document.createElement('span');
     dot.className = 'session-select-cb';
-    dot.innerHTML = '○';
-    dot.style.cssText = 'cursor:pointer;font-size:16px;flex-shrink:0;opacity:0.4;transition:opacity 0.1s;user-select:none;';
-    dot._checked = false;
+    dot.innerHTML = checked ? '●' : '○';
+    dot.style.cssText = 'cursor:pointer;font-size:16px;flex-shrink:0;opacity:' + (checked ? '1' : '0.4') + ';transition:opacity 0.1s;user-select:none;';
+    if (checked) dot.style.color = 'var(--accent, var(--red))';
+    dot._checked = checked;
     dot.addEventListener('click', (e) => {
       e.stopPropagation();
       dot._checked = !dot._checked;
       dot.innerHTML = dot._checked ? '●' : '○';
       dot.style.opacity = dot._checked ? '1' : '0.4';
       dot.style.color = dot._checked ? 'var(--accent, var(--red))' : '';
-      const sid = item.dataset.sessionId;
       if (dot._checked) _selectedIds.add(sid);
       else _selectedIds.delete(sid);
       _updateBulkCount();
     });
     item.insertBefore(dot, item.firstChild);
   });
-  _updateBulkCount();
 }
 
 function _exitSelectMode() {
@@ -1577,15 +1707,22 @@ function _initBulkSelect() {
   if (deleteBtn) {
     deleteBtn.addEventListener('click', async () => {
       if (_selectedIds.size === 0) return;
-      const count = _selectedIds.size;
+      const favoriteIds = new Set(sessions.filter(s => s.is_important).map(s => String(s.id)));
+      const ids = [..._selectedIds].filter(id => !favoriteIds.has(String(id)));
+      const skipped = _selectedIds.size - ids.length;
+      if (skipped) uiModule.showToast(`${skipped} favorite(s) kept. Unfavorite before deleting.`);
+      if (!ids.length) return;
+      const count = ids.length;
       if (!await uiModule.styledConfirm(`Delete ${count} session(s)? This cannot be undone.`, { confirmText: 'Delete', danger: true })) return;
       const deletedIds = [];
-      for (const sid of _selectedIds) {
+      for (const sid of ids) {
         try {
           const res = await fetch(`${API_BASE}/api/session/${sid}`, { method: 'DELETE' });
           if (res.ok) deletedIds.push(sid);
         } catch (_) {}
       }
+      for (const sid of deletedIds) _deselectCurrentSession(sid);
+      _sessionsDirty = true;
       await _animateSessionRowsRemoving(deletedIds, '#session-list .list-item[data-session-id]');
       _exitSelectMode();
       if (window._suppressSidebarClose !== undefined) { window._suppressSidebarClose = true; setTimeout(() => { window._suppressSidebarClose = false; }, 1500); }
@@ -1611,6 +1748,10 @@ function _animateSessionRowsRemoving(ids, selector) {
 export async function loadSessions() {
   if (_loadSessionsPromise) {
     try { await _loadSessionsPromise; } catch (_) {}
+    if (_sessionsDirty) {
+      _sessionsDirty = false;
+      return loadSessions();
+    }
     return;
   }
   let _resolveOwn = null;
@@ -1628,6 +1769,7 @@ export async function loadSessions() {
       fetched = JSON.parse(prefetched);
     } else {
       const res = await fetch(`${API_BASE}/api/sessions`);
+      if (!res.ok) throw new Error(`Failed to load sessions (HTTP ${res.status})`);
       fetched = await res.json();
     }
     sessions = _normalizeSessionsList(fetched);
@@ -1642,7 +1784,7 @@ export async function loadSessions() {
 
     const activeSessions = sessions.filter(s => !s.archived);
     let hashId = window.location.hash.replace('#', '');
-    const hasResourceLink = /^(document|note|image|email|event|task|skill|research)-/.test(hashId) || /^open=notes&note=/.test(hashId);
+    const hasResourceLink = /^(document|note|image|event|task|skill|research)-/.test(hashId) || /^open=notes&note=/.test(hashId);
     if (hasResourceLink) {
       hashId = '';
     }
@@ -1676,7 +1818,7 @@ export async function loadSessions() {
           if (currentSessionId || _pendingChat) return;
           if (dc.endpoint_url && dc.model) {
             await createDirectChat(dc.endpoint_url, dc.model, dc.endpoint_id);
-            if (window.innerWidth < 768) {
+            if (window.innerWidth <= 768) {
               const sb = document.getElementById('sidebar');
               if (sb) sb.classList.add('hidden');
             }
@@ -1943,9 +2085,9 @@ export async function selectSession(id, { keepSidebar = false, showLoading = tru
     } else {
       if (window.chatModule && window.chatModule.showWelcomeScreen) window.chatModule.showWelcomeScreen();
       // Don't highlight ordinary empty sessions — feels like nothing is
-      // selected. Keep document/email-scoped sessions highlighted though: a
-      // new email/reply chat starts empty but immediately owns an email doc.
-      const isDocScopedEmptySession = !!(meta && (meta.has_documents || /^Email:|^New Email$/i.test(meta.name || '')));
+      // selected. Keep document-scoped sessions highlighted though: a new
+      // chat can start empty but immediately own a document.
+      const isDocScopedEmptySession = !!(meta && meta.has_documents);
       if (!isDocScopedEmptySession) {
         document.querySelectorAll('.list-item.active-session').forEach(el => el.classList.remove('active-session'));
       }
@@ -2063,6 +2205,7 @@ let _pendingChat = null; // { url, modelId, endpointId }
 
 export function createDirectChat(url, modelId, endpointId) {
   _sessionNavToken++;
+  _clearPeekState();
   // Detach any active stream so it doesn't interfere with the new chat
   if (window.chatModule && window.chatModule.detachCurrentStream) {
     window.chatModule.detachCurrentStream(currentSessionId);
@@ -2138,6 +2281,8 @@ export async function materializePendingSession() {
   if (pending.endpointId) {
     fd.append('endpoint_id', pending.endpointId);
   }
+  const _workspace = Storage.get(KEYS.WORKSPACE, '') || '';
+  if (_workspace) fd.append('workspace', _workspace);
 
   let res;
   try {
@@ -2209,6 +2354,7 @@ export function getCurrentEndpointUrl() {
 
 export function setCurrentSessionId(id) {
   _sessionNavToken++;
+  _checkPeekCleanup(id);
   currentSessionId = id;
   if (!id) {
     _suppressNextSessionLoading = true;
@@ -2309,7 +2455,7 @@ export function initDragSort() {
 // session navigation (which would reset the active chat).
 window.addEventListener('hashchange', () => {
   const hashId = window.location.hash.replace('#', '');
-  if (/^(document|note|image|email|event|task|skill|research)-/.test(hashId) || /^open=notes&note=/.test(hashId)) return;
+  if (/^(document|note|image|event|task|skill|research)-/.test(hashId) || /^open=notes&note=/.test(hashId)) return;
   if (hashId && hashId !== currentSessionId) {
     const target = sessions.find(s => s.id === hashId && !s.archived);
     if (target) selectSession(hashId);
@@ -2461,6 +2607,8 @@ function _updateRailNotifs() {
  * and poll until done, then reload the session.
  */
 async function _checkServerStream(sessionId) {
+  if (_checkingServerStreams.has(sessionId) || _serverStreamPollers.has(sessionId)) return;
+  _checkingServerStreams.add(sessionId);
   try {
     // Skip if research is running — it has its own progress UI
     if (_researchingSessions.has(sessionId)) return;
@@ -2509,41 +2657,40 @@ async function _checkServerStream(sessionId) {
     // may not be set yet when _checkServerStream first runs. Retry resumeStream
     // on the first poll tick where it becomes available.
     let _resumeRetried = false;
-    const pollId = setInterval(async () => {
-      if (getCurrentSessionId() !== sessionId) {
-        clearInterval(pollId);
-        spinner.destroy();
-        if (holder.parentNode) holder.remove();
-        return;
-      }
+    const cleanup = () => {
+      const t = _serverStreamPollers.get(sessionId);
+      if (t) clearTimeout(t);
+      _serverStreamPollers.delete(sessionId);
+      spinner.destroy();
+      if (holder.parentNode) holder.remove();
+    };
+    const tick = async () => {
+      if (getCurrentSessionId() !== sessionId) { cleanup(); return; }
       if (!_resumeRetried && window.chatModule && window.chatModule.resumeStream) {
         _resumeRetried = true;
         const attached = await window.chatModule.resumeStream(sessionId);
-        if (attached) {
-          clearInterval(pollId);
-          spinner.destroy();
-          if (holder.parentNode) holder.remove();
-          return;
-        }
+        if (attached) { cleanup(); return; }
       }
       try {
         const r = await fetch(`${API_BASE}/api/chat/stream_status/${sessionId}`);
         if (!r.ok || (await r.json()).status !== 'streaming') {
-          clearInterval(pollId);
-          spinner.destroy();
-          if (holder.parentNode) holder.remove();
+          cleanup();
           // Reload session to show the completed response + docs
           selectSession(sessionId);
+          return;
         }
       } catch (_) {
-        clearInterval(pollId);
-        spinner.destroy();
-        if (holder.parentNode) holder.remove();
+        cleanup();
         selectSession(sessionId);
+        return;
       }
-    }, 1500);
+      _serverStreamPollers.set(sessionId, setTimeout(tick, 1500));
+    };
+    _serverStreamPollers.set(sessionId, setTimeout(tick, 1500));
   } catch (_) {
     // No stream active — nothing to do
+  } finally {
+    _checkingServerStreams.delete(sessionId);
   }
 }
 
@@ -2621,7 +2768,9 @@ function _showDropdown(anchorEl, items) {
   for (const item of items) {
     const row = document.createElement('div');
     row.className = 'dropdown-item-compact' + (item.danger ? ' dropdown-item-danger' : '');
-    row.innerHTML = '<span>' + item.label + '</span>';
+    const label = document.createElement('span');
+    label.textContent = item.label;
+    row.appendChild(label);
     row.addEventListener('click', (e) => {
       e.stopPropagation();
       close();
@@ -2654,12 +2803,15 @@ function _showDropdown(anchorEl, items) {
 // ──────────────────────────────────────────────
 
 // All mutable archive state lives here; reset on each openArchive().
-const _arc = { data: [], total: 0, search: '', offset: 0, sort: 'recent', model: '', debounce: null, selectMode: false, selected: new Set(), allModelCounts: null };
+const _arc = { data: [], total: 0, search: '', offset: 0, sort: 'recent', model: '', debounce: null, selectMode: false, selected: new Set(), allModelCounts: null, fetchToken: 0 };
 
 function _arcRelativeTime(iso) {
   if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '';
+  const diff = Math.max(0, Date.now() - t);
   const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
@@ -2677,33 +2829,35 @@ async function _arcPeekOpen(sid) {
   try {
     _peekingSessionId = sid;
     closeArchive();
-    // Load history directly without unarchiving
-    const res = await fetch(`${API_BASE}/api/history/${sid}`);
+    const navToken = ++_sessionNavToken;
+    // Load a bounded page through the same renderer as a normal chat so
+    // internal prompts / vision blocks / tool rows render correctly.
+    const res = await fetch(`${API_BASE}/api/history/${sid}?limit=50`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (navToken !== _sessionNavToken) return;
     const history = data.history || [];
 
-    // Set as current session so chat renders
     currentSessionId = sid;
+    document.querySelectorAll('.list-item.active-session').forEach(el => el.classList.remove('active-session'));
 
-    // Find the archived session metadata
     const meta = _arc.data.find(s => s.id === sid);
     const metaEl = document.getElementById('current-meta');
     if (metaEl) metaEl.textContent = (meta?.name || 'Archived') + ' (archived)';
 
-    // Render the chat history
     const chatBox = document.getElementById('chat-history');
     if (chatBox) chatBox.innerHTML = '';
     if (window.chatModule && window.chatModule.hideWelcomeScreen) window.chatModule.hideWelcomeScreen();
 
-    const addMsg = window.chatModule && window.chatModule.addMessage;
-    if (addMsg) {
-      for (const msg of history) {
-        if (msg.role === 'user' || msg.role === 'assistant') {
-          const model = String((msg.metadata && msg.metadata.model) || '');
-          const content = typeof msg.content === 'string' ? msg.content : (Array.isArray(msg.content) ? msg.content : String(msg.content || ''));
-          try { addMsg(msg.role, content, model, msg.metadata || null); } catch (e) { console.warn('Failed to render message:', e); }
-        }
-      }
+    for (const msg of history) {
+      try { _renderHistoryMessage(msg, data.model || null); } catch (e) { console.warn('Failed to render archived message:', e); }
+    }
+
+    // Archived sessions are read-only until restored.
+    const msgInput = document.getElementById('message');
+    if (msgInput) {
+      msgInput.disabled = true;
+      msgInput.placeholder = 'Archived session (read-only)';
     }
     if (window.uiModule) window.uiModule.scrollHistory();
   } catch (e) {
@@ -2712,10 +2866,28 @@ async function _arcPeekOpen(sid) {
   }
 }
 
+// Restore the composer after leaving an archived-session peek.
+function _clearPeekState() {
+  if (!_peekingSessionId) return;
+  _peekingSessionId = null;
+  const msgInput = document.getElementById('message');
+  if (msgInput) {
+    msgInput.disabled = false;
+    msgInput.placeholder = 'Describe a task, paste an error, or ask about your code…';
+  }
+}
+
+// Clear the peek only when the given session is the one being peeked.
+function _clearPeekFor(sessionId) {
+  if (_peekingSessionId && String(_peekingSessionId) === String(sessionId)) {
+    _clearPeekState();
+  }
+}
+
 // When navigating away from a peeked session, just clear the state
 function _checkPeekCleanup(newSessionId) {
   if (_peekingSessionId && _peekingSessionId !== newSessionId) {
-    _peekingSessionId = null;
+    _clearPeekState();
   }
 }
 
@@ -2723,6 +2895,7 @@ async function _arcRestore(sid) {
   try {
     const res = await fetch(`${API_BASE}/api/session/${sid}/unarchive`, { method: 'POST' });
     if (!res.ok) throw new Error('Failed');
+    _clearPeekFor(sid);
     _arcRemove(sid);
     _arcRefreshUI();
     uiModule.showToast('Session restored');
@@ -2731,11 +2904,19 @@ async function _arcRestore(sid) {
 }
 
 async function _arcDelete(sid) {
-  if (!await window.styledConfirm('Delete this session permanently?', { confirmText: 'Delete', danger: true })) return;
+  const meta = _arc.data.find(s => s.id === sid);
+  if (meta && meta.is_important) {
+    uiModule.showToast('Unfavorite before deleting');
+    return;
+  }
+  if (!await uiModule.styledConfirm('Delete this session permanently?', { confirmText: 'Delete', danger: true })) return;
   try {
     const res = await fetch(`${API_BASE}/api/session/${sid}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed');
     await _animateSessionRowsRemoving([sid], '#archive-grid .archive-row[data-session-id]');
+    _clearPeekFor(sid);
+    _deselectCurrentSession(sid);
+    _sessionsDirty = true;
     _arcRemove(sid);
     _arcRefreshUI();
     uiModule.showToast('Session deleted');
@@ -2743,45 +2924,57 @@ async function _arcDelete(sid) {
 }
 
 function _arcRemove(sid) {
+  const before = _arc.data.length;
   _arc.data = _arc.data.filter(x => x.id !== sid);
-  _arc.total--;
+  if (_arc.data.length !== before) _arc.total = Math.max(0, _arc.total - 1);
   _arc.selected.delete(sid);
 }
 
 async function _arcBulkRestore() {
   const ids = [..._arc.selected];
   if (!ids.length) return;
+  let restored = 0;
   for (const sid of ids) {
     try {
-      await fetch(`${API_BASE}/api/session/${sid}/unarchive`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/api/session/${sid}/unarchive`, { method: 'POST' });
+      if (!res.ok) continue;
+      _clearPeekFor(sid);
       _arcRemove(sid);
+      restored++;
     } catch {}
   }
   _arc.selected.clear();
   _arcRefreshUI();
-  uiModule.showToast(`${ids.length} session${ids.length > 1 ? 's' : ''} restored`);
+  uiModule.showToast(`${restored} session${restored === 1 ? '' : 's'} restored`);
   loadSessions();
 }
 
 async function _arcBulkDelete() {
   const ids = [..._arc.selected];
   if (!ids.length) return;
-  const ok = await uiModule.styledConfirm(`Delete ${ids.length} session${ids.length > 1 ? 's' : ''} permanently?`, { confirmText: 'Delete', danger: true });
+  const favoriteIds = new Set(_arc.data.filter(s => s.is_important).map(s => String(s.id)));
+  const deletable = ids.filter(id => !favoriteIds.has(String(id)));
+  const skipped = ids.length - deletable.length;
+  if (skipped) uiModule.showToast(`${skipped} favorite(s) kept. Unfavorite before deleting.`);
+  if (!deletable.length) return;
+  const ok = await uiModule.styledConfirm(`Delete ${deletable.length} session${deletable.length > 1 ? 's' : ''} permanently?`, { confirmText: 'Delete', danger: true });
   if (!ok) return;
   const deletedIds = [];
-  for (const sid of ids) {
+  for (const sid of deletable) {
     try {
       const res = await fetch(`${API_BASE}/api/session/${sid}`, { method: 'DELETE' });
       if (res.ok) {
         deletedIds.push(sid);
+        _deselectCurrentSession(sid);
         _arcRemove(sid);
       }
     } catch {}
   }
+  if (deletedIds.length) _sessionsDirty = true;
   await _animateSessionRowsRemoving(deletedIds, '#archive-grid .archive-row[data-session-id]');
   _arc.selected.clear();
   _arcRefreshUI();
-  uiModule.showToast(`${deletedIds.length} session${deletedIds.length > 1 ? 's' : ''} deleted`);
+  uiModule.showToast(`${deletedIds.length} session${deletedIds.length === 1 ? '' : 's'} deleted`);
 }
 
 function _arcToggleSelectMode() {
@@ -2805,6 +2998,7 @@ function _arcUpdateBulkBar() {
 // ── Data fetching ──
 
 async function _arcFetch(append) {
+  const token = ++_arc.fetchToken;
   if (!append) _arc.offset = 0;
   const params = new URLSearchParams({ offset: String(_arc.offset), limit: '20', sort: _arc.sort });
   if (_arc.search) params.set('search', _arc.search);
@@ -2813,6 +3007,7 @@ async function _arcFetch(append) {
     const res = await fetch(`${API_BASE}/api/sessions/archived?${params}`);
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
+    if (token !== _arc.fetchToken) return;
     _arc.data = append ? _arc.data.concat(data.sessions) : data.sessions;
     _arc.total = data.total;
     // Cache model counts from unfiltered first fetch
@@ -2946,7 +3141,7 @@ function _arcRenderLoadMore() {
 
 // ── Unified Library Modal (Chats / Documents / Archive) ──
 
-const _lib = { tab: 'chats', search: '', sort: 'recent', debounce: null, selectMode: false, selected: new Set() };
+const _lib = { tab: 'chats', search: '', sort: 'recent', debounce: null, selectMode: false, selected: new Set(), fetchToken: 0 };
 
 export function openLibrary(defaultTab) {
   // Delegate everything to the document module's library (has tabs for Chats/Documents/Archive)
@@ -3051,7 +3246,7 @@ export function openLibrary(defaultTab) {
   document.getElementById('lib-select-all').addEventListener('change', (e) => {
     const checked = e.target.checked;
     document.querySelectorAll('#lib-grid .memory-select-cb').forEach(cb => { cb.checked = checked; });
-    document.querySelectorAll('#lib-grid .doclib-card').forEach(card => {
+    document.querySelectorAll('#lib-grid .memory-item').forEach(card => {
       const id = card.dataset.sessionId || card.dataset.docId;
       if (id) { if (checked) _lib.selected.add(id); else _lib.selected.delete(id); }
     });
@@ -3064,7 +3259,7 @@ export function openLibrary(defaultTab) {
       for (const sid of _lib.selected) await fetch(`${API_BASE}/api/session/${sid}/archive`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       uiModule.showToast(`Archived ${_lib.selected.size} sessions`);
     } else if (_lib.tab === 'archive') {
-      for (const sid of _lib.selected) await fetch(`${API_BASE}/api/session/${sid}/restore`, { method: 'POST' });
+      for (const sid of _lib.selected) await fetch(`${API_BASE}/api/session/${sid}/unarchive`, { method: 'POST' });
       uiModule.showToast(`Restored ${_lib.selected.size} sessions`);
     }
     _lib.selected.clear();
@@ -3076,13 +3271,23 @@ export function openLibrary(defaultTab) {
 
   // Bulk delete
   document.getElementById('lib-bulk-delete').addEventListener('click', async () => {
-    if (!await uiModule.styledConfirm(`Delete ${_lib.selected.size} items?`, { confirmText: 'Delete', danger: true })) return;
+    if (!_lib.selected.size) return;
+    const favoriteIds = new Set([...sessions, ..._arc.data].filter(s => s.is_important).map(s => String(s.id)));
+    const ids = [..._lib.selected].filter(id => !favoriteIds.has(String(id)));
+    const skipped = _lib.selected.size - ids.length;
+    if (skipped) uiModule.showToast(`${skipped} favorite(s) kept. Unfavorite before deleting.`);
+    if (!ids.length) return;
+    if (!await uiModule.styledConfirm(`Delete ${ids.length} items?`, { confirmText: 'Delete', danger: true })) return;
     if (_lib.tab === 'chats' || _lib.tab === 'archive') {
-      for (const sid of _lib.selected) await fetch(`${API_BASE}/api/session/${sid}`, { method: 'DELETE' });
+      for (const sid of ids) {
+        const res = await fetch(`${API_BASE}/api/session/${sid}`, { method: 'DELETE' });
+        if (res.ok) _deselectCurrentSession(sid);
+      }
+      _sessionsDirty = true;
     } else if (_lib.tab === 'documents') {
-      for (const did of _lib.selected) await fetch(`${API_BASE}/api/document/${did}`, { method: 'DELETE' });
+      for (const did of ids) await fetch(`${API_BASE}/api/document/${did}`, { method: 'DELETE' });
     } else if (_lib.tab === 'research') {
-      for (const rid of _lib.selected) await fetch(`${API_BASE}/api/research/${rid}`, { method: 'DELETE' });
+      for (const rid of ids) await fetch(`${API_BASE}/api/research/${rid}`, { method: 'DELETE' });
     }
     _lib.selected.clear();
     _lib.selectMode = false;
@@ -3141,7 +3346,13 @@ function _renderLibChats(grid) {
       _showDropdown(e.currentTarget, [
         { label: 'Open', action: () => { closeLibrary(); selectSession(s.id); } },
         { label: 'Archive', action: async () => { await fetch(`${API_BASE}/api/session/${s.id}/archive`, { method: 'POST', headers: { 'Content-Type': 'application/json' } }); await loadSessions(); _renderLibGrid(); } },
-        { label: 'Delete', action: async () => { if (!await uiModule.styledConfirm('Delete?', { confirmText: 'Delete', danger: true })) return; await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'DELETE' }); await loadSessions(); _renderLibGrid(); }, danger: true },
+        { label: 'Delete', action: async () => {
+          if (s.is_important) { uiModule.showToast('Unfavorite before deleting'); return; }
+          if (!await uiModule.styledConfirm('Delete?', { confirmText: 'Delete', danger: true })) return;
+          const res = await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'DELETE' });
+          if (res.ok) { _deselectCurrentSession(s.id); _sessionsDirty = true; }
+          await loadSessions(); _renderLibGrid();
+        }, danger: true },
       ]);
     });
     grid.appendChild(card);
@@ -3149,6 +3360,7 @@ function _renderLibChats(grid) {
 }
 
 async function _renderLibArchive(grid) {
+  const token = ++_lib.fetchToken;
   grid.innerHTML = '';
   grid.appendChild(spinnerModule.createLoadingRow('Loading…'));
   try {
@@ -3156,6 +3368,7 @@ async function _renderLibArchive(grid) {
     if (_lib.search) params.set('search', _lib.search);
     const res = await fetch(`${API_BASE}/api/sessions/archived?${params}`);
     const data = await res.json();
+    if (token !== _lib.fetchToken) return;
     const items = data.sessions || [];
     const stats = document.getElementById('lib-stats');
     if (stats) stats.textContent = `(${data.total || items.length})`;
@@ -3170,8 +3383,14 @@ async function _renderLibArchive(grid) {
       card.querySelector('.archive-menu-btn').addEventListener('click', (e) => {
         e.stopPropagation();
         _showDropdown(e.currentTarget, [
-          { label: 'Restore', action: async () => { await fetch(`${API_BASE}/api/session/${s.id}/restore`, { method: 'POST' }); await loadSessions(); _renderLibGrid(); } },
-          { label: 'Delete', action: async () => { if (!await uiModule.styledConfirm('Delete?', { confirmText: 'Delete', danger: true })) return; await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'DELETE' }); _renderLibGrid(); }, danger: true },
+          { label: 'Restore', action: async () => { await fetch(`${API_BASE}/api/session/${s.id}/unarchive`, { method: 'POST' }); await loadSessions(); _renderLibGrid(); } },
+          { label: 'Delete', action: async () => {
+            if (s.is_important) { uiModule.showToast('Unfavorite before deleting'); return; }
+            if (!await uiModule.styledConfirm('Delete?', { confirmText: 'Delete', danger: true })) return;
+            const res = await fetch(`${API_BASE}/api/session/${s.id}`, { method: 'DELETE' });
+            if (res.ok) { _deselectCurrentSession(s.id); _sessionsDirty = true; }
+            _renderLibGrid();
+          }, danger: true },
         ]);
       });
       grid.appendChild(card);
@@ -3180,6 +3399,7 @@ async function _renderLibArchive(grid) {
 }
 
 async function _renderLibDocuments(grid) {
+  const token = ++_lib.fetchToken;
   grid.innerHTML = '';
   grid.appendChild(spinnerModule.createLoadingRow('Loading…'));
   try {
@@ -3187,6 +3407,7 @@ async function _renderLibDocuments(grid) {
     if (_lib.search) params.set('search', _lib.search);
     const res = await fetch(`${API_BASE}/api/documents/library?${params}`);
     const data = await res.json();
+    if (token !== _lib.fetchToken) return;
     const docs = data.documents || [];
     const stats = document.getElementById('lib-stats');
     if (stats) stats.textContent = `(${data.total || docs.length})`;
@@ -3218,6 +3439,7 @@ async function _renderLibDocuments(grid) {
 }
 
 async function _renderLibResearch(grid) {
+  const token = ++_lib.fetchToken;
   grid.innerHTML = '';
   grid.appendChild(spinnerModule.createLoadingRow('Loading research…'));
   try {
@@ -3226,6 +3448,7 @@ async function _renderLibResearch(grid) {
     const res = await fetch(`${API_BASE}/api/research/library?${params}`);
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
+    if (token !== _lib.fetchToken) return;
     const items = data.research || [];
     const statsEl = document.getElementById('lib-stats');
     if (statsEl) statsEl.textContent = `${data.total || 0} research`;
@@ -3264,7 +3487,7 @@ async function _renderLibResearch(grid) {
               uiModule.showToast('Toggle Research and send to re-run');
             }},
             { label: 'Delete', danger: true, action: async () => {
-              if (!await window.styledConfirm('Delete this research?', { confirmText: 'Delete', danger: true })) return;
+              if (!await uiModule.styledConfirm('Delete this research?', { confirmText: 'Delete', danger: true })) return;
               await fetch(`${API_BASE}/api/research/${item.id}`, { method: 'DELETE' });
               _renderLibGrid();
             }},
@@ -3419,6 +3642,15 @@ export function setSessionHasDocs(sessionId, hasDocs) {
   }
 }
 
+/** Keep the local session row in sync with the workspace the chat was sent in. */
+export function setSessionWorkspace(sessionId, workspace) {
+  const s = sessions.find(x => String(x.id) === String(sessionId));
+  if (s && (s.workspace || null) !== (workspace || null)) {
+    s.workspace = workspace || null;
+    if (_sortMode === 'workspace') renderSessionList();
+  }
+}
+
 // Export all functions to window for use in main app
 const sessionModule = {
   initDependencies,
@@ -3447,6 +3679,7 @@ const sessionModule = {
   openArchive,
   closeArchive,
   setSessionHasDocs,
+  setSessionWorkspace,
   getSortMode,
   setSortMode
 };

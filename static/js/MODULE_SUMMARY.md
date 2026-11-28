@@ -17,7 +17,7 @@
   (`sessionModule`, `uiModule`, `adminModule`, `cookbookModule`).
 - Patches `fetch` so any `401` redirects the user to `/login`.
 - Fetches the default chat configuration and handles deep-link route openers
-  (`/notes`, `/calendar`, `/email`, `/memory`, `/gallery`, `/cookbook`, `/library`, `/tasks`).
+  (`/notes`, `/calendar`, `/memory`, `/gallery`, `/cookbook`, `/library`, `/tasks`).
 - Wires global event listeners: chat-history scrolling, popups, Escape handling,
   drag-and-drop/paste attachment handling, transcription export, sidebar toggles,
   rail/tool buttons, and session sorting.
@@ -131,12 +131,11 @@ The largest and most central subsystem. Chat submission → backend SSE → prog
 
 ---
 
-## 9. Gallery, Email, Calendar, Tasks, and Notes
+## 9. Gallery, Calendar, Tasks, and Notes
 
 | Module | Responsibility |
 |---|---|
 | **`gallery.js`** / **`galleryEditor.js`** | Gallery/image library and canvas editor entry points. |
-| **`emailInbox.js`** / **`emailLibrary.js`** | Email inbox reader and library modal. Sub-modules handle signatures, reply recipients, state, and signature folding. |
 | **`calendar.js`** / **`calendar/utils.js`** | Calendar views, event forms. (Reminders live in `notes.js`.) |
 | **`tasks.js`** | Scheduled task/recurring LLM job UI. |
 | **`notes.js`** | Notes and todo panel, reminders, pinboard. |

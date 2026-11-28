@@ -29,7 +29,6 @@ def test_execution_contract_is_shared_once_and_disabled_domains_are_omitted(comp
 def test_workspace_prompt_includes_file_guidance_without_unrelated_domains(compact):
     prompt = agent._assemble_prompt({"read_file", "edit_file", "bash"}, compact=compact)
     assert agent._DOMAIN_RULES["files"] in prompt
-    assert agent._DOMAIN_RULES["email"] not in prompt
     assert prompt.count(agent._EXECUTION_RULES) == 1
     if compact:
         assert "```bash" not in prompt

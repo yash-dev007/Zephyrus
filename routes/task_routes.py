@@ -13,13 +13,18 @@ from pydantic import BaseModel
 from core.database import SessionLocal, ScheduledTask, TaskRun
 from core.constants import internal_api_base
 from src.auth_helpers import get_current_user
-from src.constants import DATA_DIR, EMAIL_URGENCY_CACHE_DIR
+from src.constants import DATA_DIR
 from src.task_action_policy import (
     ADMIN_ONLY_TASK_ACTIONS,
     is_admin_only_task_action,
     owner_has_admin_task_privileges,
 )
-from src.task_scheduler import compute_next_run, HOUSEKEEPING_DEFAULTS
+from src.task_scheduler import (
+    compute_next_run,
+    HOUSEKEEPING_DEFAULTS,
+    RETIRED_HOUSEKEEPING_ACTIONS,
+    is_retired_email_output,
+)
 from routes.prefs_routes import _load_for_user, _save_for_user
 
 logger = logging.getLogger(__name__)
@@ -434,6 +439,25 @@ def setup_task_routes(task_scheduler) -> APIRouter:
         if is_admin_only_task_action(task_type, action) and not _is_admin(user):
             raise HTTPException(403, f"Action '{action}' requires admin privileges")
 
+    def _validate_action(action: str | None) -> None:
+        if not action:
+            return
+        if action in RETIRED_HOUSEKEEPING_ACTIONS:
+            raise HTTPException(400, f"Action '{action}' has been removed")
+
+    def _validate_output_target(target: str) -> None:
+        if target in ("session", "notification", "none"):
+            return
+        if not is_retired_email_output(target) and target.startswith("mcp__"):
+            try:
+                from src.tool_utils import get_mcp_manager
+                manager = get_mcp_manager()
+                if manager and any(tool.get("qualified_name") == target for tool in manager.get_all_tools()):
+                    return
+            except Exception:
+                pass
+        raise HTTPException(400, "Unsupported output target")
+
     def _validate_then_task_id(db, then_task_id: Optional[str], user: Optional[str], current_task_id: Optional[str] = None) -> Optional[str]:
         target_id = (then_task_id or "").strip()
         if not target_id:
@@ -451,6 +475,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
     @router.post("")
     async def create_task(request: Request, req: TaskCreate):
         user = _owner(request)
+        _validate_output_target(req.output_target)
 
         # Validate
         if req.task_type in ("llm", "research") and not req.prompt:
@@ -461,6 +486,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
         # uses subprocess.run(shell=True) and ssh_command / run_script run
         # arbitrary commands.
         _require_admin_for_task_action(user, req.task_type, req.action)
+        _validate_action(req.action)
         if req.trigger_type == "schedule" and not req.schedule:
             raise HTTPException(400, "Schedule is required for schedule-triggered tasks")
         if req.trigger_type == "schedule" and req.schedule == "cron" and not req.cron_expression:
@@ -569,85 +595,6 @@ def setup_task_routes(task_scheduler) -> APIRouter:
         notes = task_scheduler.pop_notifications(owner=user)
         return {"notifications": notes}
 
-    @router.post("/{task_id}/clear-cache")
-    async def clear_task_cache(request: Request, task_id: str):
-        """Clear derived cache for one built-in task."""
-        user = _owner(request)
-        db = SessionLocal()
-        try:
-            task = db.query(ScheduledTask).filter(ScheduledTask.id == task_id).first()
-            if not task:
-                raise HTTPException(404, "Task not found")
-            if user and task.owner != user:
-                raise HTTPException(403, "Access denied")
-            action = task.action or ""
-        finally:
-            db.close()
-
-        cache_tables = {
-            "summarize_emails": ("email_summaries",),
-            "draft_email_replies": ("email_ai_replies",),
-            "email_auto_translate": ("email_translations",),
-            "extract_email_events": ("email_calendar_extractions",),
-            "learn_sender_signatures": ("sender_signatures",),
-            "check_email_urgency": ("email_tags", "email_urgency_alerts"),
-        }
-        tables = cache_tables.get(action)
-        if not tables:
-            raise HTTPException(400, "This task has no clearable cache")
-
-        import sqlite3
-        from pathlib import Path
-        from routes.email_helpers import SCHEDULED_DB, OWNER_SCOPED_EMAIL_CACHE_TABLES, _email_cache_owner_clause
-
-        cleared = {}
-        conn = sqlite3.connect(SCHEDULED_DB)
-        try:
-            for table in tables:
-                try:
-                    if table == "email_tags" and user:
-                        before = conn.execute(
-                            "SELECT COUNT(*) FROM email_tags WHERE owner = ? OR owner = ''",
-                            (user,),
-                        ).fetchone()[0]
-                        conn.execute("DELETE FROM email_tags WHERE owner = ? OR owner = ''", (user,))
-                    elif table in OWNER_SCOPED_EMAIL_CACHE_TABLES and user:
-                        owner_clause, owner_params = _email_cache_owner_clause(user)
-                        before = conn.execute(
-                            f"SELECT COUNT(*) FROM {table} WHERE {owner_clause}",
-                            owner_params,
-                        ).fetchone()[0]
-                        conn.execute(f"DELETE FROM {table} WHERE {owner_clause}", owner_params)
-                    else:
-                        before = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                        conn.execute(f"DELETE FROM {table}")
-                    cleared[table] = int(before or 0)
-                except sqlite3.OperationalError:
-                    cleared[table] = 0
-            conn.commit()
-        finally:
-            conn.close()
-
-        removed_files = 0
-        if action == "check_email_urgency":
-            cache_dir = Path(EMAIL_URGENCY_CACHE_DIR)
-            if cache_dir.exists():
-                for child in cache_dir.glob("*.json"):
-                    try:
-                        child.unlink()
-                        removed_files += 1
-                    except Exception:
-                        pass
-            owner_slug = "".join(c if (c.isalnum() or c in "-_.@") else "_" for c in (user or "default"))
-            for state_path in [Path(DATA_DIR) / f"email_urgency_state_{owner_slug}.json"]:
-                try:
-                    if state_path.exists():
-                        state_path.unlink()
-                        removed_files += 1
-                except Exception:
-                    pass
-
-        return {"ok": True, "action": action, "cleared": cleared, "files": removed_files}
 
     @router.get("/{task_id}")
     async def get_task(request: Request, task_id: str):
@@ -677,6 +624,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             next_task_type = req.task_type if req.task_type is not None else task.task_type
             next_action = req.action if req.action is not None else task.action
             _require_admin_for_task_action(user, next_task_type, next_action)
+            _validate_action(next_action)
 
             if req.name is not None:
                 task.name = req.name
@@ -687,6 +635,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             if req.action is not None:
                 task.action = req.action
             if req.output_target is not None:
+                _validate_output_target(req.output_target)
                 task.output_target = req.output_target
             if req.model is not None:
                 task.model = req.model or None
@@ -802,6 +751,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             if user and task.owner != user:
                 raise HTTPException(403, "Access denied")
             _require_admin_for_task_action(user, task.task_type, task.action)
+            _validate_output_target(task.output_target or "session")
             task.status = "active"
             if (task.trigger_type or "schedule") == "schedule":
                 task.next_run = compute_next_run(
@@ -916,15 +866,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             # duplicate Activity rows for display.
             rows = q.order_by(TaskRun.started_at.desc()).limit(limit * 3).all()
             deduped = []
-            seen_urgency_rows = set()
             for r, t in rows:
-                if (t.action or "") == "check_email_urgency":
-                    ts = r.started_at.replace(second=0, microsecond=0) if r.started_at else None
-                    text = (r.result or r.error or "").strip()
-                    key = (ts, r.status or "", text)
-                    if key in seen_urgency_rows:
-                        continue
-                    seen_urgency_rows.add(key)
                 deduped.append((r, t))
                 if len(deduped) >= limit:
                     break
@@ -986,7 +928,6 @@ def setup_task_routes(task_scheduler) -> APIRouter:
         targets = [
             {"value": "session", "label": "Session", "description": "Save result to a chat session"},
             {"value": "notification", "label": "Notification", "description": "Push a browser notification with the result (also saved to the session for history)"},
-            {"value": "email", "label": "Email me", "description": "Send result through your configured SMTP account"},
         ]
         # Only include tools whose NAME clearly indicates an outbound delivery
         # action — match by verb in the tool name, not by any mention of "email"
@@ -1038,7 +979,6 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             {"name": "document_created", "description": "Fires when a document is created"},
             {"name": "memory_added", "description": "Fires when a memory is added"},
             {"name": "research_completed", "description": "Fires when a research report completes"},
-            {"name": "email_received", "description": "Fires when new inbox mail is observed"},
             {"name": "skill_added", "description": "Fires when a new skill is created"},
         ]}
 
@@ -1122,7 +1062,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             '  "scheduled_day": 0,               // weekly: 0=Mon..6=Sun; monthly: 1..31\n'
             '  "scheduled_date": "YYYY-MM-DDTHH:MM",  // only for "once"\n'
             '  "cron_expression": "m h dom mon dow",  // only if schedule is "cron"\n'
-            '  "output_target": "session" | "email" | "notification"  // use email when the user asks to email the result\n'
+            '  "output_target": "session" | "notification"\n'
             "}\n\n"
             "Rules: default schedule to 'daily' if a time is given without a frequency. "
             "Default scheduled_time to '09:00' if none is stated. For 'every weekday' "
@@ -1168,7 +1108,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                 out["scheduled_time"] = st.strip()
             if isinstance(draft.get("scheduled_day"), int):
                 out["scheduled_day"] = draft["scheduled_day"]
-            if draft.get("output_target") in ("session", "email", "notification"):
+            if draft.get("output_target") in ("session", "notification"):
                 out["output_target"] = draft["output_target"]
             out["trigger_type"] = "schedule"
             if not out.get("prompt"):

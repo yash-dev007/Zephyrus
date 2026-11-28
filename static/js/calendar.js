@@ -1677,8 +1677,8 @@ async function _renderAgenda() {
   const dates = [...byDate.keys()].sort();
 
   if (!dates.length) {
-    // Empty-state mirrors the email panel: short message + a Settings ›
-    // Integrations link to set up CalDAV, OR a quick "Create event" action.
+    // Empty-state: short message + a Settings › Integrations link to set up
+    // CalDAV, OR a quick "Create event" action.
     h += '<div class="cal-empty" style="display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;">' +
       '<span>No upcoming events</span>' +
       '<span style="opacity:0.7;font-size:11px;">' +

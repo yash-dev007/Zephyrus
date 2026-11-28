@@ -5,9 +5,11 @@ Skills live on disk as `data/skills/<category>/<name>/SKILL.md` files with
 YAML frontmatter and a structured markdown body (When to Use / Procedure /
 Pitfalls / Verification). See `skill_format.py` for the format.
 
-Usage counters (`uses`, `last_used`) live in a sidecar
-`data/skills/_usage.json` keyed by owner plus skill name so the SKILL.md
-content doesn't churn on every retrieval.
+Usage counters (`uses`, `last_used`, `matched`, `last_matched`) live in a
+sidecar `data/skills/_usage.json` keyed by owner plus skill name so the
+SKILL.md content doesn't churn on every retrieval. `uses` counts actual
+consumption (the procedure was opened or invoked); `matched` counts prompt
+surfacing only.
 
 Ownership: skills declare `owner: <username>` in frontmatter. Single-user
 deployments can leave that blank.
@@ -227,6 +229,11 @@ class SkillsManager:
             u = self._usage_entry(usage, sk.name, sk.owner)
             d["uses"] = int(u.get("uses", 0))
             d["last_used"] = u.get("last_used")
+            # `matched` counts prompt surfacing; `uses` counts actual
+            # consumption (view/invoke). Keeping them separate stops a skill
+            # from looking "used" merely because it was offered to the model.
+            d["matched"] = int(u.get("matched", 0))
+            d["last_matched"] = u.get("last_matched")
             d["audit_verdict"] = u.get("audit_verdict")
             d["audit_by_teacher"] = bool(u.get("audit_by_teacher"))
             d["audit_worker_model"] = u.get("audit_worker_model")
@@ -269,6 +276,8 @@ class SkillsManager:
                             "steps": row.get("steps") or [],
                             "uses": row.get("uses", 0),
                             "last_used": row.get("last_used"),
+                            "matched": row.get("matched", 0),
+                            "last_matched": row.get("last_matched"),
                             "_legacy": True,
                         })
             except Exception:
@@ -340,11 +349,12 @@ class SkillsManager:
                         " ".join(s.get("procedure", []) or []),
                     ]))
                     if _jaccard(cand, ex) >= 0.82:
-                        # Near-identical — don't grow the library; bump the
-                        # existing skill's usage and return it so the caller
-                        # knows it already exists.
+                        # Near-identical — don't grow the library; record that
+                        # it was matched again and return it so the caller
+                        # knows it already exists. Not a `use`: nothing was
+                        # opened or invoked.
                         try:
-                            self.record_use(s["name"], owner=s.get("owner"))
+                            self.record_match(s["name"], owner=s.get("owner"))
                         except Exception:
                             pass
                         return {**s, "_deduped": True, "_duplicate_of": s.get("name")}
@@ -530,11 +540,26 @@ class SkillsManager:
         return False
 
     def record_use(self, skill_id: str, owner: Optional[str] = None) -> None:
+        """Count an actual consumption: the skill was opened (view/invoke),
+        not merely offered to the model in the prompt."""
         usage = self._load_usage()
         key = self._usage_key(skill_id, owner)
         entry = usage.setdefault(key, {"uses": 0, "last_used": None})
         entry["uses"] = int(entry.get("uses", 0)) + 1
         entry["last_used"] = int(time.time())
+        self._save_usage(usage)
+
+    def record_match(self, skill_id: str, owner: Optional[str] = None) -> None:
+        """Count a prompt surfacing (the skill was matched and injected).
+
+        Deliberately separate from `record_use`: a match says the procedure
+        was *offered*, not that the model followed it or that it helped.
+        """
+        usage = self._load_usage()
+        key = self._usage_key(skill_id, owner)
+        entry = usage.setdefault(key, {"uses": 0, "last_used": None})
+        entry["matched"] = int(entry.get("matched", 0)) + 1
+        entry["last_matched"] = int(time.time())
         self._save_usage(usage)
 
     # ----------------------------------------------------------------------
@@ -649,6 +674,7 @@ class SkillsManager:
         threshold: float = 0.3,
         max_items: int = 5,
         min_confidence: float = 0.0,
+        active_toolsets: Optional[List[str]] = None,
     ) -> List[Dict]:
         if skills is None:
             skills = self.load_all()
@@ -685,6 +711,26 @@ class SkillsManager:
                     return True  # unset → don't filter (legacy)
                 return _to_float(c, 1.0) >= min_confidence  # unparseable → pass
             skills = [s for s in skills if _passes(s)]
+        if not skills:
+            return []
+
+        # Toolset gating: never surface a procedure that names a tool the
+        # caller has disabled. Mirrors index_for so the catalogue and the
+        # matched block agree about what the model can actually execute.
+        # None means the caller doesn't know the active set — don't gate.
+        if active_toolsets is not None:
+            active = set(active_toolsets)
+
+            def _tools_available(s):
+                req = s.get("requires_toolsets") or []
+                if req and not all(t in active for t in req):
+                    return False
+                fb = s.get("fallback_for_toolsets") or []
+                if fb and active and any(t in active for t in fb):
+                    return False
+                return True
+
+            skills = [s for s in skills if _tools_available(s)]
         if not skills:
             return []
 

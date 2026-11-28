@@ -86,20 +86,10 @@ function _captureRestoreHeight(modal, state) {
   if (!modal || !state) return;
   const content = modal.querySelector('.modal-content');
   if (!content) return;
-  if (modal.id === 'email-lib-modal'
-      && (modal.classList.contains('modal-left-docked')
-          || modal.classList.contains('email-snap-left')
-          || document.body.classList.contains('email-doc-split-active'))) {
-    delete state.restoreMinHeight;
-    return;
-  }
   const rect = content.getBoundingClientRect();
   if (!rect || rect.height < 120) return;
   const maxHeight = Math.max(180, window.innerHeight - 24);
-  const minHeight = modal.id === 'email-lib-modal' && window.innerWidth > 768
-    ? Math.min(560, maxHeight)
-    : 0;
-  state.restoreMinHeight = `${Math.round(Math.max(minHeight, Math.min(rect.height, maxHeight)))}px`;
+  state.restoreMinHeight = `${Math.round(Math.min(rect.height, maxHeight))}px`;
 }
 
 function _applyRestoreHeight(modal, state) {
@@ -108,10 +98,7 @@ function _applyRestoreHeight(modal, state) {
   if (!content) return;
   const maxHeight = Math.max(180, window.innerHeight - 24);
   const requested = parseInt(state.restoreMinHeight, 10);
-  const minHeight = modal.id === 'email-lib-modal' && window.innerWidth > 768
-    ? Math.min(560, maxHeight)
-    : 0;
-  const height = Number.isFinite(requested) ? Math.max(minHeight, Math.min(requested, maxHeight)) : null;
+  const height = Number.isFinite(requested) ? Math.min(requested, maxHeight) : null;
   if (height) content.style.minHeight = `${height}px`;
 }
 
@@ -137,7 +124,6 @@ const _LABELS = {
   // contains '<'.
   'memory-modal':      { label: 'Brain',     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>' },
   'notes-panel':       { label: 'Notes',     icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h10l4 4v14H5z"/><path d="M15 3v5h5"/><path d="M8 17.5 15.5 10l2.5 2.5L10.5 20H8z"/></svg>' },
-  'email-lib-modal':   { label: 'Email',     icon: 'M2 4h20v16H2zM22 7l-9.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7' },
   // The Prompt window (characters / inject / group). Syringe = "prompt" icon,
   // matching its title bar. Full SVG markup (multi-path) per the dock renderer.
   'custom-preset-modal': { label: 'Prompt',  icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 2 4 4"/><path d="m17 7 3-3"/><path d="M19 9 8.7 19.3c-1 1-2.5 1-3.4 0l-.6-.6c-1-1-1-2.5 0-3.4L15 5"/><path d="m9 11 4 4"/><path d="m5 19-3 3"/><path d="m14 4 6 6"/></svg>' },
@@ -286,8 +272,8 @@ function _renderDock() {
   // Capture any custom data-* attributes (e.g. data-tab-num) BEFORE we
   // remove old chips, so they can be restored on the rebuilt chips.
   // Without this, external systems that stamp attributes on chips
-  // (like emailLibrary's slot-number badge) see the attribute wiped on
-  // every re-render — most visibly after a chain drag, when chips are
+  // (like a slot-number badge) see the attribute wiped on every re-render —
+  // most visibly after a chain drag, when chips are
   // at body level and get swept by the next render.
   const oldData = new Map();
   document.querySelectorAll('.minimized-dock-chip').forEach(c => {
@@ -353,7 +339,7 @@ function _renderDock() {
     chip.dataset.modalId = id;
     chip.title = `Restore ${meta.label}`;
     // Restore any external data-* attributes the previous chip carried
-    // (e.g. emailLibrary's data-tab-num slot-number badge).
+    // (e.g. a data-tab-num slot-number badge).
     const prevAttrs = oldData.get(id);
     if (prevAttrs) {
       for (const [name, val] of Object.entries(prevAttrs)) {
@@ -1238,8 +1224,7 @@ export function minimize(id) {
     // the body push so the chat returns to full width while the window is
     // minimized, but keep the dock so restoring the chip snaps it back in.
     if (modal.classList.contains('modal-right-docked')
-        || modal.classList.contains('modal-left-docked')
-        || modal.classList.contains('email-snap-left')) {
+        || modal.classList.contains('modal-left-docked')) {
       try { suspendDock(modal); } catch (e) { console.warn('suspendDock on minimize failed', e); }
     }
     modal.classList.add('hidden');
@@ -1409,9 +1394,6 @@ const _AUTO_WIRE = {
   'doclib-modal':         { rail: 'rail-archive',   sidebar: 'tool-library-btn' },
   'memory-modal':         { rail: null,             sidebar: 'tool-memory-btn' },
   'notes-panel':          { rail: 'rail-notes',     sidebar: 'tool-notes-btn' },
-  // Email already has its own #email-unread-dot inline next to the title —
-  // don't add a second modalManager badge that lands at the right edge.
-  'email-lib-modal':      { rail: null,             sidebar: null },
   'research-overlay':     { rail: 'rail-research',  sidebar: 'tool-research-btn' },
   'settings-modal':       { rail: null,             sidebar: 'tool-settings-btn' },
   'compare-model-overlay':{ rail: 'rail-compare',   sidebar: 'tool-compare-btn' },
@@ -1471,29 +1453,12 @@ if (document.readyState !== 'loading') {
 const _SWIPE_DOWN_MINIMIZES = new Set([
   'cookbook-modal',
   'calendar-modal',
-  'email-lib-modal',
 ]);
 // Same idea but matched by id prefix — so dynamically-created modals
-// (per-email reader tabs) survive swipe-down too.
-const _SWIPE_DOWN_MINIMIZES_PREFIX = ['email-reader-'];
+// survive swipe-down too.
+const _SWIPE_DOWN_MINIMIZES_PREFIX = [];
 
-function _clearEmailSplitAfterMinimize() {
-  document.body.classList.remove('email-doc-split-active', 'email-front');
-  document.documentElement.style.removeProperty('--email-doc-split-left-x');
-  document.documentElement.style.removeProperty('--email-doc-split-email-w');
-  document.documentElement.style.removeProperty('--email-doc-split-right-x');
-  const docPane = document.getElementById('doc-editor-pane');
-  if (docPane) {
-    [
-      'position', 'left', 'right', 'top', 'bottom', 'width', 'max-width',
-      'height', 'z-index', 'transform',
-    ].forEach(prop => docPane.style.removeProperty(prop));
-  }
-  const divider = document.getElementById('doc-divider');
-  if (divider) divider.style.display = '';
-  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
-  setTimeout(() => window.dispatchEvent(new Event('resize')), 80);
-}
+
 
 // Re-route swipe-dismiss to minimize-rather-than-close — but only for the
 // allowlisted tools above. For every other modal, return early so the
@@ -1522,13 +1487,10 @@ window.addEventListener('modal-dismissed', (e) => {
   _setBadge(s.btnIds, true);
   const modal = document.getElementById(id);
   if (modal) {
-    const isEmailModal = id === 'email-lib-modal' || id.startsWith('email-reader-');
     if (modal.classList.contains('modal-right-docked')
-        || modal.classList.contains('modal-left-docked')
-        || modal.classList.contains('email-snap-left')) {
+        || modal.classList.contains('modal-left-docked')) {
       try { suspendDock(modal); } catch (err) { console.warn('suspendDock on dismissed failed', err); }
     }
-    if (isEmailModal) _clearEmailSplitAfterMinimize();
     modal.classList.add('modal-minimized');
   }
   _ensureDock();

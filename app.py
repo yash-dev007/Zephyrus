@@ -812,10 +812,12 @@ app.include_router(setup_font_routes())
 from src.mcp_manager import McpManager
 from src.agent_tools import set_mcp_manager
 from routes.mcp_routes import setup_mcp_routes
+from routes.harness_routes import setup_harness_routes
 
 mcp_manager = McpManager()
 set_mcp_manager(mcp_manager)
 app.include_router(setup_mcp_routes(mcp_manager))
+app.include_router(setup_harness_routes(mcp_manager))
 logger.info("MCP routes initialized")
 
 # AI Interaction tools (debates, pipelines, self-managing AI, UI control)
@@ -839,19 +841,8 @@ logger.info("Webhook & API token routes initialized")
 from routes.note_routes import setup_note_routes
 app.include_router(setup_note_routes(task_scheduler, upload_handler=upload_handler))
 
-# Email
-from routes.email_routes import setup_email_routes
-email_router = setup_email_routes()
-app.include_router(email_router)
-
-# Codex integration — HTTP surface for the Codex plugin/MCP bridge. Reuses
-# api_token scopes (todos:read|write, email:read|draft|send) so external
-# Codex sessions can only touch the data the user explicitly allowed. Mounted
-# AFTER email so the codex_routes can borrow the email router for shared
-# search/threading helpers.
 from routes.codex_routes import setup_codex_routes, setup_claude_routes
 app.include_router(setup_codex_routes(
-    email_router=email_router,
     memory_router=memory_router,
     calendar_router=calendar_router,
     document_router=document_router,
@@ -898,9 +889,6 @@ async def serve_calendar(request: Request):
 async def serve_cookbook(request: Request):
     return await serve_index(request)
 
-@app.get("/email")
-async def serve_email(request: Request):
-    return await serve_index(request)
 
 @app.get("/memory")
 async def serve_memory(request: Request):
@@ -955,6 +943,7 @@ async def get_version():
 @app.get("/api/health")
 async def health_check() -> Dict[str, str]:
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
 
 @app.post("/api/client-perf")
 async def client_perf(request: Request):
@@ -1069,16 +1058,20 @@ async def _startup_event():
         try:
             from src.builtin_mcp import register_builtin_servers
             await register_builtin_servers(mcp_manager)
+        except asyncio.CancelledError:
+            raise
         except BaseException as e:
             logger.warning(f"Built-in MCP registration failed (non-critical): {type(e).__name__}: {e}")
         try:
             await asyncio.wait_for(mcp_manager.connect_all_enabled(), timeout=20)
+        except asyncio.CancelledError:
+            raise
         except asyncio.TimeoutError:
             logger.warning("User MCP startup timed out (non-critical)")
         except BaseException as e:
             logger.warning(f"MCP startup failed (non-critical): {type(e).__name__}: {e}")
 
-    _startup_tasks.append(asyncio.create_task(_startup_mcp_connections()))
+    app.state.mcp_startup_task = asyncio.create_task(_startup_mcp_connections())
 
     # Startup warmups are opt-in. They make later requests a little warmer, but
     # they also compete with the first seconds of real UI use on slow or busy
@@ -1151,15 +1144,16 @@ async def _startup_event():
         # otherwise their old scheduled rows can keep firing forever.
         try:
             from core.database import SessionLocal, ScheduledTask
-            from src.task_scheduler import HOUSEKEEPING_DEFAULTS
+            from src.task_scheduler import HOUSEKEEPING_DEFAULTS, RETIRED_HOUSEKEEPING_ACTIONS, RETIRED_HOUSEKEEPING_NAMES
             builtin_names = []
             for defs in HOUSEKEEPING_DEFAULTS.values():
                 builtin_names.append(defs["name"])
                 builtin_names.extend(defs.get("legacy_names") or [])
+            builtin_names.extend(RETIRED_HOUSEKEEPING_NAMES)
             db_seed = SessionLocal()
             try:
                 rows = db_seed.query(ScheduledTask.owner).filter(
-                    (ScheduledTask.action.in_(list(HOUSEKEEPING_DEFAULTS.keys())))
+                    (ScheduledTask.action.in_(list(HOUSEKEEPING_DEFAULTS.keys()) + list(RETIRED_HOUSEKEEPING_ACTIONS)))
                     | (ScheduledTask.name.in_(builtin_names))
                 ).distinct().all()
                 owners.update(row[0] for row in rows if row[0])
@@ -1204,8 +1198,7 @@ async def _startup_event():
         logger.debug(f"Skill owner backfill skipped: {e}")
 
     # Start scheduled task runner — skip when running under a cron-driven
-    # deployment where an external worker drives task firing. Mirrors
-    # `ZEPHYRUS_INPROCESS_POLLERS` from the email pollers.
+    # deployment where an external worker drives task firing.
     _tasks_inprocess = os.environ.get("ZEPHYRUS_INPROCESS_TASKS", "1").strip().lower()
     if _tasks_inprocess not in ("0", "false", "no", "off", ""):
         await task_scheduler.start()
@@ -1297,6 +1290,12 @@ async def _shutdown_event():
         logger.warning(f"Webhook manager shutdown error: {e}")
     # Disconnect all MCP servers
     try:
+        from src.builtin_mcp import stop_builtin_registration
+        startup = getattr(app.state, "mcp_startup_task", None)
+        if startup is not None:
+            startup.cancel()
+            await asyncio.gather(startup, return_exceptions=True)
+        await stop_builtin_registration()
         await mcp_manager.disconnect_all()
     except Exception as e:
         logger.warning(f"MCP shutdown error: {e}")

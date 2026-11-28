@@ -24,8 +24,13 @@ function harness({ hash = '', current = null, pending = null, defaultModel = tru
     sessionStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
     uiModule: { el: () => element, showError: error => errors.push(error) },
     _cleanupIncognitoSessions: async () => {}, _normalizeSessionsList: value => value,
+    _clearPeekState: () => {}, _checkPeekCleanup: () => {},
     renderSessionList() {}, updateModelPicker() {},
-    fetch: async url => ({ json: async () => url.endsWith('/api/sessions') ? sessions : defaultModel ? { endpoint_url: 'http://model', model: 'model' } : {} }),
+    fetch: async url => ({
+      ok: true,
+      status: 200,
+      json: async () => url.endsWith('/api/sessions') ? sessions : defaultModel ? { endpoint_url: 'http://model', model: 'model' } : {},
+    }),
     selectSession: async id => { selected.push(id); context.currentSessionId = id; },
   });
   vm.runInContext(createSource + '\n' + loadSource, context);

@@ -71,3 +71,9 @@ def test_non_dict_and_empty_return_blank():
     assert _format_mcp_params(None) == ""
     assert _format_mcp_params({"type": "object", "properties": {}}) == ""
     assert _format_mcp_params({"type": "object"}) == ""
+
+
+def test_invalid_required_entries_do_not_break_tool_discovery():
+    props = {"file": {"type": "string"}}
+    assert "(required)" in _format_mcp_params({"properties": props, "required": [{}, "file"]})
+    assert "(required)" not in _format_mcp_params({"properties": props, "required": True})

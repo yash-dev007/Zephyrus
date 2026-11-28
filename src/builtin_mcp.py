@@ -66,14 +66,13 @@ def _find_npx() -> str:
 # execution (src/tool_execution.py:_direct_fallback). Those trivial subprocess
 # wrappers are gone.
 #
-# image_gen / memory / rag / email still run as stdio MCP servers — each
-# carries hundreds of LOC of unique IMAP / HTTP / manager logic not worth
-# duplicating into the native path right now.
+# image_gen / memory / rag still run as stdio MCP servers — each carries
+# hundreds of LOC of unique HTTP / manager logic not worth duplicating into
+# the native path right now.
 _BUILTIN_SERVERS = {
     "image_gen":  ("mcp_servers/image_gen_server.py",  "Built-in: Image Generation"),
     "memory":     ("mcp_servers/memory_server.py",     "Built-in: Memory"),
     "rag":        ("mcp_servers/rag_server.py",        "Built-in: RAG"),
-    "email":      ("mcp_servers/email_server.py",      "Built-in: Email"),
 }
 
 # NPX-based built-in servers (run via npx, not Python)
@@ -104,6 +103,14 @@ def _spawn_bg(coro) -> asyncio.Task:
     return task
 
 
+async def stop_builtin_registration():
+    """Finish cancelling startup workers before the manager drains its sessions."""
+    tasks = list(_BG_TASKS)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
 def builtin_python_env(base_dir: str) -> dict[str, str]:
     """Environment for built-in Python MCP subprocesses.
 
@@ -116,7 +123,8 @@ def builtin_python_env(base_dir: str) -> dict[str, str]:
     for item in existing.split(os.pathsep):
         if item and item not in parts:
             parts.append(item)
-    return {"PYTHONPATH": os.pathsep.join(parts)}
+    # These bundled services run application code and share its configuration.
+    return {**os.environ, "PYTHONPATH": os.pathsep.join(parts)}
 
 
 async def register_builtin_servers(mcp_manager):
@@ -165,14 +173,7 @@ async def register_builtin_servers(mcp_manager):
             # Skip the server if its npx package isn't cached. Without this
             # check, npx would try to download/install the package on first
             # use, which can take minutes (or hang) on fresh installs without
-            # Playwright system deps. Wrapping that in asyncio.wait_for to
-            # bound the wait sounds reasonable, but mcp.client.stdio uses an
-            # internal anyio task group that can't survive the resulting
-            # cross-task cancellation: it raises "Attempted to exit cancel
-            # scope in a different task than it was entered in" in a sibling
-            # task, which cascades cancellations into the rest of the event
-            # loop and downs the app. Detecting installed-state up-front lets
-            # us bail with a useful warning before we ever touch stdio_client.
+            # Playwright system deps.
             args = cfg["args"]
             pkg_spec = _npx_package_from_args(args)
             if pkg_spec and not await _is_npx_package_cached(npx_path, pkg_spec):

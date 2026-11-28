@@ -17,9 +17,9 @@ import presetsModule from './presets.js';
 import fileHandlerModule from './fileHandler.js';
 import searchModule from './search.js';
 import documentModule from './document.js';
-import * as emailInbox from './emailInbox.js';
 import codeRunnerModule from './codeRunner.js';
 import slashCommands, { initSlashCommands, isCommand, handleSlashCommand, handleSetupInput, handleSetupWizard, typewriterInto } from './slashCommands.js';
+import { initSlashAutocomplete } from './slashAutocomplete.js';
 import createResearchSynapse from './researchSynapse.js';
 import { createStreamRenderer } from './streamingRenderer.js';
 import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composerArrowUpRecall.js';
@@ -29,6 +29,18 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
   const RESEARCH_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
 
   let API_BASE = '';
+
+  // Persist the active plan and notify any plan-window UI. The docked plan
+  // window is not part of this build yet, but keeping the plan in storage and
+  // emitting an event makes the update observable instead of silently dropped.
+  function _setStoredPlan(plan) {
+    const value = String(plan || '');
+    try { Storage.set('active-plan', value); } catch (_) {}
+    try {
+      window.dispatchEvent(new CustomEvent('plan-updated', { detail: { plan: value } }));
+    } catch (_) {}
+  }
+
   let currentAbort = null;
   let isStreaming = false;
   // Continuous stall watchdog: while streaming, if the SSE stream produces
@@ -392,15 +404,9 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
   export function init(apiBase) {
     API_BASE = apiBase;
     initSlashCommands({ apiBase, isStreaming: () => isStreaming });
-    // Initialize email inbox
-    emailInbox.init(documentModule);
-    // Wire the slash-command autocomplete popup on the chat composer. The
-    // dispatcher already handles the typed command — this just surfaces the
-    // registry as a discoverable menu when the user starts a message with /.
-    import('./slashAutocomplete.js').then(mod => {
-      const ta = document.getElementById('message');
-      if (ta && mod.initSlashAutocomplete) mod.initSlashAutocomplete(ta);
-    }).catch(() => {});
+    initSlashAutocomplete(document.getElementById('message'), () => {
+      if (!queueStreamingComposerRequest()) document.getElementById('chat-form').requestSubmit();
+    });
 
     // ArrowUp on empty composer recalls last user message (like many chat apps).
     const _wireArrowUpRecall = (composer) =>
@@ -806,6 +812,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     // Instant visual feedback so the user sees their click was accepted
     // even before the streaming button state kicks in below.
     const _earlyMessageInput = uiModule.el('message');
+    const composerHadFocus = document.activeElement === _earlyMessageInput;
     if (_earlyMessageInput) _earlyMessageInput.disabled = true;
     if (submitBtn) submitBtn.classList.add('send-pending');
     const _releaseSendFlag = () => {
@@ -856,9 +863,11 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       const handled = await _guard(() => handleSlashCommand(msg.trim()));
       if (handled) {
         el('message').value = '';
+        el('message').dispatchEvent(new Event('input', { bubbles: true }));
         if (window._syncModelPickerAutohide) window._syncModelPickerAutohide();
         if (uiModule.autoResize) uiModule.autoResize(el('message'));
         _releaseSendFlag();
+        if (composerHadFocus && document.activeElement === document.body) el('message').focus();
         return;
       }
     }
@@ -1015,7 +1024,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
     // Reset tracking variables at start
     currentAccumulated = '';
     currentHolder = null;
-    
+
     try {
       // Re-enable auto-scroll when user sends a message
       uiModule.setAutoScroll(true);
@@ -1194,15 +1203,9 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       }
 
       // Auto-save document editor content before sending so the AI sees latest text
-      const activeEmailComposerCtx = documentModule && typeof documentModule.getActiveEmailComposerContext === 'function'
-        ? documentModule.getActiveEmailComposerContext()
-        : null;
-      let activeDocIdForSend = documentModule && typeof documentModule.getCurrentDocId === 'function'
+      const activeDocIdForSend = documentModule && typeof documentModule.getCurrentDocId === 'function'
         ? documentModule.getCurrentDocId()
         : null;
-      if (activeEmailComposerCtx?.docId) {
-        activeDocIdForSend = activeEmailComposerCtx.docId;
-      }
       if (documentModule && activeDocIdForSend) {
         try {
           _sendPerf.mark('doc_save_begin');
@@ -1252,22 +1255,6 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         }
         fd.append('active_doc_id', activeDocIdForSend);
       }
-      // Active email context — when an email reader is open, pass its
-      // uid/folder/account so "reply", "summarize", "what does this say"
-      // resolve to the email the user is actually looking at instead of
-      // making the agent invent a new markdown draft with fake headers.
-      try {
-        const getEmailCtx = window.__zephyrusGetActiveEmailContext;
-        const emCtx = typeof getEmailCtx === 'function' ? getEmailCtx() : null;
-        if (activeEmailComposerCtx && activeEmailComposerCtx.sourceUid) {
-          fd.append('active_email_uid', String(activeEmailComposerCtx.sourceUid));
-          fd.append('active_email_folder', String(activeEmailComposerCtx.sourceFolder || 'INBOX'));
-        } else if (emCtx && emCtx.uid) {
-          fd.append('active_email_uid', String(emCtx.uid));
-          fd.append('active_email_folder', String(emCtx.folder || 'INBOX'));
-          if (emCtx.account) fd.append('active_email_account', String(emCtx.account));
-        }
-      } catch (_e) { /* best-effort */ }
       // Web toggle: pre-search in Chat mode only. Agent mode should not
       // opportunistically hit SearXNG just because the chat search toggle is
       // on; explicit web/current-info requests are handled by the backend
@@ -1307,6 +1294,9 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       if (_ws) {
         fd.append('workspace', _ws);
       }
+      if (streamSessionId && sessionModule.setSessionWorkspace) {
+        sessionModule.setSessionWorkspace(streamSessionId, _ws);
+      }
       if (presetsModule.getSelectedPreset()) {
         fd.append('preset_id', presetsModule.getSelectedPreset());
       }
@@ -1317,7 +1307,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       currentAbort = abortCtrl;
 
       const _tState = Storage.loadToggleState();
-      const _isAgent = (_tState.mode || 'chat') === 'agent';
+      var _isAgent = (_tState.mode || 'chat') === 'agent';
 
       // Timeout: 6 min for research and agent mode, 3 min otherwise
       const timeoutMs = el('research-toggle').checked || _isAgent ? RESEARCH_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
@@ -1463,7 +1453,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
       let isThinking = false;
       let thinkingStartTime = null;
       // Streaming TTS: synthesize sentence-by-sentence during streaming
-      const streamingTTS = !!(window.aiTTSManager && window.aiTTSManager.autoPlay && window.aiTTSManager.available);
+      var streamingTTS = !!(window.aiTTSManager && window.aiTTSManager.autoPlay && window.aiTTSManager.available);
       if (streamingTTS) window.aiTTSManager.streamingStart();
       // Multi-bubble agent tracking
       let roundHolder = holder;       // Current AI text bubble (changes per round)
@@ -2421,8 +2411,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
         },
         plan_update(json) {
                 if (_isBgNow()) return;
-                // Agent wrote back to the plan (ticked a step / revised). Update
-                // the stored plan + live-refresh the docked plan window.
+                // Agent wrote back to the plan (ticked a step / revised).
                 const _pu = (json.data && json.data.plan) ? json.data.plan : '';
                 if (_pu) _setStoredPlan(_pu);
 
@@ -2595,7 +2584,7 @@ import { wireArrowUpRecall, getLastUserMessageFromChatHistory } from './composer
                     _docFenceOpened = true;
                     const title = fenceLines[0].trim();
                     // Keep in sync with backend _KNOWN_LANGS in src/tool_implementations.py
-                    const knownLangs = ['python','py','javascript','js','typescript','ts','html','css','json','yaml','bash','sql','rust','go','java','c','cpp','markdown','text','plain','ruby','swift','kotlin','php','email','csv','xml','toml','ini'];
+                    const knownLangs = ['python','py','javascript','js','typescript','ts','html','css','json','yaml','bash','sql','rust','go','java','c','cpp','markdown','text','plain','ruby','swift','kotlin','php','csv','xml','toml','ini'];
                     const isLang = fenceLines.length >= 2 && knownLangs.includes(fenceLines[1].trim().toLowerCase());
                     const lang = isLang ? fenceLines[1].trim() : '';
                     _docFenceContentStart = fenceIdx + fenceMarker.length + title.length + 1 + (isLang ? fenceLines[1].length + 1 : 0);

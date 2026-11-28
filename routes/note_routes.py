@@ -145,22 +145,23 @@ async def dispatch_reminder(
     queue_browser: bool = True,
     settings_override: dict | None = None,
 ) -> dict:
-    """Fire a reminder via the configured channel (browser/email/ntfy/webhook).
+    """Fire a reminder via the configured channel (browser/ntfy/webhook).
 
     Args:
         title: short headline shown to the user
         note_body: longer body text
         note_id: stable id (used as tag/dedupe in browser notifications)
-        owner: the user this reminder belongs to — scopes SMTP config to
-               their account so we don't cross-leak credentials
+        owner: the user this reminder belongs to
 
-    Returns: {synthesis, email_sent, ntfy_sent}. Browser channel is wired via
+    Returns: {synthesis, ntfy_sent, webhook_sent, browser_sent}. Browser channel is wired via
     the in-memory notification queue picked up by the frontend poller, so
     nothing is "sent" synchronously for it — the channel just routes there.
     """
     from src.settings import load_settings
     settings = {**load_settings(), **(settings_override or {})}
     channel = settings.get("reminder_channel", "browser")
+    if channel == "email":
+        channel = "browser"
     llm_on = bool(settings.get("reminder_llm_synthesis", False))
     title = (title or "").strip()
     note_body = (note_body or "").strip()
@@ -186,16 +187,15 @@ async def dispatch_reminder(
                 if last_dt.tzinfo is None:
                     last_dt = last_dt.replace(tzinfo=_tz.utc)
                 # Legacy cache values were plain timestamps and could be
-                # written by the frontend even when the email/ntfy send failed.
-                # Treat those as browser-only dedupe so email reminders can be
-                # retried by the backend scanner after a failed frontend path.
+                # written by the frontend even when remote delivery failed.
+                # Treat those as browser-only dedupe so remote reminders can be
+                # retried by the backend scanner.
                 should_skip = last_dt >= _dt.now(_tz.utc) - _td(minutes=25)
-                if should_skip and channel in ("email", "ntfy", "webhook"):
+                if should_skip and channel in ("ntfy", "webhook"):
                     should_skip = last_channel == channel
                 if should_skip:
                     return {
                         "synthesis": None,
-                        "email_sent": False,
                         "ntfy_sent": False,
                         "webhook_sent": False,
                         "browser_sent": True,
@@ -296,104 +296,6 @@ async def dispatch_reminder(
                     or ("upstream" in _low and "failed" in _low)) and synthesis != _SYNTH_FAILED_TAG:
                 logger.warning(f"Reminder synthesis looked like an error, replacing: {_s[:120]!r}")
                 synthesis = _SYNTH_FAILED_TAG
-
-    email_sent = False
-    email_error = ""
-    if channel == "email":
-        try:
-            from routes.email_routes import _get_email_config
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
-            from datetime import datetime as _dt
-            # `reminder_email_account_id` lets the user pick WHICH email
-            # account to send reminders from (when they have several
-            # configured in Integrations). Falls back to the default
-            # account when no explicit choice is saved.
-            _acc_id = (settings.get("reminder_email_account_id") or "").strip() or None
-            cfg = _get_email_config(account_id=_acc_id, owner=owner or "")
-            if not (cfg.get("smtp_host") and cfg.get("smtp_user") and cfg.get("smtp_password")):
-                try:
-                    from core.database import SessionLocal as _SL, EmailAccount as _EA
-                    from sqlalchemy import and_, or_
-                    db = _SL()
-                    try:
-                        q = db.query(_EA).filter(_EA.enabled == True)  # noqa: E712
-                        if owner:
-                            unowned = or_(_EA.owner == None, _EA.owner == "")  # noqa: E711
-                            same_mailbox = or_(_EA.imap_user == owner, _EA.from_address == owner)
-                            q = q.filter(or_(_EA.owner == owner, and_(unowned, same_mailbox)))
-                        for row in q.order_by(_EA.is_default.desc(), _EA.created_at.asc()).all():
-                            trial = _get_email_config(account_id=row.id, owner=owner or "")
-                            if trial.get("smtp_host") and trial.get("smtp_user") and trial.get("smtp_password"):
-                                cfg = trial
-                                break
-                    finally:
-                        db.close()
-                except Exception as _fallback_error:
-                    logger.debug(f"Reminder SMTP fallback lookup failed: {_fallback_error}")
-            from_addr = (cfg.get("from_address") or cfg.get("smtp_user") or "").strip()
-            recipient = (settings.get("reminder_email_to") or "").strip() or from_addr
-            # Loud diagnostic so we can see WHY a reminder didn't send (the
-            # previous "silently no-op when cfg has no smtp_host" was invisible).
-            logger.info(
-                "dispatch_reminder[email] note_id=%s owner=%r "
-                "has_smtp_host=%s has_smtp_user=%s has_from=%s has_recipient=%s",
-                note_id, owner,
-                bool(cfg.get("smtp_host")), bool(cfg.get("smtp_user")),
-                bool(from_addr), bool(recipient),
-            )
-            missing = []
-            if not cfg.get("smtp_host"):
-                missing.append("SMTP host")
-            if not cfg.get("smtp_user"):
-                missing.append("SMTP user")
-            if not cfg.get("smtp_password"):
-                missing.append("SMTP password")
-            if not from_addr:
-                missing.append("from address")
-            if not recipient:
-                missing.append("recipient")
-            if missing:
-                email_error = "Missing " + ", ".join(missing)
-                logger.warning(
-                    "Reminder email not sent for note_id=%s account=%r: %s",
-                    note_id, cfg.get("account_name"), email_error,
-                )
-            else:
-                msg = MIMEMultipart("alternative")
-                msg["From"] = from_addr
-                msg["To"] = recipient
-                _t = title or 'Note'
-                _t = _t[len('Reminder:'):].strip() if _t.lower().startswith('reminder:') else _t
-                msg["Subject"] = f"Reminder (Zephyrus): {_t}"
-                msg["Date"] = _dt.utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
-                msg["X-Zephyrus-Origin"] = "zephyrus-ui"
-                msg["X-Zephyrus-Kind"] = "reminder"
-                msg["X-Zephyrus-Ref"] = str(note_id)
-                # Body shape: synthesis (warm sentence) → blank line → bold
-                # title header → note details. The title was previously only
-                # in the subject line, so the email read like a faceless
-                # to-do list with no anchor to which note triggered it.
-                _body_chunks = []
-                if synthesis:
-                    _body_chunks.append(synthesis)
-                if _t:
-                    _body_chunks.append(_t)
-                if note_body:
-                    _body_chunks.append(note_body)
-                plain = "\n\n".join(_body_chunks) if _body_chunks else title
-                msg.attach(MIMEText(plain, "plain", "utf-8"))
-
-                def _smtp_send():
-                    from routes.email_helpers import _send_smtp_message
-                    _send_smtp_message(cfg, from_addr, [recipient], msg.as_string())
-
-                import asyncio as _aio
-                await _aio.to_thread(_smtp_send)
-                email_sent = True
-        except Exception as e:
-            email_error = str(e) or e.__class__.__name__
-            logger.warning(f"Reminder email send failed: {e}")
 
     webhook_sent = False
     webhook_error = ""
@@ -512,7 +414,7 @@ async def dispatch_reminder(
     # frontend polls `/api/tasks/notifications` and turns any entry with a
     # `body` into a real `Notification(...)` — same surface as task-success
     # popups. Lets the user see reminders inside the app even when the
-    # primary channel is email/ntfy and the tab is open.
+    # primary channel is ntfy/webhook and the tab is open.
     browser_sent = False
     local_browser_sent = (not queue_browser and channel == "browser")
     if queue_browser and _scheduler_ref is not None:
@@ -531,9 +433,9 @@ async def dispatch_reminder(
     # Dedupe across paths: write to the same cache file `action_ping_notes`
     # reads, so the background scanner's REPING_MIN window suppresses a
     # second send for the same note within 25 min. Without this, a note
-    # whose due_date fires while the user has the app open got TWO emails
+    # whose due_date fires while the user has the app open got two notifications
     # (frontend-fired here + background-fired by ping_notes 0–5 min later).
-    if (email_sent or ntfy_sent or webhook_sent or browser_sent or local_browser_sent) and note_id:
+    if (ntfy_sent or webhook_sent or browser_sent or local_browser_sent) and note_id:
         try:
             import json as _json
             from datetime import datetime as _dt, timezone as _tz
@@ -549,7 +451,7 @@ async def dispatch_reminder(
                 _cache = cache or (_json.loads(_STATE.read_text(encoding="utf-8")) if _STATE.exists() else {})
             except Exception:
                 _cache = {}
-            sent_channel = "email" if email_sent else "ntfy" if ntfy_sent else "webhook" if webhook_sent else "browser"
+            sent_channel = "ntfy" if ntfy_sent else "webhook" if webhook_sent else "browser"
             _cache[cache_key or str(note_id)] = {
                 "at": _dt.now(_tz.utc).isoformat(),
                 "channel": sent_channel,
@@ -561,8 +463,6 @@ async def dispatch_reminder(
     return {
         "channel": channel,
         "synthesis": synthesis,
-        "email_sent": email_sent,
-        "email_error": email_error,
         "ntfy_sent": ntfy_sent,
         "ntfy_error": ntfy_error,
         "webhook_sent": webhook_sent,
@@ -845,8 +745,8 @@ def setup_note_routes(task_scheduler=None, upload_handler=None):
         """Dispatch a reminder according to user settings.
 
         Called by the frontend when a reminder fires. Optionally generates an
-        LLM synthesis line and/or sends an email through configured SMTP.
-        Returns {synthesis, email_sent}.
+        LLM synthesis line and/or dispatches the configured reminder channel.
+        Returns delivery status and the optional synthesis.
         """
         # Gate against anonymous callers — LLM synthesis can burn tokens.
         user = require_user(request)
